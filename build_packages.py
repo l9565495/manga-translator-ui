@@ -4,6 +4,7 @@ import os
 import json
 import argparse
 from pathlib import Path
+import shutil
 
 # Try to import tufup, and provide a helpful error message if it's not installed.
 try:
@@ -79,22 +80,44 @@ class Builder:
         req_file = f"requirements_{version_type}.txt"
         spec_file = f"manga-translator-{version_type}.spec"
 
-        if not venv_path.exists() or not Path(spec_file).exists():
-            print(f"Error: Environment for {version_type} not found. Please set it up first.")
-            return False
+        # Prefer local venv python if it exists, otherwise use the python running this script
+        python_exe_in_venv = venv_path / 'Scripts' / 'python.exe' if sys.platform == 'win32' else venv_path / 'bin' / 'python'
+        if os.path.exists(python_exe_in_venv):
+            python_exe = str(python_exe_in_venv)
+            print(f"Using python from venv: {python_exe}")
+        else:
+            python_exe = sys.executable
+            print(f"Venv python not found. Using system python: {python_exe}")
 
-        python_exe = venv_path / 'Scripts' / 'python.exe' if sys.platform == 'win32' else venv_path / 'bin' / 'python'
+        if not Path(spec_file).exists():
+            print(f"Error: Spec file '{spec_file}' not found.")
+            return False
         
-        print(f"Installing dependencies for {version_type.upper()} from {req_file}...")
-        cmd_install = [str(python_exe), '-m', 'pip', 'install', '-r', req_file]
-        if not run_command_realtime(cmd_install):
-            print(f"Dependency installation failed for {version_type.upper()}.")
-            return False
-
+        # In a CI environment, we assume dependencies are pre-installed by the workflow.
         print(f"Running PyInstaller for {version_type.upper()}...")
-        cmd_pyinstaller = [str(python_exe), "-m", "PyInstaller", spec_file]
+        cmd_pyinstaller = [python_exe, "-m", "PyInstaller", spec_file]
         if not run_command_realtime(cmd_pyinstaller):
             print(f"PyInstaller build failed for {version_type.upper()}.")
+            return False
+
+        print(f"\nRunning PyInstaller for Updater...")
+        updater_spec_file = 'updater.spec'
+        # Use the same python for consistency
+        cmd_pyinstaller_updater = [str(python_exe), "-m", "PyInstaller", updater_spec_file, "--distpath", "dist", "--workpath", f"build/updater_{version_type}"]
+        if not run_command_realtime(cmd_pyinstaller_updater):
+            print(f"PyInstaller build failed for Updater.")
+            return False
+
+        print(f"\nCopying updater to dist folder...")
+        dist_dir = Path("dist") / f"manga-translator-{version_type}"
+        updater_exe_src = Path("dist") / "updater" / "updater.exe"
+        updater_exe_dest = dist_dir / "updater.exe"
+        
+        try:
+            shutil.copy2(updater_exe_src, updater_exe_dest)
+            print(f"Copied updater to {updater_exe_dest}")
+        except Exception as e:
+            print(f"Failed to copy updater: {e}")
             return False
         
         # Create build_info.json

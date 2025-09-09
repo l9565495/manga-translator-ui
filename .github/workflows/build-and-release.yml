@@ -44,7 +44,7 @@ jobs:
         pip install -r requirements_gpu.txt
         pip install pyinstaller
     - name: Build GPU version
-      run: python build_packages.py ${{ github.ref_name }} --build gpu --skip-updates
+      run: python build_packages.py ${{ github.ref_name }} --build gpu
     - name: Upload GPU artifacts
       uses: actions/upload-artifact@v4
       with:

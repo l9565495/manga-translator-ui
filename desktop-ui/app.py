@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 
 import sys
 import customtkinter as ctk
@@ -1204,7 +1204,14 @@ class AppController:
             webbrowser.open_new_tab("https://github.com/hgmzhn/manga-translator-ui")
 
         # 当前版本
-        ver_str = f"当前版本: {self.CURRENT_VERSION}"
+        try:
+            version_path = resource_path('VERSION')
+            with open(version_path, 'r', encoding='utf-8') as f:
+                current_version = f.read().strip()
+        except Exception:
+            current_version = "N/A"
+        
+        ver_str = f"当前版本: {current_version}"
         ctk.CTkLabel(content_frame, text=ver_str, font=ctk.CTkFont(size=14, weight="bold")).pack(pady=5)
 
         # 作者
@@ -1212,64 +1219,38 @@ class AppController:
         ctk.CTkLabel(content_frame, text=author_str).pack(pady=2)
 
         # 仓库地址
-        repo_label = ctk.CTkLabel(content_frame, text="仓库地址: https://github.com/hgmzhn/manga-translator-ui", text_color="#5D9EFF", cursor="hand2")
+        repo_label = ctk.CTkLabel(content_frame, text="仓库地址: 点击这里", text_color="#5D9EFF", cursor="hand2")
         repo_label.pack(pady=2)
         repo_label.bind("<Button-1>", open_repo_url)
 
         # 更新按钮
-        check_update_button = ctk.CTkButton(content_frame, text="检查更新", command=self.check_for_tufup_updates)
+        check_update_button = ctk.CTkButton(content_frame, text="检查更新", command=self.launch_updater)
         check_update_button.pack(pady=15)
 
 
-    def check_for_tufup_updates(self):
-        """使用 tufup 检查更新"""
-        from tkinter import messagebox
-        from tufup.client import Client
-        from packaging.version import parse as parse_version
-
+    def launch_updater(self):
+        """Launches the external updater executable."""
         try:
-            app_dir = Path(self.root_dir).parent
-            cache_dir = app_dir / 'cache_tufup'
-            metadata_dir = cache_dir / 'metadata'
-            target_dir = cache_dir / 'targets'
-            metadata_dir.mkdir(parents=True, exist_ok=True)
-            target_dir.mkdir(parents=True, exist_ok=True)
+            updater_path = ""
+            # When frozen, sys.executable is the path to the running executable (app.exe)
+            if getattr(sys, 'frozen', False):
+                app_dir = os.path.dirname(sys.executable)
+                updater_path = os.path.join(app_dir, "updater.exe")
+                
+                if os.path.exists(updater_path):
+                    self.update_log("Launching updater...")
+                    subprocess.Popen([updater_path])
+                else:
+                    messagebox.showerror("错误", f"更新程序未找到: {updater_path}")
+                    self.update_log(f"Error: Updater not found at {updater_path}")
 
-            source_root_json = app_dir / 'update_repository' / 'metadata' / 'root.json'
-            dest_root_json = metadata_dir / 'root.json'
-            if not dest_root_json.exists() and source_root_json.exists():
-                shutil.copy(source_root_json, dest_root_json)
-
-            client = Client(
-                app_name='MangaTranslatorUI',
-                app_install_dir=app_dir,
-                current_version=self.CURRENT_VERSION,
-                metadata_dir=metadata_dir,
-                metadata_base_url=f'https://hgmzhn.github.io/manga-translator-ui-package/',
-                target_dir=target_dir,
-                target_base_url=f'https://github.com/hgmzhn/manga-translator-ui-package/releases/download/'
-            )
-
-            client.refresh()
-            latest_update = None
-            current_v = parse_version(client.current_version)
-
-            for target_meta in client.trusted_target_metas:
-                if target_meta.version > current_v:
-                    if target_meta.custom.get('variant') == self.app_variant:
-                        if latest_update is None or target_meta.version > latest_update.version:
-                            latest_update = target_meta
-
-            if latest_update:
-                if messagebox.askyesno("发现新版本", f"检测到新版本 {latest_update.version} ({self.app_variant})。是否要下载并安装？"):
-                    client._trusted_target_metas = [latest_update]
-                    client.download_and_apply_update()
             else:
-                messagebox.showinfo("无更新", "您使用的已是最新版本。")
+                # Running as a script for development
+                messagebox.showinfo("开发模式", "在开发模式下，请直接运行 updater.py 来测试更新功能。")
 
         except Exception as e:
-            messagebox.showerror("更新失败", f"检查更新时发生错误: {e}")
-
+            messagebox.showerror("错误", f"无法启动更新程序: {e}")
+            self.update_log(f"Failed to launch updater: {e}")
 
     def add_files(self):
         files = filedialog.askopenfilenames(parent=self.app)
@@ -1436,8 +1417,8 @@ class AppController:
         self.main_view_widgets['start_translation_button'].configure(
             text="开始翻译",
             command=self.start_translation,
-            fg_color=("#2CC985", "#2FA572"),
-            hover_color=("#2FA572", "#106A43")
+            fg_color=('#2CC985', '#2FA572'),
+            hover_color=('#2FA572', '#106A43')
         )
 
     def _run_full_pipeline_thread(self):
@@ -1656,7 +1637,7 @@ class AppController:
 
         if save_text_enabled and template_enabled:
             self.update_log("保存文本+模板模式：TXT导出已在主流程中完成。\n")
-            # TXT导出现在在manga_translator.py主流程中直接处理，不需要后处理
+            # TXT导Сейчас在manga_translator.py主流程中直接处理，不需要后处理
             self._reset_start_button()
             self.check_and_prompt_editor_entry()
         else:
@@ -1966,8 +1947,8 @@ class AppController:
             self.main_view_widgets['start_translation_button'].configure(
                 text="开始翻译",
                 command=self.start_translation,
-                fg_color=("#2CC985", "#2FA572"),
-                hover_color=("#2FA572", "#106A43")
+                fg_color=('#2CC985', '#2FA572'),
+                hover_color=('#2FA572', '#106A43')
             )
             self.update_log("Translation finished.\n")
             self.check_and_prompt_editor_entry()
