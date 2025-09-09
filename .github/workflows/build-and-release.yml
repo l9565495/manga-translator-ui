@@ -36,7 +36,7 @@ jobs:
         echo "2" | python build_packages.py
     
     - name: Upload CPU artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: manga-translator-cpu
         path: dist/manga-translator-cpu-final/
@@ -67,7 +67,7 @@ jobs:
         echo "1" | python build_packages.py
     
     - name: Upload GPU artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: manga-translator-gpu
         path: dist/manga-translator-gpu-cuda118/
@@ -77,7 +77,7 @@ jobs:
         python update_manager.py --build-updates
     
     - name: Upload GPU update package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: gpu-updates
         path: updates/gpu/
