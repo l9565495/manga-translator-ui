@@ -59,7 +59,7 @@ uvicorn
 websockets
 xformers
 google-generativeai
-pydensecrf
+git+https://github.com/lucasb-eyer/pydensecrf.git
 deepl
 groq
 torchsummary

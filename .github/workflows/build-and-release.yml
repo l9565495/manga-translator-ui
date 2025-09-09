@@ -27,7 +27,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install googletrans==4.0.0-rc1
         pip install -r requirements_cpu.txt
+        git apply googletrans.patch --directory=.venv_cpu/Lib/site-packages/
         pip install pyinstaller
     
     - name: Build CPU version
@@ -58,7 +60,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install googletrans==4.0.0-rc1
         pip install -r requirements_gpu.txt
+        git apply googletrans.patch --directory=.venv_gpu/Lib/site-packages/
         pip install pyinstaller
     
     - name: Build GPU version

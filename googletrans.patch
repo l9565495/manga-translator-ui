@@ -1,0 +1,11 @@
+--- a/Lib/site-packages/googletrans/client.py
++++ b/Lib/site-packages/googletrans/client.py
+@@ -80,7 +80,7 @@
+                  http2=True,
+                  use_fallback=False):
+ 
+-        self.client = httpx.Client(http2=http2)
++        self.client = httpx.Client(http2=http2, transport=httpcore.SyncHTTPTransport())
+         if proxies is not None:  # pragma: nocover
+             self.client.proxies = proxies
+ 

@@ -37,7 +37,7 @@ psutil
 py3langid
 pyclipper
 pydantic
-pydensecrf
+git+https://github.com/lucasb-eyer/pydensecrf.git
 PyHyphen
 PySide6
 python-dotenv
