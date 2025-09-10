@@ -87,124 +87,133 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
         # --- Mode 3: default (uses old logic, unchanged) ---
         elif mode == 'default':
             font_size_fixed = config.render.font_size
-            font_size_offset_old = config.render.font_size_offset
-            font_size_minimum_old = config.render.font_size_minimum
-            if font_size_minimum_old == -1: font_size_minimum_old = round((img.shape[0] + img.shape[1]) / 200)
-            font_size_minimum_old = max(1, font_size_minimum_old)
-            original_region_font_size_old = region.font_size
-            if original_region_font_size_old <= 0: original_region_font_size_old = font_size_minimum_old
-            if font_size_fixed is not None: target_font_size_old = font_size_fixed
-            else: target_font_size_old = original_region_font_size_old + font_size_offset_old
-            target_font_size_old = max(target_font_size_old, font_size_minimum_old, 1)
-            single_axis_expanded = False
-            dst_points = None
-            if region.horizontal:
-                used_rows = len(region.texts)
-                line_text_list, _ = text_render.calc_horizontal(region.font_size, region.translation, max_width=region.unrotated_size[0], max_height=region.unrotated_size[1], language=getattr(region, "target_lang", "en_US"))
-                needed_rows = len(line_text_list)
-                if needed_rows > used_rows:
-                    scale_x = ((needed_rows - used_rows) / used_rows) * 1 + 1
-                    try:
-                        poly = Polygon(region.unrotated_min_rect[0]); minx, miny, _, _ = poly.bounds
-                        poly = affinity.scale(poly, xfact=scale_x, yfact=1.0, origin=(minx, miny))
-                        pts = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                        single_axis_expanded = True
-                    except: pass
-            if region.vertical:
-                used_cols = len(region.texts)
-                line_text_list, _ = text_render.calc_vertical(region.font_size, region.translation, max_height=region.unrotated_size[1])
-                needed_cols = len(line_text_list)
-                if needed_cols > used_cols:
-                    scale_x = ((needed_cols - used_cols) / used_cols) * 1 + 1
-                    try:
-                        poly = Polygon(region.unrotated_min_rect[0]); minx, miny, _, _ = poly.bounds
-                        poly = affinity.scale(poly, xfact=1.0, yfact=scale_x, origin=(minx, miny))
-                        pts = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                        single_axis_expanded = True
-                    except: pass
-            if not single_axis_expanded:
-                orig_text = getattr(region, "text_raw", region.text); char_count_orig = count_text_length(orig_text); char_count_trans = count_text_length(region.translation.strip())
-                if char_count_orig > 0 and char_count_trans > char_count_orig:
-                    increase_percentage = (char_count_trans - char_count_orig) / char_count_orig; font_increase_ratio = min(1.5, max(1.0, 1 + (increase_percentage * 0.3)))
-                    target_font_size_old = int(target_font_size_old * font_increase_ratio)
-                    target_scale = max(1, min(1 + increase_percentage * 0.3, 2))
-                else: target_scale = 1
-                font_size_scale = (((target_font_size_old - original_region_font_size_old) / original_region_font_size_old) * 0.4 + 1) if original_region_font_size_old > 0 else 1.0
-                final_scale = max(font_size_scale, target_scale); final_scale = max(1, min(final_scale, 1.1))
-                if final_scale > 1.001:
-                    try:
-                        poly = Polygon(region.unrotated_min_rect[0]); poly = affinity.scale(poly, xfact=final_scale, yfact=final_scale, origin='center')
-                        scaled_unrotated_points = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                    except: dst_points = region.min_rect
-                else: dst_points = region.min_rect
-            dst_points_list.append(dst_points)
-            region.font_size = int(target_font_size_old)
+            font_size_offset = config.render.font_size_offset
+            font_size_minimum = config.render.font_size_minimum
+
+            if font_size_minimum == -1:  
+                font_size_minimum = round((img.shape[0] + img.shape[1]) / 200)  
+            font_size_minimum = max(1, font_size_minimum)  
+
+            original_region_font_size = region.font_size  
+            if original_region_font_size <= 0:  
+                original_region_font_size = font_size_minimum
+
+            if font_size_fixed is not None:  
+                target_font_size = font_size_fixed  
+            else:  
+                target_font_size = original_region_font_size + font_size_offset  
+
+            target_font_size = max(target_font_size, font_size_minimum, 1)
+            
+            orig_text = getattr(region, "text_raw", region.text)
+            char_count_orig = count_text_length(orig_text)
+            char_count_trans = count_text_length(region.translation.strip())     
+
+            if char_count_orig > 0 and char_count_trans > char_count_orig:  
+                increase_percentage = (char_count_trans - char_count_orig) / char_count_orig
+                font_increase_ratio = 1 + (increase_percentage * 0.3)
+                font_increase_ratio = min(1.5, max(1.0, font_increase_ratio))
+                target_font_size = int(target_font_size * font_increase_ratio)
+                target_scale = max(1, min(1 + increase_percentage * 0.3, 2))
+            else:  
+                target_scale = 1              
+            
+            font_size_scale = (((target_font_size - original_region_font_size) / original_region_font_size) * 0.4 + 1) if original_region_font_size > 0 else 1.0  
+            final_scale = max(font_size_scale, target_scale)
+            final_scale = max(1, min(final_scale, 1.1))  
+            
+            if final_scale > 1.001:  
+                try:  
+                    poly = Polygon(region.unrotated_min_rect[0])  
+                    poly = affinity.scale(poly, xfact=final_scale, yfact=final_scale, origin='center')  
+                    scaled_unrotated_points = np.array(poly.exterior.coords[:4])  
+                    dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)  
+                    dst_points = dst_points.reshape((-1, 4, 2))  
+                except Exception as e:  
+                    dst_points = region.min_rect
+            else:
+                dst_points = region.min_rect
+
+            dst_points_list.append(dst_points)  
+            region.font_size = int(target_font_size)
             continue
 
         # --- Mode 4: smart_scaling (MODIFIED with user-defined logic) ---
         elif mode == 'smart_scaling':
             # Per user request, use different logic based on number of polygons
             if len(region.lines) > 1:
-                # For multi-polygon regions, use the 'default' mode's algorithm
-                font_size_fixed = config.render.font_size
-                font_size_offset_old = config.render.font_size_offset
-                font_size_minimum_old = config.render.font_size_minimum
-                if font_size_minimum_old == -1: font_size_minimum_old = round((img.shape[0] + img.shape[1]) / 200)
-                font_size_minimum_old = max(1, font_size_minimum_old)
-                original_region_font_size_old = region.font_size
-                if original_region_font_size_old <= 0: original_region_font_size_old = font_size_minimum_old
-                if font_size_fixed is not None: target_font_size_old = font_size_fixed
-                else: target_font_size_old = original_region_font_size_old + font_size_offset_old
-                target_font_size_old = max(target_font_size_old, font_size_minimum_old, 1)
-                single_axis_expanded = False
-                dst_points = None
+                # For multi-polygon regions, use the new dynamic heuristic
+                from shapely.ops import unary_union
+
+                # 1. Un-rotate all polygons and compute their union to get the true area and base shape
+                try:
+                    unrotated_polygons = []
+                    for p in region.lines:
+                        # Reshape to (1, -1, 2) for rotate_polygons function
+                        unrotated_p = rotate_polygons(region.center, p.reshape(1, -1, 2), region.angle, to_int=False)
+                        unrotated_polygons.append(Polygon(unrotated_p.reshape(-1, 2)))
+                    
+                    union_poly = unary_union(unrotated_polygons)
+                    original_area = union_poly.area
+                    # Use the envelope (axis-aligned bounding box) of the unrotated union as the base for scaling
+                    unrotated_base_poly = union_poly.envelope
+                except Exception as e:
+                    logger.warning(f"Failed to compute union of polygons: {e}")
+                    original_area = region.unrotated_size[0] * region.unrotated_size[1]
+                    unrotated_base_poly = Polygon(region.unrotated_min_rect[0])
+
+                # 2. Calculate required area for the text
+                required_area = 0
                 if region.horizontal:
-                    used_rows = len(region.texts)
-                    line_text_list, _ = text_render.calc_horizontal(region.font_size, region.translation, max_width=region.unrotated_size[0], max_height=region.unrotated_size[1], language=getattr(region, "target_lang", "en_US"))
-                    needed_rows = len(line_text_list)
-                    if needed_rows > used_rows:
-                        scale_x = ((needed_rows - used_rows) / used_rows) * 1 + 1
-                        try:
-                            poly = Polygon(region.unrotated_min_rect[0]); minx, miny, _, _ = poly.bounds
-                            poly = affinity.scale(poly, xfact=scale_x, yfact=1.0, origin=(minx, miny))
-                            pts = np.array(poly.exterior.coords[:4])
-                            dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                            single_axis_expanded = True
-                        except: pass
-                if region.vertical:
-                    used_cols = len(region.texts)
-                    line_text_list, _ = text_render.calc_vertical(region.font_size, region.translation, max_height=region.unrotated_size[1])
-                    needed_cols = len(line_text_list)
-                    if needed_cols > used_cols:
-                        scale_x = ((needed_cols - used_cols) / used_cols) * 1 + 1
-                        try:
-                            poly = Polygon(region.unrotated_min_rect[0]); minx, miny, _, _ = poly.bounds
-                            poly = affinity.scale(poly, xfact=1.0, yfact=scale_x, origin=(minx, miny))
-                            pts = np.array(poly.exterior.coords[:4])
-                            dst_points = rotate_polygons(region.center, pts.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                            single_axis_expanded = True
-                        except: pass
-                if not single_axis_expanded:
-                    orig_text = getattr(region, "text_raw", region.text); char_count_orig = count_text_length(orig_text); char_count_trans = count_text_length(region.translation.strip())
-                    if char_count_orig > 0 and char_count_trans > char_count_orig:
-                        increase_percentage = (char_count_trans - char_count_orig) / char_count_orig; font_increase_ratio = min(1.5, max(1.0, 1 + (increase_percentage * 0.3)))
-                        target_font_size_old = int(target_font_size_old * font_increase_ratio)
-                        target_scale = max(1, min(1 + increase_percentage * 0.3, 2))
-                    else: target_scale = 1
-                    font_size_scale = (((target_font_size_old - original_region_font_size_old) / original_region_font_size_old) * 0.4 + 1) if original_region_font_size_old > 0 else 1.0
-                    final_scale = max(font_size_scale, target_scale); final_scale = max(1, min(final_scale, 1.1))
-                    if final_scale > 1.001:
-                        try:
-                            poly = Polygon(region.unrotated_min_rect[0]); poly = affinity.scale(poly, xfact=final_scale, yfact=final_scale, origin='center')
-                            scaled_unrotated_points = np.array(poly.exterior.coords[:4])
-                            dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                        except: dst_points = region.min_rect
-                    else: dst_points = region.min_rect
+                    lines, widths = text_render.calc_horizontal(target_font_size, region.translation, max_width=99999, max_height=99999, language=region.target_lang)
+                    if widths:
+                        required_width = max(widths)
+                        required_height = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.01)))
+                        required_area = required_width * required_height
+                else: # Vertical
+                    lines, heights = text_render.calc_vertical(target_font_size, region.translation, max_height=99999)
+                    if heights:
+                        required_height = max(heights)
+                        required_width = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.2)))
+                        required_area = required_width * required_height
+
+                dst_points = region.min_rect # Default
+                
+                # 3. Compare areas and apply scaling heuristic
+                diff_ratio = 0
+                if original_area > 0 and required_area > 0:
+                    diff_ratio = (required_area - original_area) / original_area
+
+                if diff_ratio > 0:
+                    # Box expansion ratio
+                    box_expansion_ratio = diff_ratio / 2
+                    box_scale_factor = 1 + min(box_expansion_ratio, 1.0) # Cap at 2x size
+
+                    # Font shrink ratio
+                    font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
+                    font_scale_factor = 1 - min(font_shrink_ratio, 0.5) # Cap at 50% shrink
+                    
+                    # Apply scaling to the unrotated base polygon
+                    try:
+                        scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=box_scale_factor, yfact=box_scale_factor, origin='center')
+                        scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
+                        
+                        # Rotate the scaled shape back to its original orientation
+                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                    except Exception as e:
+                        logger.warning(f"Failed to apply dynamic scaling: {e}")
+                    
+                    target_font_size = int(target_font_size * font_scale_factor)
+                else:
+                    # If no scaling is needed, still use the calculated base polygon for rendering
+                    try:
+                        unrotated_points = np.array(unrotated_base_poly.exterior.coords[:4])
+                        dst_points = rotate_polygons(region.center, unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                    except Exception as e:
+                        logger.warning(f"Failed to use base polygon: {e}")
+
                 dst_points_list.append(dst_points)
-                region.font_size = int(target_font_size_old)
+                region.font_size = int(target_font_size)
                 continue
 
             else: # For single-polygon regions, use the new dynamic heuristic

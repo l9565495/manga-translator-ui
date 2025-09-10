@@ -157,7 +157,7 @@ def render_textblock_list_eng(
         ballon_area = (ballon_mask > 0).sum()
         rx, ry = 0, 0
 
-        region.angle = -region.angle
+        
         if abs(region.angle) > 3:
             angle_rad = np.deg2rad(region.angle % 360)
             sin_a, cos_a = np.sin(angle_rad), np.cos(angle_rad)

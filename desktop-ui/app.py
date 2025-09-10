@@ -118,16 +118,7 @@ class AppController:
         
         # 快速初始化基本属性
         self.root_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # 使用用户数据目录而不是示例配置文件
-        user_data_dir = os.path.join(self.root_dir, "user_data")
-        os.makedirs(user_data_dir, exist_ok=True)
-        self.user_config_path = os.path.join(user_data_dir, "user_config.json")
-        
-        # 如果用户配置文件不存在，从示例配置文件创建
-        if not os.path.exists(self.user_config_path):
-            self._create_user_config_file()
-        
+        self.user_config_path = resource_path(os.path.join("examples", "config-example.json"))
         self.env_path = os.path.join(self.root_dir, "..", ".env")
         self.app_variant = self._get_app_variant()
 
@@ -172,6 +163,8 @@ class AppController:
         self.cli_widgets = {}
         self.gimp_font_widgets = {}
         self.font_path_widgets = {}
+        self._debounce_timer = None
+        self._env_debounce_timer = None
         
         # 字体监控服务
         self.font_monitor = None
@@ -200,49 +193,6 @@ class AppController:
         
         # 延迟初始化重量级组件 (等UI完全启动后)
         self.app.after(500, self._async_init_heavy_components)
-
-    def _create_user_config_file(self):
-        """创建用户配置文件，基于示例配置文件"""
-        try:
-            example_config_path = resource_path(os.path.join("examples", "config-example.json"))
-            
-            if os.path.exists(example_config_path):
-                # 从示例配置文件复制
-                import shutil
-                shutil.copy2(example_config_path, self.user_config_path)
-            else:
-                # 创建基本的配置文件结构
-                basic_config = {
-                    "last_output_path": "",
-                    "filter_text": None,
-                    "kernel_size": 3,
-                    "mask_dilation_offset": 200,
-                    "translator": {
-                        "translator": "chatgpt",
-                        "target_lang": "CHS",
-                        "no_text_lang_skip": False
-                    },
-                    "ocr": {
-                        "use_mocr_merge": False,
-                        "ocr": "48px",
-                        "min_text_length": 0,
-                        "ignore_bubble": 0,
-                        "prob": 0.001,
-                        "kernel_size": 3
-                    }
-                }
-                
-                with open(self.user_config_path, 'w', encoding='utf-8') as f:
-                    json.dump(basic_config, f, indent=4, ensure_ascii=False)
-                    
-            print(f"用户配置文件已创建: {self.user_config_path}")
-            
-        except Exception as e:
-            print(f"创建用户配置文件时出错: {e}")
-            # 创建最小配置文件
-            minimal_config = {"last_output_path": ""}
-            with open(self.user_config_path, 'w', encoding='utf-8') as f:
-                json.dump(minimal_config, f, indent=4, ensure_ascii=False)
 
     def _get_app_variant(self):
         """Reads the build_info.json to determine the app variant (cpu or gpu)."""
@@ -721,6 +671,12 @@ class AppController:
         except Exception as e:
             self.update_log(f"[ERROR] Failed to create env UI for {selected_translator}: {e}\n")
 
+    def _debounced_save_widget_change(self, key, widget):
+        if self._debounce_timer is not None:
+            self.app.after_cancel(self._debounce_timer)
+        
+        self._debounce_timer = self.app.after(500, lambda: self._save_widget_change(key, widget))
+
     def create_param_widgets(self, data, parent_frame, prefix="", start_row=0):
         if not isinstance(data, dict):
             return
@@ -776,7 +732,7 @@ class AppController:
             elif isinstance(value, (int, float)):
                 entry_var = ctk.StringVar(value=str(value))
                 widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
-                entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._save_widget_change(k, w))
+                entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._debounced_save_widget_change(k, w))
             elif isinstance(value, str):
                 options = self.get_options_for_key(key)
                 if options:
@@ -816,23 +772,29 @@ class AppController:
                 else:
                     entry_var = ctk.StringVar(value=value)
                     widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
-                    entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._save_widget_change(k, w))
+                    entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._debounced_save_widget_change(k, w))
                     if full_key == "render.gimp_font":
                         self.gimp_font_widgets['label'] = label
                         self.gimp_font_widgets['widget'] = widget
             elif value is None:
                 entry_var = ctk.StringVar(value="")
                 widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
-                entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._save_widget_change(k, w))
+                entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._debounced_save_widget_change(k, w))
             else:
                 entry_var = ctk.StringVar(value=str(value))
                 widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
-                entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._save_widget_change(k, w))
+                entry_var.trace_add("write", lambda *args, k=full_key, w=widget: self._debounced_save_widget_change(k, w))
             
             if widget:
                 label.grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 widget.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
                 self.parameter_widgets[full_key] = widget
+
+    def _debounced_save_env_change(self, key, value):
+        if self._env_debounce_timer is not None:
+            self.app.after_cancel(self._env_debounce_timer)
+        
+        self._env_debounce_timer = self.app.after(500, lambda: self._save_env_change(key, value))
 
     def create_env_widgets(self, keys, current_values, parent_frame):
         parent_frame.grid_columnconfigure(1, weight=1)
@@ -845,7 +807,7 @@ class AppController:
             entry_var = ctk.StringVar(value=value)
             widget = ctk.CTkEntry(parent_frame, textvariable=entry_var)
             widget.grid(row=i, column=1, padx=5, pady=2, sticky="ew")
-            entry_var.trace_add("write", lambda *args, k=key, var=entry_var: self._save_env_change(k, var.get()))
+            entry_var.trace_add("write", lambda *args, k=key, var=entry_var: self._debounced_save_env_change(k, var.get()))
             self.env_widgets[key] = widget
 
     def _save_env_change(self, key, value):
@@ -1319,21 +1281,11 @@ class AppController:
             messagebox.showerror("打开失败", f"无法打开文件夹: {e}")
 
     def save_output_path(self, path):
-        """保存输出目录路径到用户配置文件"""
+        """保存输出目录路径到配置文件"""
         try:
-            # 确保用户配置文件存在
-            if not os.path.exists(self.user_config_path):
-                self._create_user_config_file()
-            
             # 读取现有配置
-            config_data = {}
-            if os.path.exists(self.user_config_path):
-                try:
-                    with open(self.user_config_path, 'r', encoding='utf-8') as f:
-                        config_data = json.load(f)
-                except json.JSONDecodeError:
-                    print(f"用户配置文件损坏，将重新创建: {self.user_config_path}")
-                    config_data = {}
+            with open(self.user_config_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
             
             # 更新输出路径
             config_data['last_output_path'] = path
@@ -1344,44 +1296,41 @@ class AppController:
                 
             print(f"输出目录已保存到配置文件: {path}")
             
+        except FileNotFoundError:
+            self.update_log(f"配置文件不存在: {self.user_config_path}\n")
+        except json.JSONDecodeError as e:
+            self.update_log(f"配置文件格式错误: {e}\n")
         except Exception as e:
             self.update_log(f"保存输出路径失败: {e}\n")
             print(f"保存输出路径失败: {e}")
-            import traceback
-            traceback.print_exc()
 
     def load_and_apply_output_path(self):
-        """从用户配置文件加载并应用输出目录路径"""
+        """从配置文件加载并应用输出目录路径"""
         try:
-            # 确保用户配置文件存在
-            if not os.path.exists(self.user_config_path):
-                self._create_user_config_file()
-                return
-            
-            with open(self.user_config_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-                
-            last_path = config_data.get("last_output_path")
-            if last_path and os.path.exists(last_path):
-                output_entry = self.main_view_widgets.get('output_folder_entry')
-                if output_entry:
-                    output_entry.delete(0, "end")
-                    output_entry.insert(0, last_path)
-                
-                # 初始化全局输出目录，供编辑器使用
-                try:
-                    from services.export_service import set_global_output_directory
-                    set_global_output_directory(last_path)
-                    print(f"已加载输出目录: {last_path}")
-                except ImportError:
-                    pass
-            elif last_path:
-                print(f"上次保存的输出目录不存在，已忽略: {last_path}")
-                
+            if os.path.exists(self.user_config_path):
+                with open(self.user_config_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    
+                last_path = config_data.get("last_output_path")
+                if last_path and os.path.exists(last_path):
+                    output_entry = self.main_view_widgets.get('output_folder_entry')
+                    if output_entry:
+                        output_entry.delete(0, "end")
+                        output_entry.insert(0, last_path)
+                    
+                    # 初始化全局输出目录，供编辑器使用
+                    try:
+                        from services.export_service import set_global_output_directory
+                        set_global_output_directory(last_path)
+                        print(f"已加载输出目录: {last_path}")
+                    except ImportError:
+                        pass
+                elif last_path:
+                    print(f"上次保存的输出目录不存在，已忽略: {last_path}")
+                    
         except json.JSONDecodeError as e:
-            print(f"用户配置文件格式错误: {e}")
-            self.update_log(f"配置文件格式错误，将重新创建: {e}\n")
-            self._create_user_config_file()
+            print(f"配置文件格式错误: {e}")
+            self.update_log(f"配置文件格式错误: {e}\n")
         except Exception as e:
             print(f"加载输出路径失败: {e}")
             self.update_log(f"加载输出路径失败: {e}\n")

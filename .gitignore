@@ -11,9 +11,6 @@ venv/
 .env
 .env.*
 
-# User data and configuration files
-desktop-ui/user_data/
-
 # Claude settings
 .claude/
 
@@ -48,3 +45,9 @@ Saber-Translator-2.5.1/
 
 # Temp files
 desktop-ui/temp/
+
+# User-specified ignores
+14_translations.json
+19_translations.json
+desktop-ui/user_data/
+manga-image-translator-main/

@@ -79,7 +79,8 @@ class TranslationService:
         target_lang_to_use = target_lang or self.current_target_lang
 
         try:
-            chain = TranslatorChain(chain=[(translator_to_use, target_lang_to_use)])
+            chain_string = f"{translator_to_use.value}:{target_lang_to_use}"
+            chain = TranslatorChain(chain_string)
             ctx = Context()
             ctx.text = text
             queries = [text]
@@ -101,6 +102,50 @@ class TranslationService:
         except Exception as e:
             self.logger.error(f"翻译失败: {e}")
             raise
+
+    async def translate_text_batch(self, texts: List[str],
+                                 translator: Optional[Translator] = None,
+                                 target_lang: Optional[str] = None,
+                                 config: Optional[TranslatorConfig] = None) -> List[Optional[TranslationResult]]:
+        if not TRANSLATOR_AVAILABLE or not texts:
+            return [None] * len(texts)
+
+        translator_to_use = translator or self.current_translator_enum
+        target_lang_to_use = target_lang or self.current_target_lang
+
+        try:
+            chain_string = f"{translator_to_use.value}:{target_lang_to_use}"
+            chain = TranslatorChain(chain_string)
+            ctx = Context()
+            # Although the backend translator takes a list, the context `text` is not used in the same way.
+            # We can leave it empty or set it to the first text.
+            if texts:
+                ctx.text = texts[0]
+
+            translated_texts = await dispatch_translator(
+                chain,
+                texts,  # Pass the whole list of texts
+                translator_config=config,
+                args=ctx
+            )
+
+            if translated_texts and len(translated_texts) == len(texts):
+                return [
+                    TranslationResult(
+                        original_text=original,
+                        translated_text=translated,
+                        translator_used=translator_to_use.value
+                    ) for original, translated in zip(texts, translated_texts)
+                ]
+            
+            # Handle cases where translation returns an unexpected number of results
+            self.logger.warning(f"Batch translation returned {len(translated_texts) if translated_texts else 0} results for {len(texts)} inputs.")
+            return [None] * len(texts)
+
+        except Exception as e:
+            self.logger.error(f"批量翻译失败: {e}")
+            # In case of an exception, return a list of Nones
+            return [None] * len(texts)
 
     def set_translator(self, translator_name: str):
         if TRANSLATOR_AVAILABLE and hasattr(Translator, translator_name):

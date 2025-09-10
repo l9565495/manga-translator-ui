@@ -24,6 +24,10 @@ def run_command_realtime(cmd, cwd=None):
     use_shell = isinstance(cmd, str)
     print(f"\nExecuting: {cmd}")
     try:
+        # Set PYTHONUTF8 environment variable to ensure UTF-8 is used by subprocesses
+        env = os.environ.copy()
+        env['PYTHONUTF8'] = '1'
+        
         process = subprocess.Popen(
             cmd,
             cwd=cwd,
@@ -32,7 +36,8 @@ def run_command_realtime(cmd, cwd=None):
             text=True,
             encoding='utf-8',
             errors='replace',
-            shell=use_shell
+            shell=use_shell,
+            env=env
         )
         while True:
             output = process.stdout.readline()
@@ -47,6 +52,7 @@ def run_command_realtime(cmd, cwd=None):
     except Exception as e:
         print(f"Error executing command: {e}")
         return False
+
 
 class Builder:
     """封装了构建和打包逻辑的类"""

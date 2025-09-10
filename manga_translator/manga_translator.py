@@ -631,7 +631,8 @@ class MangaTranslator:
                 # Recreate the TextBlock object by unpacking the dictionary
                 # This restores all saved attributes
                 if 'lines' in region_data and isinstance(region_data['lines'], list):
-                    region_data['lines'] = np.array(region_data['lines'], dtype=np.int32)
+                    # Fix: Use np.float64 to match TextBlock expectation, not np.int32
+                    region_data['lines'] = np.array(region_data['lines'], dtype=np.float64)
                 
                 region = TextBlock(**region_data)
                 regions.append(region)

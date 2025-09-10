@@ -221,8 +221,22 @@ class TextBlock(object):
         """Serializes the TextBlock to a dictionary, only including necessary fields."""
         # Note: The UI might add/use other fields like 'center' which it calculates itself.
         # This export is from the perspective of the backend pipeline.
+        
+        # Convert each line polygon to its axis-aligned bounding box,
+        # but keep the 4-point polygon structure.
+        new_lines = []
+        for line_poly in self.lines:
+            x_min, y_min = np.min(line_poly, axis=0)
+            x_max, y_max = np.max(line_poly, axis=0)
+            new_lines.append([
+                [x_min, y_min],
+                [x_max, y_min],
+                [x_max, y_max],
+                [x_min, y_max]
+            ])
+
         return {
-            'lines': self.lines.tolist(),
+            'lines': new_lines,
             'texts': self.texts,
             'text': self.text,
             'translation': self.translation,

@@ -491,7 +491,8 @@ class MouseEventHandler:
                         'default_stroke_width': 0.2,
                         'adjust_bg_color': True,
                         'prob': 1.0,
-                        'center': [center_x, center_y]
+                        'center': [center_x, center_y],
+                        'source': 'editor'
                     }
                     self.on_region_created(new_region_data)
                 

@@ -177,9 +177,9 @@ class ModelMangaOCR(OfflineOCR):
                 if verbose:
                     os.makedirs('result/ocrs/', exist_ok=True)
                     if quadrilaterals[idx][1] == 'v':
-                        imwrite_unicode(f'result/ocrs/{ix}.png', cv2.rotate(cv2.cvtColor(region[i, :, :, :], cv2.COLOR_RGB2BGR), cv2.ROTATE_90_CLOCKWISE))
+                        imwrite_unicode(f'result/ocrs/{ix}.png', cv2.rotate(cv2.cvtColor(region[i, :, :, :], cv2.COLOR_RGB2BGR), cv2.ROTATE_90_CLOCKWISE), self.logger)
                     else:
-                        imwrite_unicode(f'result/ocrs/{ix}.png', cv2.cvtColor(region[i, :, :, :], cv2.COLOR_RGB2BGR))
+                        imwrite_unicode(f'result/ocrs/{ix}.png', cv2.cvtColor(region[i, :, :, :], cv2.COLOR_RGB2BGR), self.logger)
                 ix += 1
             image_tensor = (torch.from_numpy(region).float() - 127.5) / 127.5
             image_tensor = einops.rearrange(image_tensor, 'N H W C -> N C H W')

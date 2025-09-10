@@ -345,8 +345,8 @@ class EditorFrame(ctk.CTkFrame):
         self.canvas_frame.set_regions(self.regions_data)
 
     def _on_image_loaded(self, image: Image.Image, image_path: str):
-        # 在加载新图片前，先尝试释放旧的GPU资源
-        self._release_gpu_memory()
+        # 在加载新图片前，先彻底清空编辑器状态
+        self._clear_editor()
 
         # 存储当前图片路径供导出使用
         self.current_image_path = image_path
@@ -675,51 +675,32 @@ class EditorFrame(ctk.CTkFrame):
         region_data = self.regions_data[region_index]
         old_data_for_history = copy.deepcopy(region_data)
         
-        angle = region_data.get('angle', 0)
+        old_angle = region_data.get('angle', 0)
         old_lines_model = region_data.get('lines', [])
-        print(f"--- DEBUG [0] ANGLE: {angle}")
-        print(f"--- DEBUG [1] OLD MODEL LINES: {old_lines_model}")
         
         old_center = region_data.get('center')
         if not old_center:
             all_old_model_points = [tuple(p) for poly in old_lines_model for p in poly]
             old_center = editing_logic.get_polygon_center(all_old_model_points) if all_old_model_points else (0,0)
-        print(f"--- DEBUG [2] OLD CENTER: {old_center}")
 
-        print(f"--- DEBUG [3] NEW POLYGON (WORLD): {new_polygon_world}")
-
-        # 1. Convert all existing polygons from model space to world space
-        old_polygons_world = [
-            [editing_logic.rotate_point(p[0], p[1], angle, old_center[0], old_center[1]) for p in poly]
-            for poly in old_lines_model
+        # Convert the new world-space polygon to the existing model space
+        new_polygon_model = [
+            list(editing_logic.rotate_point(p[0], p[1], -old_angle, old_center[0], old_center[1]))
+            for p in new_polygon_world
         ]
 
-        # 2. Combine old and new world polygons
-        all_polygons_world = old_polygons_world + [new_polygon_world]
-        all_vertices_world = [vertex for poly in all_polygons_world for vertex in poly]
-        print(f"--- DEBUG [4] ALL VERTICES (WORLD): {all_vertices_world}")
+        # Add the new model-space polygon to the region's lines
+        region_data['lines'].append(new_polygon_model)
 
-        if not all_vertices_world:
-            print("--- DEBUG: No vertices to process. Aborting. ---")
-            return
+        # The center and angle of the region should not change when adding a new polygon
 
-        # 3. Calculate the new center from the complete set of world vertices using minAreaRect
-        points_np = np.array(all_vertices_world, dtype=np.float32)
-        min_area_rect = cv2.minAreaRect(points_np)
-        new_center = min_area_rect[0]
-        print(f"--- DEBUG [5] NEW CENTER (from World): {new_center}")
-
-        # 4. Convert all world polygons back to the new model space
-        new_lines_model = [
-            [editing_logic.rotate_point(p[0], p[1], -angle, new_center[0], new_center[1]) for p in poly]
-            for poly in all_polygons_world
-        ]
-        print(f"--- DEBUG [6] NEW MODEL LINES: {new_lines_model}")
-
-        # 5. Update the region data with the new model data
-        region_data['lines'] = new_lines_model
-        region_data['center'] = list(new_center)
-        print(f"--- DEBUG [7] FINAL REGION DATA: {region_data}")
+        # Recalculate direction based on the new shape
+        try:
+            temp_text_block = TextBlock(**region_data)
+            new_direction = temp_text_block.direction
+            region_data['direction'] = new_direction
+        except Exception as e:
+            print(f"--- DEBUG: Failed to recalculate direction: {e}")
 
         # Save history and update UI
         self.history_manager.save_state(ActionType.RESIZE, region_index, old_data_for_history, self.regions_data[region_index])
@@ -1302,7 +1283,7 @@ class EditorFrame(ctk.CTkFrame):
             for index in self.selected_indices:
                 region_data = self.regions_data[index]
                 
-                image_np = np.array(self.image.convert("RGB")),
+                image_np = np.array(self.image.convert("RGB"))
                 result = await self.ocr_service.recognize_region(image_np, region_data)
                 if result and result.text:
                     old_data = copy.deepcopy(region_data)
