@@ -73,6 +73,21 @@ class Builder:
         # Ensure the repository directory and its 'targets' subdirectory exist
         repo_path = Path(REPO_DIR)
         (repo_path / 'targets').mkdir(parents=True, exist_ok=True)
+
+        # --- DEBUG START ---
+        print(f"[DEBUG] Using repository directory: {repo_path.resolve()}")
+        metadata_path = repo_path / 'metadata'
+        print(f"[DEBUG] Checking for metadata directory: {metadata_path.resolve()}")
+        if metadata_path.exists() and metadata_path.is_dir():
+            print("[DEBUG] Metadata directory found. Contents:")
+            try:
+                for item in os.listdir(metadata_path):
+                    print(f"[DEBUG]   - {item}")
+            except Exception as e:
+                print(f"[DEBUG]   - Error listing contents: {e}")
+        else:
+            print("[DEBUG] Metadata directory not found or is not a directory.")
+        # --- DEBUG END ---
         
         self.repo = Repository(
             repo_dir=repo_path,
@@ -80,6 +95,21 @@ class Builder:
             app_name=APP_NAME,
             app_version_attr=APP_VERSION_ATTR
         )
+
+        # --- DEBUG START ---
+        print(f"[DEBUG] tufup.Repository instantiated. self.repo.roles is: {self.repo.roles}")
+        # --- DEBUG END ---
+
+        if self.repo.roles is None:
+            print("Repository not found or incomplete. Initializing...")
+            self.repo.initialize()
+            # --- DEBUG START ---
+            print(f"[DEBUG] Repository initialized. self.repo.roles is now: {self.repo.roles}")
+            # --- DEBUG END ---
+        else:
+            # --- DEBUG START ---
+            print("[DEBUG] Repository already initialized. Skipping initialization.")
+            # --- DEBUG END ---
 
     def create_keys(self):
         """Create new keys if they don't exist."""
