@@ -66,19 +66,12 @@ def run_command_realtime(cmd, cwd=None):
 class Builder:
     """封装了构建和打包逻辑的类"""
 
-    def __init__(self, app_version=None):
+    def __init__(self, app_version=None, is_creating_keys=False):
         self.app_version = app_version
         self.version_file = Path("VERSION")
         
-        # Ensure the repository directory and its 'targets' subdirectory exist
         repo_path = Path(REPO_DIR)
         (repo_path / 'targets').mkdir(parents=True, exist_ok=True)
-
-        # Clean up potentially problematic metadata files before loading
-        suspicious_file = repo_path / 'metadata' / '1.root.json'
-        if suspicious_file.exists():
-            print(f"Warning: Deleting suspicious '1.root.json' to prevent repository load failure.")
-            os.remove(suspicious_file)
         
         self.repo = Repository(
             repo_dir=repo_path,
@@ -87,8 +80,15 @@ class Builder:
             app_version_attr=APP_VERSION_ATTR
         )
 
-        # The repository should load correctly now. If not, something else is wrong.
-        if self.repo.roles is None:
+        # If creating keys, the `builder.create_keys()` method will handle loading.
+        # Otherwise, we need to explicitly load the existing repository data.
+        if not is_creating_keys:
+            print("Loading existing repository...")
+            # NOTE: This is a private method, but required for now based on source code analysis.
+            self.repo._load_keys_and_roles(create_keys=False)
+
+        # Now, the check for self.repo.roles should pass.
+        if not is_creating_keys and self.repo.roles is None:
             print("Error: Repository metadata is missing or corrupt, and could not be loaded.")
             print("Please ensure the 'update_repository/metadata' directory is valid or run with --create-keys to start fresh.")
             sys.exit(1)
@@ -211,7 +211,7 @@ def main():
     parser.add_argument("--create-keys", action='store_true', help="Create new TUF keys if they don't exist.")
     args = parser.parse_args()
 
-    builder = Builder(args.version)
+    builder = Builder(args.version, is_creating_keys=args.create_keys)
 
     if args.create_keys:
         builder.create_keys()
