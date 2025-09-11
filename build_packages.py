@@ -165,6 +165,9 @@ class Builder:
     def package_updates(self, version_type):
         """
         Adds an update package to the TUF repository.
+        It only adds patches as client-facing update targets.
+        The full bundle archive is always created to serve as a base for future patches,
+        but it is NEVER registered in the client-facing metadata.
         """
         print("=" * 60)
         print(f"Adding update package for {version_type.upper()}")
@@ -182,16 +185,25 @@ class Builder:
             print(f"\nError: Bundle directory not found at '{dist_dir}'")
             return False
 
-        print(f"Adding bundle from: {dist_dir}")
-        # For CPU, we create the bundle for future diffing, but the full archive will be deleted
-        # before deploying to gh-pages. Patches, however, will be kept.
-        self.repo.add_bundle(
-            new_bundle_dir=dist_dir,
-            new_version=self.app_version,
-            custom_metadata={'variant': version_type},
-            required=False,
-            skip_patch=False  # Ensure patches can be created in the future
+        print(f"Creating full archive from: {dist_dir} to serve as a future base package.")
+        # Step 1: Always create the full archive. This places it in the `targets`
+        # directory, making it the "Base Package" for the next workflow run.
+        # It will NOT be registered as a client-facing target.
+        archive_path = self.repo.create_archive(
+            bundle_dir=dist_dir,
+            version=self.app_version,
+            custom_metadata={'variant': version_type}
         )
+
+        print("Attempting to create patches...")
+        # Step 2: Try to create patches. `tufup` automatically adds them to metadata if successful.
+        patch_paths = self.repo.create_patches()
+
+        if patch_paths:
+            print(f'Created {len(patch_paths)} patch(es). These will be the only update targets registered in metadata.')
+        else:
+            print('No patches created (first release). No client-facing update targets will be added to metadata for this version.')
+
         return True
 
     def publish_updates(self):
