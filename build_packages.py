@@ -203,6 +203,11 @@ class Builder:
         return True
 
 def main():
+    # Ensure the keys directory exists to prevent interactive prompts in CI
+    if not os.path.exists(KEYS_DIR):
+        print(f"'{KEYS_DIR}' directory not found. Creating it to avoid interactive prompts.")
+        os.makedirs(KEYS_DIR)
+
     parser = argparse.ArgumentParser(description="Manga Translator UI Builder and Updater")
     parser.add_argument("version", nargs='?', default=None, help="The application version to build (e.g., 1.4.0)")
     parser.add_argument("--build", choices=['cpu', 'gpu', 'both'], default='both', help="Which version(s) to build.")
