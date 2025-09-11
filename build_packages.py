@@ -171,9 +171,7 @@ class Builder:
         print(f"Adding update package for {version_type.upper()}")
         print("=" * 60)
 
-        if version_type == 'gpu':
-            print("Skipping TUF packaging for GPU version.")
-            return True
+        
 
         self.version_file.write_text(self.app_version, encoding='utf-8')
         dist_dir = Path("dist") / f"manga-translator-{version_type}"
@@ -187,7 +185,7 @@ class Builder:
         # is found, patch creation. Both are registered in the metadata.
         self.repo.add_bundle(
             new_bundle_dir=dist_dir,
-            new_version=self.app_version,
+            new_version=f"{self.app_version}-{version_type}",
             custom_metadata={'variant': version_type},
             skip_patch=False,  # Ensure patches are created if possible
             required=False
