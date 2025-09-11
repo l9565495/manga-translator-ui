@@ -6,7 +6,6 @@ import argparse
 from pathlib import Path
 import shutil
 import io
-from packaging.version import parse as parse_version
 
 # Force stdout and stderr to use UTF-8 encoding
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -78,7 +77,7 @@ class Builder:
             repo_dir=repo_path,
             keys_dir=Path(KEYS_DIR),
             app_name=APP_NAME,
-            app_version_parser=parse_version
+            app_version_attr=APP_VERSION_ATTR
         )
 
         # If creating keys, the `builder.create_keys()` method will handle loading.
@@ -171,10 +170,6 @@ class Builder:
         print(f"Adding update package for {version_type.upper()}")
         print("=" * 60)
 
-        # Create a variant-specific version string
-        variant_app_version = f"{self.app_version}-{version_type}"
-        print(f"Using variant version: {variant_app_version}")
-
         self.version_file.write_text(self.app_version, encoding='utf-8')
         dist_dir = Path("dist") / f"manga-translator-{version_type}"
 
@@ -183,13 +178,27 @@ class Builder:
             return False
 
         print(f"Adding bundle from: {dist_dir}")
+        # Let tufup use the base version number
         self.repo.add_bundle(
             new_bundle_dir=dist_dir,
-            new_version=variant_app_version, # Use the new variant-specific version
+            new_version=self.app_version,
             custom_metadata={'variant': version_type},
             required=False,
             skip_patch=True
         )
+
+        # Manually rename the created archive to include the variant
+        original_archive_name = f"{APP_NAME}-{self.app_version}.tar.gz"
+        new_archive_name = f"{APP_NAME}-{self.app_version}-{version_type}.tar.gz"
+        original_archive_path = Path(REPO_DIR) / 'targets' / original_archive_name
+        new_archive_path = Path(REPO_DIR) / 'targets' / new_archive_name
+
+        if original_archive_path.exists():
+            print(f"Renaming {original_archive_name} to {new_archive_name}")
+            os.rename(original_archive_path, new_archive_path)
+        else:
+            print(f"Warning: Expected archive {original_archive_name} not found for renaming.")
+
         return True
 
     def publish_updates(self):
