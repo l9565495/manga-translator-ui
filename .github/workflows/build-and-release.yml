@@ -129,11 +129,6 @@ jobs:
       run: |
         python build_packages.py ${{ github.ref_name }} --update-repo --skip-build
 
-    - name: Prepare gh-pages Deployment
-      run: |
-        echo "Removing full archives from TUF repository before deploying to gh-pages..."
-        find update_repository/targets -type f -name "*.tar.gz" -exec echo "Removing {}..." \; -exec rm {} \;
-
     - name: Deploy Repository to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
@@ -143,6 +138,7 @@ jobs:
         user_name: 'github-actions[bot]'
         user_email: 'github-actions[bot]@users.noreply.github.com'
         commit_message: 'Deploy TUF repository for ${{ github.ref_name }}'
+        exclude_assets: '*.tar.gz'
 
     - name: Bundle extra directories into __pycache__
       run: |
