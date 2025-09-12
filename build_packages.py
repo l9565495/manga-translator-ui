@@ -67,7 +67,8 @@ class Builder:
     """封装了构建和打包逻辑的类"""
 
     def __init__(self, app_version=None, is_creating_keys=False):
-        self.app_version = app_version
+        # Strip 'v' prefix from version string, if present
+        self.app_version = app_version.lstrip('v') if app_version else None
         self.version_file = Path("VERSION")
         
         repo_path = Path(REPO_DIR)
