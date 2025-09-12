@@ -146,7 +146,7 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                 prompt += f"\n<|{i+1}|>{query}"
             yield prompt.lstrip(), len(this_batch)
 
-    async def _translate(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         """
         核心翻译逻辑：
             1. 把 queries 拆成多个 prompt 批次

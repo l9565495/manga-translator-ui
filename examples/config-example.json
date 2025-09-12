@@ -1,9 +1,9 @@
 {
   "filter_text": null,
   "kernel_size": 3,
-  "mask_dilation_offset": 20,
+  "mask_dilation_offset": 10,
   "translator": {
-    "translator": "chatgpt",
+    "translator": "gemini_hq",
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "gpt_config": "../examples/gpt_config-example.yaml"
@@ -28,11 +28,11 @@
     "det_auto_rotate": false,
     "det_invert": false,
     "det_gamma_correct": false,
-    "box_threshold": 0.01,
+    "box_threshold": 0.5,
     "unclip_ratio": 2.5
   },
   "inpainter": {
-    "inpainter": "lama_mpe",
+    "inpainter": "lama_large",
     "inpainting_size": 2048,
     "inpainting_precision": "fp32"
   },
@@ -74,11 +74,12 @@
     "use_mtpe": false,
     "save_text": true,
     "load_text": false,
-    "template": true,
+    "template": false,
     "prep_manual": false,
     "save_quality": 100,
     "batch_size": 1,
-    "batch_concurrent": false
+    "batch_concurrent": false,
+    "high_quality_batch_size": 3
   },
   "last_output_path": "D:/xiazai/图片助手(ImageAssistant)_批量图片下载器/output"
 }

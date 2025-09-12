@@ -136,7 +136,7 @@ def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
             return cdpt, 0
     return cdpt, 0
 
-def compact_special_symbols(text: str) -> str:  
+def compact_special_symbols(text: str) -> str:
     text = text.replace('...', '…')  
     text = text.replace('..', '…')      
     # Remove half-width and full-width spaces after each punctuation mark
@@ -214,7 +214,6 @@ def update_font_selection():
                 FONT_SELECTION.append(face)
         except Exception as e:
             logger.error(f"Failed to load fallback font: {font_path} - {e}")
-
 
 
 def set_font(path: str):

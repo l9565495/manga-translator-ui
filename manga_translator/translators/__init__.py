@@ -25,6 +25,8 @@ from .groq import GroqTranslator
 from .gemini import GeminiTranslator
 from .gemini_2stage import Gemini2StageTranslator
 from .custom_openai import CustomOpenAiTranslator
+from .openai_hq import OpenAIHighQualityTranslator
+from .gemini_hq import GeminiHighQualityTranslator
 from ..config import Translator, TranslatorConfig, TranslatorChain
 from ..utils import Context
 
@@ -50,6 +52,8 @@ GPT_TRANSLATORS = {
     Translator.custom_openai: CustomOpenAiTranslator,
     Translator.gemini: GeminiTranslator,
     Translator.gemini_2stage: Gemini2StageTranslator,
+    Translator.openai_hq: OpenAIHighQualityTranslator,
+    Translator.gemini_hq: GeminiHighQualityTranslator,
 }
 
 
@@ -71,10 +75,9 @@ translator_cache = {}
 def get_translator(key: Translator, *args, **kwargs) -> CommonTranslator:
     if key not in TRANSLATORS:
         raise ValueError(f'Could not find translator for: "{key}". Choose from the following: %s' % ','.join(TRANSLATORS))
-    if not translator_cache.get(key):
-        translator = TRANSLATORS[key]
-        translator_cache[key] = translator(*args, **kwargs)
-    return translator_cache[key]
+    # Always create a new instance to avoid caching issues in editor mode
+    translator = TRANSLATORS[key]
+    return translator(*args, **kwargs)
 
 prepare_selective_translator(get_translator)
 
@@ -119,10 +122,10 @@ async def dispatch(chain: TranslatorChain, queries: List[str], translator_config
             await translator.load('auto', tgt_lang, device)
         if translator_config:
             translator.parse_args(translator_config)
-        if key == "gemini_2stage" or key == "chatgpt_2stage":
-            queries = await translator.translate('auto', tgt_lang, queries, args)
+        if key.value in ["gemini_2stage", "chatgpt_2stage", "gemini_hq", "openai_hq"]:
+            queries = await translator.translate('auto', tgt_lang, queries, ctx=args)
         else:
-            queries = await translator.translate('auto', tgt_lang, queries, use_mtpe)
+            queries = await translator.translate('auto', tgt_lang, queries, use_mtpe=use_mtpe)
         if args is not None:
             args['translations'][tgt_lang] = queries
     return queries

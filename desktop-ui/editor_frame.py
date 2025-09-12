@@ -740,7 +740,7 @@ class EditorFrame(ctk.CTkFrame):
         latest_config = self.config_service.get_config()
         
         # 异步更新蒙版，并传递最新配置
-        self.async_service.submit_task(self._update_refined_mask_with_config(current_edited_mask, latest_config))
+        self.async_service.submit_task(self._update_refined_mask_with_config(current_edited_mask))
 
     def _load_mask_settings_from_config(self):
         """从配置服务加载蒙版设置并更新UI"""
@@ -1287,6 +1287,15 @@ class EditorFrame(ctk.CTkFrame):
                 region_data = self.regions_data[index]
                 
                 image_np = np.array(self.image.convert("RGB"))
+
+                # DEBUG: Save the image being sent to OCR
+                try:
+                    debug_path = os.path.join(os.path.dirname(__file__), 'debug_ocr_input.png')
+                    cv2.imwrite(debug_path, cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR))
+                    print(f"--- OCR DEBUG: Saved image for OCR to {debug_path} ---")
+                except Exception as e:
+                    print(f"--- OCR DEBUG: Failed to save debug image: {e} ---")
+
                 result = await self.ocr_service.recognize_region(image_np, region_data)
                 if result and result.text:
                     old_data = copy.deepcopy(region_data)
@@ -1327,7 +1336,11 @@ class EditorFrame(ctk.CTkFrame):
             
             # 批量翻译所有文本（带上下文）
             print(f"正在翻译页面中的 {len([t for t in all_texts if t])} 段文本...")
-            translation_results = await self.translation_service.translate_text_batch(all_texts)
+            translation_results = await self.translation_service.translate_text_batch(
+                all_texts,
+                image=self.image, 
+                regions=self.regions_data
+            )
             
             # 只更新选中的区域
             for index in self.selected_indices:

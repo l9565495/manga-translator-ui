@@ -282,6 +282,7 @@ class MangaTranslator:
         self.font_path = params.get('font_path', None)
         self.models_ttl = params.get('models_ttl', 0)
         self.batch_size = params.get('batch_size', 1)  # 添加批量大小参数
+        self.high_quality_batch_size = params.get('high_quality_batch_size', 3)
         
         # 验证batch_concurrent参数
         if self.batch_concurrent and self.batch_size < 2:
@@ -315,6 +316,7 @@ class MangaTranslator:
         self.save_mask = not params.get('no_save_mask', False)
         self.template = params.get('template', False)
         self.is_ui_mode = params.get('is_ui_mode', False)
+        self.attempts = params.get('cli', {}).get('attempts', -1)
         
         
         # batch_concurrent 已在初始化时设置并验证
@@ -1459,6 +1461,13 @@ class MangaTranslator:
         current_time = time.time()
         self._model_usage_timestamps[("translation", config.translator.translator)] = current_time
 
+        if config.translator.translator in [Translator.gemini_hq, Translator.openai_hq]:
+            from PIL import Image
+            ctx.high_quality_batch_data = [{
+                'image': Image.fromarray(ctx.img_rgb),
+                'original_texts': [r.text for r in ctx.text_regions]
+            }]
+
         # --- Main translation logic ---
         if config.translator.translator == Translator.none:
             for region in ctx.text_regions:  
@@ -1822,7 +1831,7 @@ class MangaTranslator:
 
         self.add_progress_hook(ph)
 
-    async def translate_batch(self, images_with_configs: List[tuple], batch_size: int = None, image_names: List[str] = None) -> List[Context]:
+    async def translate_batch(self, images_with_configs: List[tuple], batch_size: int = None, image_names: List[str] = None, save_info: dict = None) -> List[Context]:
         """
         批量翻译多张图片，在翻译阶段进行批量处理以提高效率
         Args:
@@ -1834,7 +1843,17 @@ class MangaTranslator:
         """
         batch_size = batch_size or self.batch_size
         
-        # 检查是否为“仅生成模板”模式
+        # 检查是否使用高质量翻译器，如果是则自动启用高质量模式
+        if images_with_configs:
+            first_config = images_with_configs[0][1] if images_with_configs else None
+            if first_config and hasattr(first_config.translator, 'translator'):
+                from manga_translator.config import Translator
+                translator_type = first_config.translator.translator
+                if translator_type in [Translator.openai_hq, Translator.gemini_hq]:
+                    logger.info(f"检测到高质量翻译器 {translator_type}，自动启用高质量翻译模式")
+                    return await self._translate_batch_high_quality(images_with_configs, save_info)
+        
+        # 检查是否为"仅生成模板"模式
         is_template_save_mode = self.template and self.save_text
 
         if batch_size <= 1 or is_template_save_mode:
@@ -2605,94 +2624,104 @@ class MangaTranslator:
 
 
 
-        # 如果是ChatGPT翻译器（包括chatgpt和chatgpt_2stage），需要处理上下文
-        if config.translator.translator in [Translator.chatgpt, Translator.chatgpt_2stage]:
+        # 如果是ChatGPT翻译器或高质量翻译器，需要处理上下文
+        if config.translator.translator in [Translator.chatgpt, Translator.chatgpt_2stage, Translator.openai_hq, Translator.gemini_hq]:
             if config.translator.translator == Translator.chatgpt:
                 from .translators.chatgpt import OpenAITranslator
                 translator = OpenAITranslator()
-            else:  # chatgpt_2stage
+            elif config.translator.translator == Translator.chatgpt_2stage:
                 from .translators.chatgpt_2stage import ChatGPT2StageTranslator
                 translator = ChatGPT2StageTranslator()
-
-            # 确定是否使用并发模式和原文上下文
-            use_original_text = self.batch_concurrent and self.batch_size > 1
-
-            done_pages = self.all_page_translations
-            if self.context_size > 0 and done_pages:
-                pages_expected = min(self.context_size, len(done_pages))
-                non_empty_pages = [
-                    page for page in done_pages
-                    if any(sent.strip() for sent in page.values())
-                ]
-                pages_used = min(self.context_size, len(non_empty_pages))
-                skipped = pages_expected - pages_used
-            else:
-                pages_used = skipped = 0
-
-            if self.context_size > 0:
-                context_type = "original text" if use_original_text else "translation results"
-                logger.info(f"Context-aware translation enabled with {self.context_size} pages of history using {context_type}")
+            elif config.translator.translator == Translator.openai_hq:
+                from .translators.openai_hq import OpenAIHighQualityTranslator
+                translator = OpenAIHighQualityTranslator()
+            elif config.translator.translator == Translator.gemini_hq:
+                from .translators.gemini_hq import GeminiHighQualityTranslator
+                translator = GeminiHighQualityTranslator()
 
             translator.parse_args(config.translator)
+            translator.attempts = self.attempts
 
-            # 构建上下文 - 在并发模式下使用原文和页面索引
-            prev_ctx = self._build_prev_context(
-                use_original_text=use_original_text,
-                current_page_index=page_index,
-                batch_index=batch_index,
-                batch_original_texts=batch_original_texts
-            )
-            translator.set_prev_context(prev_ctx)
+            # 仅为非高质量翻译器构建和设置文本上下文
+            if config.translator.translator not in [Translator.openai_hq, Translator.gemini_hq]:
+                # 确定是否使用并发模式和原文上下文
+                use_original_text = self.batch_concurrent and self.batch_size > 1
 
-            if pages_used > 0:
-                context_count = prev_ctx.count("<|")
-                logger.info(f"Carrying {pages_used} pages of context, {context_count} sentences as translation reference")
-            if skipped > 0:
-                logger.warning(f"Skipped {skipped} pages with no sentences")
+                done_pages = self.all_page_translations
+                if self.context_size > 0 and done_pages:
+                    pages_expected = min(self.context_size, len(done_pages))
+                    non_empty_pages = [
+                        page for page in done_pages
+                        if any(sent.strip() for sent in page.values())
+                    ]
+                    pages_used = min(self.context_size, len(non_empty_pages))
+                    skipped = pages_expected - pages_used
+                else:
+                    pages_used = skipped = 0
 
-            # ChatGPT2Stage需要特殊处理
-            if config.translator.translator == Translator.chatgpt_2stage:
-                # 为当前图片创建专用的result_path_callback，避免并发时路径错位
-                current_image_context = getattr(ctx, 'image_context', None) or self._current_image_context
+                if self.context_size > 0:
+                    context_type = "original text" if use_original_text else "translation results"
+                    logger.info(f"Context-aware translation enabled with {self.context_size} pages of history using {context_type}")
 
-                def result_path_callback(path: str) -> str:
-                    """为特定图片创建结果路径，使用保存的图片上下文"""
-                    original_context = self._current_image_context
-                    self._current_image_context = current_image_context
-                    try:
-                        return self._result_path(path)
-                    finally:
-                        self._current_image_context = original_context
+                # 构建上下文
+                prev_ctx = self._build_prev_context(
+                    use_original_text=use_original_text,
+                    current_page_index=page_index,
+                    batch_index=batch_index,
+                    batch_original_texts=batch_original_texts
+                )
+                translator.set_prev_context(prev_ctx)
 
-                ctx.result_path_callback = result_path_callback
+                if pages_used > 0:
+                    context_count = prev_ctx.count("<|")
+                    logger.info(f"Carrying {pages_used} pages of context, {context_count} sentences as translation reference")
+                if skipped > 0:
+                    logger.warning(f"Skipped {skipped} pages with no sentences")
 
-                # Check if batch processing is enabled and batch_contexts are provided
-                if batch_contexts and len(batch_contexts) > 1 and not self.batch_concurrent:
-                    # Enable batch processing for chatgpt_2stage
-                    ctx.batch_contexts = batch_contexts
-                    logger.info(f"Enabling batch processing for chatgpt_2stage with {len(batch_contexts)} images")
+            # ChatGPT2Stage, openai_hq, gemini_hq 等需要传递ctx参数
+            if config.translator.translator in [Translator.chatgpt_2stage, Translator.openai_hq, Translator.gemini_hq]:
+                # 为chatgpt_2stage创建专用的result_path_callback
+                if config.translator.translator == Translator.chatgpt_2stage:
+                    current_image_context = getattr(ctx, 'image_context', None) or self._current_image_context
 
-                    # Set result_path_callback for each context in the batch
-                    for batch_ctx in batch_contexts:
-                        if hasattr(batch_ctx, 'image_context'):
-                            batch_image_context = batch_ctx.image_context
-                        else:
-                            batch_image_context = self._current_image_context
+                    def result_path_callback(path: str) -> str:
+                        """为特定图片创建结果路径，使用保存的图片上下文"""
+                        original_context = self._current_image_context
+                        self._current_image_context = current_image_context
+                        try:
+                            return self._result_path(path)
+                        finally:
+                            self._current_image_context = original_context
 
-                        def create_result_path_callback(image_context):
-                            def result_path_callback(path: str) -> str:
-                                """为特定图片创建结果路径，使用保存的图片上下文"""
-                                original_context = self._current_image_context
-                                self._current_image_context = image_context
-                                try:
-                                    return self._result_path(path)
-                                finally:
-                                    self._current_image_context = original_context
-                            return result_path_callback
+                    ctx.result_path_callback = result_path_callback
 
-                        batch_ctx.result_path_callback = create_result_path_callback(batch_image_context)
+                    # Check if batch processing is enabled and batch_contexts are provided
+                    if batch_contexts and len(batch_contexts) > 1 and not self.batch_concurrent:
+                        # Enable batch processing for chatgpt_2stage
+                        ctx.batch_contexts = batch_contexts
+                        logger.info(f"Enabling batch processing for chatgpt_2stage with {len(batch_contexts)} images")
 
-                # ChatGPT2Stage需要传递ctx参数
+                        # Set result_path_callback for each context in the batch
+                        for batch_ctx in batch_contexts:
+                            if hasattr(batch_ctx, 'image_context'):
+                                batch_image_context = batch_ctx.image_context
+                            else:
+                                batch_image_context = self._current_image_context
+
+                            def create_result_path_callback(image_context):
+                                def result_path_callback(path: str) -> str:
+                                    """为特定图片创建结果路径，使用保存的图片上下文"""
+                                    original_context = self._current_image_context
+                                    self._current_image_context = image_context
+                                    try:
+                                        return self._result_path(path)
+                                    finally:
+                                        self._current_image_context = original_context
+                                return result_path_callback
+
+                            batch_ctx.result_path_callback = create_result_path_callback(batch_image_context)
+
+                # 所有需要上下文的翻译器都在这里传递ctx
                 return await translator._translate(
                     ctx.from_lang,
                     config.translator.target_lang,
@@ -3169,3 +3198,138 @@ class MangaTranslator:
                 region.translation = original_translation
         
         return region.translation
+
+    async def _translate_batch_high_quality(self, images_with_configs: List[tuple], save_info: dict = None) -> List[Context]:
+        """
+        高质量翻译模式：按批次滚动处理，每批独立完成预处理、翻译、渲染全流程。
+        如果提供了save_info，则在每批处理后直接保存。
+        """
+        batch_size = getattr(self, 'high_quality_batch_size', 3)
+        logger.info(f"Starting high quality translation in rolling batch mode with batch size: {batch_size}")
+        results = []
+        
+        total_images = len(images_with_configs)
+        for batch_start in range(0, total_images, batch_size):
+            batch_end = min(batch_start + batch_size, total_images)
+            current_batch_images = images_with_configs[batch_start:batch_end]
+            
+            logger.info(f"Processing rolling batch {batch_start//batch_size + 1}/{(total_images + batch_size - 1)//batch_size} (images {batch_start+1}-{batch_end})")
+
+            # 阶段一：预处理当前批次
+            preprocessed_contexts = []
+            for i, (image, config) in enumerate(current_batch_images):
+                try:
+                    self._set_image_context(config, image)
+                    ctx = await self._translate_until_translation(image, config)
+                    if hasattr(image, 'name'):
+                        ctx.image_name = image.name
+                    preprocessed_contexts.append((ctx, config))
+                except Exception as e:
+                    logger.error(f"Error pre-processing image {i+1} in batch: {e}")
+                    ctx = Context()
+                    ctx.input = image
+                    ctx.text_regions = []
+                    if hasattr(image, 'name'):
+                        ctx.image_name = image.name
+                    preprocessed_contexts.append((ctx, config))
+
+            # 阶段二：翻译当前批次
+            batch_data = []
+            for ctx, config in preprocessed_contexts:
+                image_data = {
+                    'image': ctx.input,
+                    'text_regions': ctx.text_regions if ctx.text_regions else [],
+                    'original_texts': [region.text for region in ctx.text_regions] if ctx.text_regions else [],
+                    'text_order': list(range(len(ctx.text_regions))) if ctx.text_regions else []
+                }
+                batch_data.append(image_data)
+
+            if any(data['original_texts'] for data in batch_data):
+                try:
+                    sample_config = preprocessed_contexts[0][1] if preprocessed_contexts else None
+                    if sample_config:
+                        enhanced_ctx = preprocessed_contexts[0][0] if preprocessed_contexts else Context()
+                        enhanced_ctx.high_quality_batch_data = batch_data
+                        enhanced_ctx.high_quality_batch_size = len(preprocessed_contexts)
+                        
+                        all_texts = [text for data in batch_data for text in data['original_texts']]
+                        text_mapping = [(img_idx, region_idx) for img_idx, data in enumerate(batch_data) for region_idx, _ in enumerate(data['original_texts'])]
+                        
+                        logger.info(f"Sending batch data with {len(preprocessed_contexts)} images, {len(all_texts)} text regions to high quality translator")
+                        translated_texts = await self._batch_translate_texts(all_texts, sample_config, enhanced_ctx)
+                        
+                        for text_idx, (img_idx, region_idx) in enumerate(text_mapping):
+                            if text_idx < len(translated_texts):
+                                ctx, config = preprocessed_contexts[img_idx]
+                                if ctx.text_regions and region_idx < len(ctx.text_regions):
+                                    region = ctx.text_regions[region_idx]
+                                    region.translation = translated_texts[text_idx]
+                                    region.target_lang = config.translator.target_lang
+                                    region._alignment = config.render.alignment
+                                    region._direction = config.render.direction
+                        
+                        for ctx, config in preprocessed_contexts:
+                            if ctx.text_regions:
+                                ctx.text_regions = await self._apply_post_translation_processing(ctx, config)
+                except Exception as e:
+                    logger.error(f"Error in high quality batch translation: {e}")
+                    for ctx, config in preprocessed_contexts:
+                        if ctx.text_regions:
+                            for region in ctx.text_regions:
+                                region.translation = region.text
+
+            # 阶段三：渲染并保存当前批次
+            for ctx, config in preprocessed_contexts:
+                try:
+                    if hasattr(ctx, 'input'):
+                        from .utils.generic import get_image_md5
+                        image_md5 = get_image_md5(ctx.input)
+                        if not self._restore_image_context(image_md5):
+                            self._set_image_context(config, ctx.input)
+                    
+                    ctx = await self._complete_translation_pipeline(ctx, config)
+                    
+                    if ctx.text_regions and hasattr(ctx, 'image_name') and ctx.image_name:
+                        self._save_text_to_file(ctx.image_name, ctx)
+
+                    # 如果提供了保存信息，则在此处直接保存
+                    if save_info and ctx.result and hasattr(ctx, 'image_name') and ctx.image_name:
+                        try:
+                            file_path = ctx.image_name
+                            output_folder = save_info["output_folder"]
+                            input_folders = save_info["input_folders"]
+                            
+                            final_output_dir = output_folder
+                            parent_dir = os.path.normpath(os.path.dirname(file_path))
+                            
+                            in_input_folder = False
+                            for folder in input_folders:
+                                if parent_dir.startswith(folder):
+                                    relative_path = os.path.relpath(parent_dir, folder)
+                                    final_output_dir = os.path.join(output_folder, os.path.basename(folder), relative_path)
+                                    in_input_folder = True
+                                    break
+                            
+                            if not in_input_folder:
+                                final_output_dir = output_folder
+
+                            os.makedirs(final_output_dir, exist_ok=True)
+                            output_filename = os.path.basename(file_path)
+                            final_output_path = os.path.join(final_output_dir, output_filename)
+                            
+                            image_to_save = ctx.result
+                            if final_output_path.lower().endswith(('.jpg', '.jpeg')) and image_to_save.mode in ('RGBA', 'LA'):
+                                image_to_save = image_to_save.convert('RGB')
+                            
+                            image_to_save.save(final_output_path)
+                            logger.info(f"  -> ✅ [BATCH] 保存成功: {os.path.basename(final_output_path)}")
+                        except Exception as e:
+                            logger.error(f"在高质量翻译模式下保存文件时出错: {e}")
+
+                    results.append(ctx)
+                except Exception as e:
+                    logger.error(f"Error rendering image: {e}")
+                    results.append(ctx)
+
+        logger.info(f"High quality translation completed: processed {len(results)} images")
+        return results

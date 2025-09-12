@@ -123,6 +123,8 @@ class Translator(str, Enum):
     groq = "groq"
     gemini = "gemini"
     gemini_2stage = "gemini_2stage"
+    openai_hq = "openai_hq"
+    gemini_hq = "gemini_hq"
     custom_openai = "custom_openai"
     offline = "offline"
     nllb = "nllb"
@@ -236,7 +238,7 @@ class TranslatorConfig(BaseModel):
     """Select a translator based on detected language in image. Note the first translation service acts as default if the language isn\'t defined. Example: --translator-chain "google:JPN;sugoi:ENG".'"""
     
     # 译后检查配置项
-    enable_post_translation_check: bool = True
+    enable_post_translation_check: bool = False
     """Enable post-translation validation check"""
     post_check_max_retry_attempts: int = 3
     """Maximum retry attempts for failed translation validation"""
@@ -354,6 +356,8 @@ class Config(BaseModel):
     """Set the convolution kernel size of the text erasure area to completely clean up text residues"""
     mask_dilation_offset: int = 20
     """By how much to extend the text mask to remove left-over text pixels of the original image."""
+    high_quality_batch_size: int = 3
+    """Number of images to send to AI translator at once in high quality mode"""
     _filter_text = None
 
     @property

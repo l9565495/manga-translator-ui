@@ -129,7 +129,7 @@ class Builder:
         
         # In a CI environment, we assume dependencies are pre-installed by the workflow.
         print(f"Running PyInstaller for {version_type.upper()}...")
-        cmd_pyinstaller = [python_exe, "-m", "PyInstaller", spec_file]
+        cmd_pyinstaller = [python_exe, "-m", "PyInstaller", "--hidden-import=bsdiff4.core", spec_file]
         if not run_command_realtime(cmd_pyinstaller):
             print(f"PyInstaller build failed for {version_type.upper()}.")
             return False
@@ -137,7 +137,7 @@ class Builder:
         print(f"\nRunning PyInstaller for Updater...")
         updater_spec_file = 'updater.spec'
         # Use the same python for consistency
-        cmd_pyinstaller_updater = [str(python_exe), "-m", "PyInstaller", updater_spec_file, "--distpath", "dist", "--workpath", f"build/updater_{version_type}"]
+        cmd_pyinstaller_updater = [str(python_exe), "-m", "PyInstaller", "--hidden-import=bsdiff4.core", updater_spec_file, "--distpath", "dist", "--workpath", f"build/updater_{version_type}"]
         if not run_command_realtime(cmd_pyinstaller_updater):
             print(f"PyInstaller build failed for Updater.")
             return False

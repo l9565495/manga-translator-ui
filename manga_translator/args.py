@@ -98,6 +98,8 @@ def general_parser(g_parser):
                         help='Number of images to process in each batch for translation. Default is 1 (no batching)')
     g_parser.add_argument('--batch-concurrent', action='store_true',
                         help='Use concurrent mode for batch translation - process each image separately instead of merging into large batches. Helps prevent model output truncation and hallucination.')
+    g_parser.add_argument('--high-quality-batch-size', default=3, type=int,
+                        help='Number of images to send to AI translator at once in high quality mode. Default is 3')
     g_parser.add_argument('--disable-memory-optimization', action='store_true',
                         help='Disable automatic memory optimization during processing')
     

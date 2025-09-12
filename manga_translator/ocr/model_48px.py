@@ -188,7 +188,7 @@ class Model48pxOCR(OfflineOCR):
 
         if is_quadrilaterals:
             return out_regions
-        return textlines
+        return out_regions
 
 class ConvNeXtBlock(nn.Module):
     r""" ConvNeXt Block. There are two equivalent implementations:

@@ -70,7 +70,7 @@ class M2M100Translator(OfflineTranslator):
         del self.model
         del self.sentence_piece_processor
 
-    async def _infer(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _infer(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         queries_tokenized = self.tokenize(queries, from_lang)
         translated_tokenized = self.model.translate_batch(
             source=queries_tokenized,

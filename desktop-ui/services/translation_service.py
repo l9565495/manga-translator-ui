@@ -4,10 +4,12 @@
 """
 import asyncio
 import logging
+import numpy as np
 import sys
 import os
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
+from PIL import Image
 
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
@@ -15,11 +17,20 @@ if not getattr(sys, 'frozen', False):
 try:
     from manga_translator.translators import dispatch as dispatch_translator
     from manga_translator.config import Translator, TranslatorConfig, TranslatorChain
-    from manga_translator.utils import Context
+    from manga_translator.utils import Context, TextBlock
     TRANSLATOR_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"翻译器后端模块导入失败: {e}")
     TRANSLATOR_AVAILABLE = False
+    # 定义fallback类型
+    class Translator:
+        sugoi = "sugoi"
+    
+    class TranslatorConfig:
+        pass
+    
+    class Context:
+        pass
 
 @dataclass
 class TranslationResult:
@@ -106,7 +117,9 @@ class TranslationService:
     async def translate_text_batch(self, texts: List[str],
                                  translator: Optional[Translator] = None,
                                  target_lang: Optional[str] = None,
-                                 config: Optional[TranslatorConfig] = None) -> List[Optional[TranslationResult]]:
+                                 config: Optional[TranslatorConfig] = None,
+                                 image: Optional[Image.Image] = None,
+                                 regions: Optional[List[Dict[str, Any]]] = None) -> List[Optional[TranslationResult]]:
         if not TRANSLATOR_AVAILABLE or not texts:
             return [None] * len(texts)
 
@@ -117,6 +130,17 @@ class TranslationService:
             chain_string = f"{translator_to_use.value}:{target_lang_to_use}"
             chain = TranslatorChain(chain_string)
             ctx = Context()
+            if image and regions:
+                ctx.img_rgb = np.array(image.convert("RGB"))
+                ctx.text_regions = [TextBlock(**r) for r in regions]
+                
+                # For HQ translators, create the expected data structure
+                batch_item = {
+                    'image': image,
+                    'original_texts': [r.get('text', '') for r in regions]
+                }
+                ctx.high_quality_batch_data = [batch_item]
+
             # Although the backend translator takes a list, the context `text` is not used in the same way.
             # We can leave it empty or set it to the first text.
             if texts:

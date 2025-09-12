@@ -1,0 +1,56 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.venv_cpu/
+.venv_gpu/
+
+# Environment files (contain sensitive information)
+.env
+.env.*
+
+# Claude settings
+.claude/
+
+# Build output
+dist/
+
+# Build artifacts
+build/
+result/
+
+# PyInstaller
+*.spec
+
+# Batch files and executables
+*.bat
+*.exe
+*.sh
+
+# Wheel files
+*.whl
+
+# Backup files
+*.bak
+*.backup
+
+# Tufup auto-update
+.tufup-repo-config
+keys/
+
+# Vendored projects
+Saber-Translator-2.5.1/
+
+# Temp files
+desktop-ui/temp/
+
+# User-specified ignores
+14_translations.json
+19_translations.json
+desktop-ui/user_data/
+manga-image-translator-main/
+
+# Ignore temporary clone check directory
+temp_clone_check/

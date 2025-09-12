@@ -98,7 +98,7 @@ class GroqTranslator(CommonTranslator):
             prompt,
         ])
 
-    async def _translate(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         translations = []
         for prompt in queries:
     #        self.logger.debug('-- Groq Prompt --\n' + self._format_prompt_log(to_lang, prompt))

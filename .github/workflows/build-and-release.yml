@@ -63,6 +63,11 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Fetch LFS files
+      run: |
+        git lfs fetch --all
+        git lfs pull
+
     - name: Restore Previous TUF Assets
       env:
         GH_TOKEN: ${{ github.token }}

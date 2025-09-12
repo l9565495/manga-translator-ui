@@ -72,7 +72,7 @@ class Qwen2Translator(OfflineTranslator, ConfigGPT):
         del self.model
         del self.tokenizer
 
-    async def _infer(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _infer(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         model_inputs = self.tokenize(queries, to_lang)
         # Generate the translation
         generated_ids = self.model.generate(

@@ -74,7 +74,7 @@ class NLLBTranslator(OfflineTranslator):
         del self.model
         del self.tokenizer
 
-    async def _infer(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _infer(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         if from_lang == 'auto':
             detected_lang = langid.classify('\n'.join(queries))[0]
             target_lang = self._map_detected_lang_to_translator(detected_lang)

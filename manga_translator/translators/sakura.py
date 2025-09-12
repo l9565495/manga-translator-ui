@@ -451,7 +451,7 @@ class SakuraTranslator(CommonTranslator):
             new_texts.append(text)
         return new_texts
 
-    async def _translate(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')
         self.logger.debug(f'原文： {queries}')
         text_prompt = '\n'.join(queries)

@@ -219,7 +219,7 @@ class OcrService:
         if not self.model_prepared:
             await self.prepare_model()
         
-        config = config or self.default_config
+        config = config or self._get_current_config()
         
         try:
             start_time = asyncio.get_event_loop().time()

@@ -20,10 +20,11 @@ class Formatter(logging.Formatter):
 class Filter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         # Try to filter out logs from imported modules
-        if not record.name.startswith(ROOT_TAG):
+        if not (record.name.startswith(ROOT_TAG) or record.name.startswith('desktop-ui')):
             return False
         # Shorten the name
         record.name = replace_prefix(record.name, ROOT_TAG + '.', '')
+        record.name = replace_prefix(record.name, 'desktop-ui.', '')
         return super().filter(record)
 
 root = logging.getLogger(ROOT_TAG)

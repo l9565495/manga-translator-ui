@@ -119,6 +119,16 @@ class CommonTranslator(InfererModule):
         super().__init__()
         self.mtpe_adapter = MTPEAdapter()
         self._last_request_ts = 0
+        self.enable_post_translation_check = False
+        self.post_check_repetition_threshold = 5
+        self.post_check_max_retry_attempts = 2
+        self.attempts = -1
+
+    def parse_args(self, config):
+        self.enable_post_translation_check = getattr(config, 'enable_post_translation_check', self.enable_post_translation_check)
+        self.post_check_repetition_threshold = getattr(config, 'post_check_repetition_threshold', self.post_check_repetition_threshold)
+        self.post_check_max_retry_attempts = getattr(config, 'post_check_max_retry_attempts', self.post_check_max_retry_attempts)
+        self.attempts = getattr(config, 'attempts', self.attempts)
 
     def supports_languages(self, from_lang: str, to_lang: str, fatal: bool = False) -> bool:
         supported_src_languages = ['auto'] + list(self._LANGUAGE_CODE_MAP)
@@ -144,7 +154,7 @@ class CommonTranslator(InfererModule):
         _to_lang = self._LANGUAGE_CODE_MAP.get(to_lang)
         return _from_lang, _to_lang
 
-    async def translate(self, from_lang: str, to_lang: str, queries: List[str], use_mtpe: bool = False) -> List[str]:
+    async def translate(self, from_lang: str, to_lang: str, queries: List[str], use_mtpe: bool = False, ctx=None) -> List[str]:
         """
         Translates list of queries of one language into another.
         """
@@ -180,7 +190,7 @@ class CommonTranslator(InfererModule):
             await self._ratelimit_sleep()
 
             # Translate
-            _translations = await self._translate(*self.parse_language_codes(from_lang, to_lang, fatal=True), queries)
+            _translations = await self._translate(*self.parse_language_codes(from_lang, to_lang, fatal=True), queries, ctx=ctx)
 
             # Extend returned translations list to have the same size as queries
             if len(_translations) < len(queries):
@@ -224,7 +234,7 @@ class CommonTranslator(InfererModule):
         return final_translations
 
     @abstractmethod
-    async def _translate(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
+    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         pass
 
     async def _ratelimit_sleep(self):

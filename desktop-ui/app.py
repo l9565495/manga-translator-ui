@@ -622,6 +622,7 @@ class AppController:
             "format": "输出格式",
             "batch_size": "批量大小",
             "batch_concurrent": "并发批量处理",
+            "high_quality_batch_size": "高质量批次大小",
             "config_file": "配置文件",
             "template": "导出翻译"
         }
@@ -637,9 +638,11 @@ class AppController:
             "caiyun": ["CAIYUN_TOKEN"],
             "openai": ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_API_BASE", "OPENAI_HTTP_PROXY", "OPENAI_GLOSSARY_PATH"],
             "chatgpt": ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_API_BASE", "OPENAI_HTTP_PROXY", "OPENAI_GLOSSARY_PATH"],
+            "openai_hq": ["OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_API_BASE", "OPENAI_HTTP_PROXY", "OPENAI_GLOSSARY_PATH"],
             "deepseek": ["DEEPSEEK_API_KEY", "DEEPSEEK_API_BASE", "DEEPSEEK_MODEL"],
             "groq": ["GROQ_API_KEY", "GROQ_MODEL"],
             "gemini": ["GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_BASE"],
+            "gemini_hq": ["GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_API_BASE"],
             "sakura": ["SAKURA_API_BASE", "SAKURA_DICT_PATH", "SAKURA_VERSION"],
             "custom_openai": ["CUSTOM_OPENAI_API_BASE", "CUSTOM_OPENAI_MODEL", "CUSTOM_OPENAI_API_KEY", "CUSTOM_OPENAI_MODEL_CONF"]
         }
@@ -744,8 +747,40 @@ class AppController:
                         widget = ctk.CTkOptionMenu(parent_frame, values=options, command=self._on_renderer_changed)
                     elif key == "translator":
                         def translator_change_handler(v, k="translator.translator"):
-                            self.on_translator_change(v)
-                            self._save_widget_change(k, value=v)
+                            # 反向映射：将显示名称转换回后端值
+                            reverse_mapping = {
+                                "有道翻译": "youdao",
+                                "百度翻译": "baidu",
+                                "DeepL": "deepl",
+                                "Papago": "papago",
+                                "彩云翻译": "caiyun",
+                                "openai": "chatgpt", # Special case
+                                "ChatGPT (2-Stage)": "chatgpt_2stage",
+                                "无": "none",
+                                "原文": "original",
+                                "Sakura": "sakura",
+                                "DeepSeek": "deepseek",
+                                "Groq": "groq",
+                                "Google Gemini": "gemini",
+                                "Gemini (2-Stage)": "gemini_2stage",
+                                "高质量翻译 OpenAI": "openai_hq",
+                                "高质量翻译 Gemini": "gemini_hq",
+                                "自定义 OpenAI": "custom_openai",
+                                "离线翻译": "offline",
+                                "NLLB": "nllb",
+                                "NLLB (Big)": "nllb_big",
+                                "Sugoi": "sugoi",
+                                "JParaCrawl": "jparacrawl",
+                                "JParaCrawl (Big)": "jparacrawl_big",
+                                "M2M100": "m2m100",
+                                "M2M100 (Big)": "m2m100_big",
+                                "mBART50": "mbart50",
+                                "Qwen2": "qwen2",
+                                "Qwen2 (Big)": "qwen2_big",
+                            }
+                            actual_value = reverse_mapping.get(v, v)
+                            self.on_translator_change(actual_value)
+                            self._save_widget_change(k, value=actual_value)
                         widget = ctk.CTkOptionMenu(parent_frame, values=options, command=translator_change_handler)
                     elif key == "target_lang":
                         from services.translation_service import TranslationService
@@ -761,12 +796,46 @@ class AppController:
                     
                     value_to_set = value
                     if key == "translator":
-                        if value == "chatgpt": value_to_set = "openai"
-                        elif value not in options:
+                        # 正向映射：将后端值转换为显示名称
+                        forward_mapping = {
+                            "youdao": "有道翻译",
+                            "baidu": "百度翻译",
+                            "deepl": "DeepL",
+                            "papago": "Papago",
+                            "caiyun": "彩云翻译",
+                            "chatgpt": "openai", # Special case
+                            "chatgpt_2stage": "ChatGPT (2-Stage)",
+                            "none": "无",
+                            "original": "原文",
+                            "sakura": "Sakura",
+                            "deepseek": "DeepSeek",
+                            "groq": "Groq",
+                            "gemini": "Google Gemini",
+                            "gemini_2stage": "Gemini (2-Stage)",
+                            "openai_hq": "高质量翻译 OpenAI",
+                            "gemini_hq": "高质量翻译 Gemini",
+                            "custom_openai": "自定义 OpenAI",
+                            "offline": "离线翻译",
+                            "nllb": "NLLB",
+                            "nllb_big": "NLLB (Big)",
+                            "sugoi": "Sugoi",
+                            "jparacrawl": "JParaCrawl",
+                            "jparacrawl_big": "JParaCrawl (Big)",
+                            "m2m100": "M2M100",
+                            "m2m100_big": "M2M100 (Big)",
+                            "mbart50": "mBART50",
+                            "qwen2": "Qwen2",
+                            "qwen2_big": "Qwen2 (Big)",
+                        }
+                        value_to_set = forward_mapping.get(value, value)
+                        
+                        # 如果值不在选项中，尝试获取枚举值并映射
+                        if value_to_set not in options:
                             try:
-                                value_to_set = Translator(value).value
-                                if value_to_set == "chatgpt": value_to_set = "openai"
-                            except ValueError: pass
+                                enum_value = Translator(value).value
+                                value_to_set = forward_mapping.get(enum_value, enum_value)
+                            except ValueError: 
+                                pass
                     elif key == "target_lang":
                         from services.translation_service import TranslationService
                         translation_service = TranslationService()
@@ -857,10 +926,41 @@ class AppController:
             "secondary_ocr": [member.value for member in Ocr]
         }.get(key, None)
         
-        # 特殊处理翻译器选项，将chatgpt显示为openai
+        # 特殊处理翻译器选项，自定义显示名称
         if key == "translator" and options:
-            # 替换chatgpt为openai
-            options = [option if option != "chatgpt" else "openai" for option in options]
+            # 创建显示名称映射
+            display_mapping = {
+                "youdao": "有道翻译",
+                "baidu": "百度翻译",
+                "deepl": "DeepL",
+                "papago": "Papago",
+                "caiyun": "彩云翻译",
+                "chatgpt": "openai", # Special case
+                "chatgpt_2stage": "ChatGPT (2-Stage)",
+                "none": "无",
+                "original": "原文",
+                "sakura": "Sakura",
+                "deepseek": "DeepSeek",
+                "groq": "Groq",
+                "gemini": "Google Gemini",
+                "gemini_2stage": "Gemini (2-Stage)",
+                "openai_hq": "高质量翻译 OpenAI",
+                "gemini_hq": "高质量翻译 Gemini",
+                "custom_openai": "自定义 OpenAI",
+                "offline": "离线翻译",
+                "nllb": "NLLB",
+                "nllb_big": "NLLB (Big)",
+                "sugoi": "Sugoi",
+                "jparacrawl": "JParaCrawl",
+                "jparacrawl_big": "JParaCrawl (Big)",
+                "m2m100": "M2M100",
+                "m2m100_big": "M2M100 (Big)",
+                "mbart50": "mBART50",
+                "qwen2": "Qwen2",
+                "qwen2_big": "Qwen2 (Big)",
+            }
+            # 应用显示名称映射
+            options = [display_mapping.get(option, option) for option in options]
         
         return options
 
@@ -936,9 +1036,14 @@ class AppController:
             
             self.update_log(f"[DEBUG] Value to save: {value} (Type: {type(value)})\n")
 
-            # 特殊处理：将UI中的openai转换回后端期望的chatgpt
-            if full_key == "translator.translator" and value == "openai":
-                value = "chatgpt"
+            # 特殊处理：将UI显示名称转换回后端期望的值
+            if full_key == "translator.translator":
+                reverse_mapping = {
+                    "openai": "chatgpt",
+                    "高质量翻译 OpenAI": "openai_hq", 
+                    "高质量翻译 Gemini": "gemini_hq"
+                }
+                value = reverse_mapping.get(value, value)
 
             # Update the nested dictionary
             keys = full_key.split('.')
@@ -2069,6 +2174,15 @@ class AppController:
                     if name == value:
                         value = code
                         break
+            
+            # Special handling for translator to convert display name to internal name
+            elif full_key == 'translator.translator' and isinstance(value, str):
+                reverse_mapping = {
+                    "openai": "chatgpt",
+                    "高质量翻译 OpenAI": "openai_hq",
+                    "高质量翻译 Gemini": "gemini_hq"
+                }
+                value = reverse_mapping.get(value, value)
 
             if value is not None:
                 d[keys[-1]] = value

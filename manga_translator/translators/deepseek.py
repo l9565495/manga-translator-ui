@@ -102,7 +102,7 @@ class DeepseekTranslator(CommonGPTTranslator):
                 prompt,
             ])
 
-    async def _translate(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:  
+    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:  
         translations = [''] * len(queries)  
         self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')  
         MAX_SPLIT_ATTEMPTS = 5  # Default max split attempts  

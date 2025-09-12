@@ -136,7 +136,14 @@ def complete_mask(img: np.ndarray, mask: np.ndarray, textlines: List[Quadrilater
             # print(textlines[tl_idx].pts, cc_pts, '->', overlapping_area, min(area1, area2), '=', overlapping_area / min(area1, area2), '|', polys[tl_idx].distance(cc_poly))
 
         avg = np.argmax(ratio_mat[label])
-        # print(avg, 'overlap:', ratio_mat[label, avg], '<=', keep_threshold)
+        max_overlap = ratio_mat[label, avg]
+
+        # If the best overlap for this component is essentially zero, discard it.
+        # This handles components from a raw_mask for regions that have been deleted.
+        if max_overlap < 0.1:
+            continue
+            
+        # print(avg, 'overlap:', ratio_mat[label, avg], '<', keep_threshold)
         area2 = polys[avg].area
         if area1 >= area2:
             continue

@@ -14,6 +14,38 @@ from manga_translator.config import Ocr, Translator
 from services import get_config_service, get_translation_service, get_ocr_service
 
 
+TRANSLATOR_DISPLAY_NAMES = {
+    "youdao": "有道翻译",
+    "baidu": "百度翻译",
+    "deepl": "DeepL",
+    "papago": "Papago",
+    "caiyun": "彩云翻译",
+    "chatgpt": "ChatGPT",
+    "chatgpt_2stage": "ChatGPT (2-Stage)",
+    "none": "无",
+    "original": "原文",
+    "sakura": "Sakura",
+    "deepseek": "DeepSeek",
+    "groq": "Groq",
+    "gemini": "Google Gemini",
+    "gemini_2stage": "Gemini (2-Stage)",
+    "openai_hq": "高质量翻译 OpenAI",
+    "gemini_hq": "高质量翻译 Gemini",
+    "custom_openai": "自定义 OpenAI",
+    "offline": "离线翻译",
+    "nllb": "NLLB",
+    "nllb_big": "NLLB (Big)",
+    "sugoi": "Sugoi",
+    "jparacrawl": "JParaCrawl",
+    "jparacrawl_big": "JParaCrawl (Big)",
+    "m2m100": "M2M100",
+    "m2m100_big": "M2M100 (Big)",
+    "mbart50": "mBART50",
+    "qwen2": "Qwen2",
+    "qwen2_big": "Qwen2 (Big)",
+}
+
+
 class PropertyPanel(ctk.CTkScrollableFrame):
     """属性面板"""
     
@@ -351,38 +383,19 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         
         translators = self.translation_service.get_available_translators()
         translator_config = self.config_service.get_config().get('translator', {})
-        default_translator = translator_config.get('translator', translators[0] if translators else None)
-        self.widgets['translator'] = ctk.CTkOptionMenu(translator_frame, values=translators, command=self._on_translator_change)
+        default_translator_key = translator_config.get('translator', translators[0] if translators else None)
+
+        self.translator_display_to_key = {TRANSLATOR_DISPLAY_NAMES.get(t, t): t for t in translators}
+        translator_display_names = list(self.translator_display_to_key.keys())
         
-        # 设置默认翻译器，支持name和value两种匹配方式
-        if default_translator and translators:
-            # 优先精确匹配
-            if default_translator in translators:
-                self.widgets['translator'].set(default_translator)
-            else:
-                # 尝试通过后端枚举映射
-                try:
-                    from manga_translator.config import Translator
-                    # 查找对应的value
-                    matched_value = None
-                    if hasattr(Translator, default_translator):
-                        # 通过name查找
-                        matched_value = Translator[default_translator].value
-                    else:
-                        # 通过value查找
-                        for t in Translator:
-                            if t.value == default_translator:
-                                matched_value = t.value
-                                break
-                    
-                    if matched_value and matched_value in translators:
-                        self.widgets['translator'].set(matched_value)
-                    else:
-                        self.widgets['translator'].set(translators[0])
-                except ImportError:
-                    self.widgets['translator'].set(translators[0])
-        elif translators:
-            self.widgets['translator'].set(translators[0])
+        self.widgets['translator'] = ctk.CTkOptionMenu(translator_frame, values=translator_display_names, command=self._on_translator_display_change)
+
+        if default_translator_key:
+            default_display_name = TRANSLATOR_DISPLAY_NAMES.get(default_translator_key, default_translator_key)
+            if default_display_name in translator_display_names:
+                self.widgets['translator'].set(default_display_name)
+        elif translator_display_names:
+            self.widgets['translator'].set(translator_display_names[0])
         self.widgets['translator'].grid(row=0, column=0, sticky="ew", padx=(0, 5))
         ctk.CTkButton(translator_frame, text="翻译", width=60, command=lambda: self._execute_callback('translate_text')).grid(row=0, column=1)
         
@@ -625,6 +638,11 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         """OCR模型变化处理"""
         self._execute_callback('ocr_model_changed', value)
     
+    def _on_translator_display_change(self, display_name: str):
+        """处理翻译器显示名称变化"""
+        translator_key = self.translator_display_to_key.get(display_name, display_name)
+        self._on_translator_change(translator_key)
+
     def _on_translator_change(self, value):
         """翻译器变化处理"""
         self._execute_callback('translator_changed', value)

@@ -76,7 +76,7 @@ class MBart50Translator(OfflineTranslator):
         del self.model
         del self.tokenizer
 
-    async def _infer(self, from_lang: str, to_lang: str, queries: list[str]) -> list[str]:
+    async def _infer(self, from_lang: str, to_lang: str, queries: list[str], ctx=None) -> list[str]:
         if from_lang == 'auto':
             detected_lang = langid.classify('\n'.join(queries))[0]
             target_lang = self._map_detected_lang_to_translator(detected_lang)
