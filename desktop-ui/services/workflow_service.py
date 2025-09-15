@@ -265,15 +265,31 @@ def get_template_path_from_config(custom_path: str = None) -> str:
     Returns:
         str: 最终使用的模板路径
     """
+    import sys
+
+    # Define base_path for resolving relative paths, works for dev and for PyInstaller
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
     # 优先级: 用户指定 > 环境变量 > 默认路径
-    if custom_path and os.path.exists(custom_path):
-        return custom_path
+    if custom_path:
+        path_to_check = custom_path if os.path.isabs(custom_path) else os.path.join(base_path, custom_path)
+        if os.path.exists(path_to_check):
+            logger.debug(f"Using user-provided template path: {path_to_check}")
+            return path_to_check
     
     env_template = os.environ.get('MANGA_TEMPLATE_PATH')
-    if env_template and os.path.exists(env_template):
-        return env_template
+    if env_template:
+        path_to_check = env_template if os.path.isabs(env_template) else os.path.join(base_path, env_template)
+        if os.path.exists(path_to_check):
+            logger.debug(f"Using environment variable template path: {path_to_check}")
+            return path_to_check
     
-    return get_default_template_path()
+    default_path = get_default_template_path()
+    logger.debug(f"Using default template path: {default_path}")
+    return default_path
 
 
 def create_template_selection_dialog(parent=None):
