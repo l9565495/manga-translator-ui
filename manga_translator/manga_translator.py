@@ -67,8 +67,10 @@ class TranslationInterrupt(Exception):
 
 def load_dictionary(file_path):
     dictionary = []
-    if file_path and os.path.exists(file_path):
-        with open(file_path, 'r', encoding='utf-8') as file:
+    if file_path:
+        path_to_check = file_path if os.path.isabs(file_path) else os.path.join(BASE_PATH, file_path)
+        if os.path.exists(path_to_check):
+            with open(path_to_check, 'r', encoding='utf-8') as file:
             for line_number, line in enumerate(file, start=1):
                 # Ignore empty lines and lines starting with '#' or '//'
                 if not line.strip() or line.strip().startswith('#') or line.strip().startswith('//'):

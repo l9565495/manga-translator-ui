@@ -271,8 +271,17 @@ class TranslatorConfig(BaseModel):
     @property
     def chatgpt_config(self):
         if self.gpt_config is not None and self._gpt_config is None:
-            #todo: load from already loaded file
-            self._gpt_config = OmegaConf.load(self.gpt_config)
+            import os
+            from manga_translator.utils.generic import BASE_PATH
+            
+            config_path = self.gpt_config
+            if not os.path.isabs(config_path):
+                config_path = os.path.join(BASE_PATH, config_path)
+            
+            if os.path.exists(config_path):
+                self._gpt_config = OmegaConf.load(config_path)
+            else:
+                self._gpt_config = None
         return self._gpt_config
 
 
