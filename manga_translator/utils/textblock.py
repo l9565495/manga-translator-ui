@@ -70,6 +70,7 @@ class TextBlock(object):
                  shadow_color: Tuple = (0, 0, 0),
                  shadow_offset: List = [0, 0],
                  prob: float = 1,
+                 layout_mode: str = 'default',
                  **kwargs) -> None:
         self.lines = np.array(lines, dtype=np.float64)
         # self.lines.sort()
@@ -89,6 +90,7 @@ class TextBlock(object):
                 else :
                     self.text += ' ' + txt
         self.prob = prob
+        self.layout_mode = layout_mode
 
         self.translation = translation
 

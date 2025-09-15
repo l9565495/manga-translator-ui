@@ -123,6 +123,22 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         self.widgets['angle_label'] = ctk.CTkLabel(info_frame, text="-")
         self.widgets['angle_label'].grid(row=3, column=1, sticky="w", padx=(10, 0))
     
+    def _insert_placeholder(self):
+        if 'translation_text' in self.widgets:
+            try:
+                self.widgets['translation_text'].insert(ctk.INSERT, "＿")
+                self._on_text_change() # Manually trigger update
+            except Exception as e:
+                print(f"Error inserting placeholder: {e}")
+
+    def _insert_newline(self):
+        if 'translation_text' in self.widgets:
+            try:
+                self.widgets['translation_text'].insert(ctk.INSERT, "↵")
+                self._on_text_change() # Manually trigger update
+            except Exception as e:
+                print(f"Error inserting newline: {e}")
+
     def _create_text_section(self):
         """创建文本编辑部分"""
         # 文本内容标题
@@ -170,10 +186,29 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         self.widgets['translation_text']._textbox.configure(insertofftime=300)  # 光标闪烁关闭时间
         self.widgets['translation_text']._textbox.configure(insertontime=600)   # 光标闪烁打开时间
         self.widgets['translation_text']._textbox.configure(selectbackground="#0078d4")  # 设置选中背景色
+
+        # --- Insert Buttons Frame ---
+        button_frame = ctk.CTkFrame(self)
+        button_frame.grid(row=10, column=0, sticky="ew", padx=5, pady=(0, 0))
+        button_frame.grid_columnconfigure((0, 1), weight=1)
+
+        self.widgets['insert_placeholder_button'] = ctk.CTkButton(
+            button_frame,
+            text="插入占位符",
+            command=self._insert_placeholder
+        )
+        self.widgets['insert_placeholder_button'].grid(row=0, column=0, padx=(0, 2), pady=2, sticky="ew")
+
+        self.widgets['insert_newline_button'] = ctk.CTkButton(
+            button_frame,
+            text="插入换行",
+            command=self._insert_newline
+        )
+        self.widgets['insert_newline_button'].grid(row=0, column=1, padx=(2, 0), pady=2, sticky="ew")
         
         # 文本统计
         self.widgets['text_stats'] = ctk.CTkLabel(self, text="字符数: 0", font=ctk.CTkFont(size=10))
-        self.widgets['text_stats'].grid(row=10, column=0, sticky="w", padx=5, pady=2)
+        self.widgets['text_stats'].grid(row=11, column=0, sticky="w", padx=5, pady=2)
 
     def _handle_textbox_key_press(self, event):
         """处理文本框中的按键事件，以允许全局快捷键"""

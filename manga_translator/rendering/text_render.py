@@ -457,6 +457,10 @@ def select_hyphenator(lang: str):
         return None
 
 def get_char_offset_x(font_size: int, cdpt: str):
+    if cdpt == '＿':
+        # Return the width of a full-width space for the placeholder
+        return get_char_offset_x(font_size, '　')
+
     c, rot_degree = CJK_Compatibility_Forms_translate(cdpt, 0)
     glyph = get_char_glyph(c, font_size, 0)
     bitmap = glyph.bitmap
@@ -468,6 +472,56 @@ def get_char_offset_x(font_size: int, cdpt: str):
 
 def get_string_width(font_size: int, text: str):
     return sum([get_char_offset_x(font_size, c) for c in text])
+
+def calc_horizontal_cjk(font_size: int, text: str, max_width: int) -> Tuple[List[str], List[int]]:
+    """
+    Line breaking logic for CJK languages with punctuation rules.
+    Handles forced newlines (\n) and invisible placeholders (＿).
+    """
+    lines = []
+    no_start_chars = "》，。．」』】）！；：？"
+    no_end_chars = "《「『【（"
+
+    paragraphs = text.split('\n')
+    
+    for paragraph in paragraphs:
+        if not paragraph:
+            lines.append(("", 0))
+            continue
+
+        current_line = ""
+        current_width = 0
+        for char in paragraph:
+            char_width = get_char_offset_x(font_size, char)
+
+            if current_width + char_width > max_width and current_line:
+                if current_line and current_line[-1] in no_end_chars:
+                    last_char = current_line[-1]
+                    current_line = current_line[:-1]
+                    lines.append((current_line, get_string_width(font_size, current_line)))
+                    current_line = last_char + char
+                else:
+                    lines.append((current_line, current_width))
+                    current_line = char
+                current_width = get_string_width(font_size, current_line)
+            elif not current_line and char in no_start_chars:
+                if lines:
+                    prev_line_text, prev_line_width = lines[-1]
+                    lines[-1] = (prev_line_text + char, prev_line_width + char_width)
+                else:
+                    current_line += char
+                    current_width += char_width
+            else:
+                current_line += char
+                current_width += char_width
+        
+        if current_line:
+            lines.append((current_line, current_width))
+
+    line_text_list = [line[0] for line in lines]
+    line_width_list = [line[1] for line in lines]
+    
+    return line_text_list, line_width_list
 
 def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, language: str = 'en_US', hyphenate: bool = True) -> Tuple[List[str], List[int]]:
     max_width = max(max_width, 2 * font_size)
@@ -668,6 +722,10 @@ def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, 
     return line_text_list, line_width_list
 
 def put_char_horizontal(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_text: np.ndarray, canvas_border: np.ndarray, border_size: int):
+    if cdpt == '＿':
+        # For the placeholder, just advance the pen and do nothing else.
+        return get_char_offset_x(font_size, '＿')
+
     pen = list(pen_l)
     cdpt, rot_degree = CJK_Compatibility_Forms_translate(cdpt, 0)
     slot = get_char_glyph(cdpt, font_size, 0)
@@ -761,15 +819,25 @@ def put_char_horizontal(font_size: int, cdpt: str, pen_l: Tuple[int, int], canva
                          f"target={{target_slice.shape}}, source={{bitmap_border_slice.shape}}")
     return char_offset_x
 
+def is_cjk_lang(lang: str):
+    lang = lang.lower()
+    # Check for common language codes for Chinese, Japanese, Korean
+    return lang in ['chs', 'cht', 'jpn', 'kor', 'zh', 'ja', 'ko']
+
 def put_text_horizontal(font_size: int, text: str, width: int, height: int, alignment: str,
                         reversed_direction: bool, fg: Tuple[int, int, int], bg: Tuple[int, int, int],
-                        lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0):
+                        lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0, layout_mode: str = 'default'):
     text = compact_special_symbols(text)
     if not text : 
         return
     bg_size = int(max(font_size * 0.07, 1)) if bg is not None else 0
     spacing_y = int(font_size * (line_spacing or 0.01))
-    line_text_list, line_width_list = calc_horizontal(font_size, text, width, height, lang, hyphenate)
+
+    if layout_mode == 'smart_scaling' and is_cjk_lang(lang):
+        line_text_list, line_width_list = calc_horizontal_cjk(font_size, text, width)
+    else:
+        line_text_list, line_width_list = calc_horizontal(font_size, text, width, height, lang, hyphenate)
+
     canvas_w = max(line_width_list) + (font_size + bg_size) * 2
     canvas_h = font_size * len(line_width_list) + spacing_y * (len(line_width_list) - 1) + (font_size + bg_size) * 2
     canvas_text = np.zeros((canvas_h, canvas_w), dtype=np.uint8)

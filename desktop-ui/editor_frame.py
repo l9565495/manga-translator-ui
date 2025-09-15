@@ -333,11 +333,16 @@ class EditorFrame(ctk.CTkFrame):
             # 不抛出异常，避免影响启动
     
     def _update_canvas_regions(self):
-        
-        
-        # Config is now pushed to canvas frame separately.
-        # This method just triggers a region update and recalculation.
-        self.canvas_frame.set_regions(self.regions_data)
+        config = self.config_service.get_config()
+        layout_mode = config.get('render', {}).get('layout_mode', 'default')
+
+        updated_regions_data = []
+        for region_data in self.regions_data:
+            new_data = region_data.copy()
+            new_data['layout_mode'] = layout_mode
+            updated_regions_data.append(new_data)
+
+        self.canvas_frame.set_regions(updated_regions_data)
 
     def _on_image_loaded(self, image: Image.Image, image_path: str):
         # 在加载新图片前，先彻底清空编辑器状态
@@ -1364,7 +1369,8 @@ class EditorFrame(ctk.CTkFrame):
     def _on_property_panel_text_changed(self):
         if len(self.selected_indices) == 1:
             index = self.selected_indices[0]
-            new_text = self.property_panel.widgets['translation_text'].get("1.0", "end-1c")
+            raw_text = self.property_panel.widgets['translation_text'].get("1.0", "end-1c")
+            new_text = raw_text.replace('↵', '\n')
             if self.regions_data[index].get('translation') != new_text:
                 old_data = copy.deepcopy(self.regions_data[index])
                 self.regions_data[index]['translation'] = new_text
