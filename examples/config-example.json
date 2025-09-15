@@ -1,86 +1,86 @@
 {
-    "filter_text": null,
-    "kernel_size": 3,
-    "mask_dilation_offset": 20,
-    "translator": {
-        "translator": "openai_hq",
-        "target_lang": "CHS",
-        "no_text_lang_skip": false,
-        "gpt_config": "../examples/gpt_config-example.yaml",
-        "high_quality_prompt_path": "dict/prompt_example.json"
-    },
-    "ocr": {
-        "use_mocr_merge": false,
-        "ocr": "48px",
-        "use_hybrid_ocr": false,
-        "secondary_ocr": "mocr",
-        "min_text_length": 0,
-        "ignore_bubble": 0,
-        "prob": 0.001,
-        "merge_gamma": 0.8,
-        "merge_sigma": 2.5,
-        "kernel_size": 3
-    },
-    "detector": {
-        "detector": "default",
-        "detection_size": 2048,
-        "text_threshold": 0.7,
-        "det_rotate": false,
-        "det_auto_rotate": false,
-        "det_invert": false,
-        "det_gamma_correct": false,
-        "box_threshold": 0.5,
-        "unclip_ratio": 2.5
-    },
-    "inpainter": {
-        "inpainter": "lama_large",
-        "inpainting_size": 2048,
-        "inpainting_precision": "fp32"
-    },
-    "render": {
-        "renderer": "default",
-        "alignment": "auto",
-        "disable_font_border": false,
-        "font_size_offset": 0,
-        "font_size_minimum": 0,
-        "direction": "auto",
-        "uppercase": false,
-        "lowercase": false,
-        "gimp_font": "Arial-Unicode-Regular.ttf",
-        "font_path": "Arial-Unicode-Regular.ttf",
-        "no_hyphenation": false,
-        "font_color": ":FFFFFF",
-        "rtl": true,
-        "layout_mode": "smart_scaling"
-    },
-    "upscale": {
-        "upscaler": "esrgan",
-        "revert_upscaling": false
-    },
-    "colorizer": {
-        "colorization_size": 576,
-        "denoise_sigma": 30,
-        "colorizer": "none"
-    },
-    "cli": {
-        "verbose": true,
-        "attempts": -1,
-        "ignore_errors": false,
-        "use_gpu": true,
-        "use_gpu_limited": false,
-        "context_size": 3,
-        "format": "webp",
-        "overwrite": true,
-        "skip_no_text": false,
-        "use_mtpe": false,
-        "save_text": true,
-        "load_text": false,
-        "template": false,
-        "prep_manual": false,
-        "save_quality": 100,
-        "batch_size": 1,
-        "batch_concurrent": false,
-        "high_quality_batch_size": 3
-    },
-    "last_output_path": "D:/xiazai/图片助手(ImageAssistant)_批量图片下载器/output"
+  "filter_text": null,
+  "kernel_size": 3,
+  "mask_dilation_offset": 20,
+  "translator": {
+    "translator": "openai_hq",
+    "target_lang": "CHS",
+    "no_text_lang_skip": false,
+    "gpt_config": "../examples/gpt_config-example.yaml",
+    "high_quality_prompt_path": "dict/prompt_example.json"
+  },
+  "ocr": {
+    "use_mocr_merge": false,
+    "ocr": "48px",
+    "use_hybrid_ocr": false,
+    "secondary_ocr": "mocr",
+    "min_text_length": 0,
+    "ignore_bubble": 0,
+    "prob": 0.001,
+    "merge_gamma": 0.8,
+    "merge_sigma": 2.5,
+    "kernel_size": 3
+  },
+  "detector": {
+    "detector": "default",
+    "detection_size": 2048,
+    "text_threshold": 0.7,
+    "det_rotate": false,
+    "det_auto_rotate": false,
+    "det_invert": false,
+    "det_gamma_correct": false,
+    "box_threshold": 0.5,
+    "unclip_ratio": 2.5
+  },
+  "inpainter": {
+    "inpainter": "lama_large",
+    "inpainting_size": 2048,
+    "inpainting_precision": "fp32"
+  },
+  "render": {
+    "renderer": "default",
+    "alignment": "auto",
+    "disable_font_border": false,
+    "font_size_offset": 0,
+    "font_size_minimum": 0,
+    "direction": "auto",
+    "uppercase": false,
+    "lowercase": false,
+    "gimp_font": "Arial-Unicode-Regular.ttf",
+    "font_path": "Arial-Unicode-Regular.ttf",
+    "no_hyphenation": false,
+    "font_color": ":FFFFFF",
+    "rtl": true,
+    "layout_mode": "smart_scaling"
+  },
+  "upscale": {
+    "upscaler": "esrgan",
+    "revert_upscaling": false
+  },
+  "colorizer": {
+    "colorization_size": 576,
+    "denoise_sigma": 30,
+    "colorizer": "none"
+  },
+  "cli": {
+    "verbose": true,
+    "attempts": -1,
+    "ignore_errors": false,
+    "use_gpu": true,
+    "use_gpu_limited": false,
+    "context_size": 3,
+    "format": "webp",
+    "overwrite": true,
+    "skip_no_text": false,
+    "use_mtpe": false,
+    "save_text": true,
+    "load_text": false,
+    "template": false,
+    "prep_manual": false,
+    "save_quality": 100,
+    "batch_size": 1,
+    "batch_concurrent": false,
+    "high_quality_batch_size": 3
+  },
+  "last_output_path": "D:/xiazai/图片助手(ImageAssistant)_批量图片下载器/output"
 }

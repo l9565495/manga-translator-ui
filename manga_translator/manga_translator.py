@@ -635,6 +635,18 @@ class MangaTranslator:
                         region_data['target_lang'] = config.translator.target_lang
                         logger.debug(f"Region target_lang missing in JSON, falling back to config's target_lang: {config.translator.target_lang}")
 
+                # Convert hex font_color from editor to fg_r, fg_g, fg_b for TextBlock
+                if 'font_color' in region_data and isinstance(region_data['font_color'], str):
+                    try:
+                        hex_color = region_data['font_color']
+                        if hex_color.startswith('#'):
+                            r, g, b = hex2rgb(hex_color)
+                            region_data['fg_r'] = r
+                            region_data['fg_g'] = g
+                            region_data['fg_b'] = b
+                    except Exception as e:
+                        logger.warning(f"Could not parse font_color '{region_data['font_color']}': {e}")
+
                 # Recreate the TextBlock object by unpacking the dictionary
                 # This restores all saved attributes
                 if 'lines' in region_data and isinstance(region_data['lines'], list):
