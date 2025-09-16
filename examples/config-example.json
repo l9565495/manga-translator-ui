@@ -1,22 +1,22 @@
 {
   "filter_text": null,
   "kernel_size": 3,
-  "mask_dilation_offset": 20,
+  "mask_dilation_offset": 70,
   "translator": {
     "translator": "gemini_hq",
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "gpt_config": "../examples/gpt_config-example.yaml",
-    "high_quality_prompt_path": "dict/prompt_example.json"
+    "high_quality_prompt_path": "dict/prompt_example.json",
   },
   "ocr": {
     "use_mocr_merge": false,
     "ocr": "48px",
-    "use_hybrid_ocr": false,
+    "use_hybrid_ocr": true,
     "secondary_ocr": "mocr",
     "min_text_length": 0,
     "ignore_bubble": 0,
-    "prob": 0.001,
+    "prob": 0.1,
     "merge_gamma": 0.8,
     "merge_sigma": 2.5,
     "kernel_size": 3
@@ -24,7 +24,7 @@
   "detector": {
     "detector": "default",
     "detection_size": 2048,
-    "text_threshold": 0.7,
+    "text_threshold": 0.5,
     "det_rotate": false,
     "det_auto_rotate": false,
     "det_invert": false,
@@ -33,7 +33,7 @@
     "unclip_ratio": 2.5
   },
   "inpainter": {
-    "inpainter": "lama_large",
+    "inpainter": "default",
     "inpainting_size": 2048,
     "inpainting_precision": "fp32"
   },
@@ -41,6 +41,7 @@
     "renderer": "default",
     "alignment": "auto",
     "disable_font_border": false,
+    "disable_auto_wrap": false,
     "font_size_offset": 0,
     "font_size_minimum": 0,
     "direction": "auto",
@@ -81,6 +82,5 @@
     "batch_size": 1,
     "batch_concurrent": false,
     "high_quality_batch_size": 3
-  },
-  "last_output_path": null
+    "last_output_path": ""
 }

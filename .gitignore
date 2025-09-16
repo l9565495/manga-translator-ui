@@ -62,3 +62,4 @@ temp_clone_check/
 models/ocr/ocr-ctc.ckpt
 高质量翻译实现文档.md
 dict/high_quality_translation_prompt.txt
+dict/wyxxl.json

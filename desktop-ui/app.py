@@ -137,6 +137,7 @@ class AppController:
             "cli.batch_concurrent": bool,
             "cli.ignore_errors": bool,
             "render.disable_font_border": bool,
+            "render.disable_auto_wrap": bool,
             "render.uppercase": bool,
             "render.lowercase": bool,
             "render.no_hyphenation": bool,
@@ -514,6 +515,7 @@ class AppController:
             "renderer": "渲染器",
             "alignment": "对齐方式",
             "disable_font_border": "禁用字体边框",
+            "disable_auto_wrap": "AI断句",
             "font_size_offset": "字体大小偏移量",
             "font_size_minimum": "最小字体大小",
             "direction": "文本方向",
@@ -1063,7 +1065,7 @@ class AppController:
                 self.update_log(f"Prompt directory not found: {dict_dir}\n")
                 return []
             
-            prompt_files = sorted([f for f in os.listdir(dict_dir) if f.lower().endswith('.json')])
+            prompt_files = sorted([f for f in os.listdir(dict_dir) if f.lower().endswith('.json') and f not in ['system_prompt_hq.json', 'system_prompt_line_break.json']])
             
             widget = self.parameter_widgets.get("translator.high_quality_prompt_path")
             if widget and isinstance(widget, ctk.CTkComboBox):
@@ -2314,7 +2316,13 @@ class AppController:
             detector=DetectorConfig(**config_dict.get('detector', {})),
             colorizer=ColorizerConfig(**config_dict.get('colorizer', {})),
             inpainter=InpainterConfig(**config_dict.get('inpainter', {})),
-            ocr=OcrConfig(**config_dict.get('ocr', {}))
+            ocr=OcrConfig(**config_dict.get('ocr', {})),
+            # Pass top-level arguments from the dictionary
+            filter_text=config_dict.get('filter_text'),
+            force_simple_sort=config_dict.get('force_simple_sort', False),
+            kernel_size=config_dict.get('kernel_size', 3),
+            mask_dilation_offset=config_dict.get('mask_dilation_offset', 20),
+            high_quality_batch_size=config_dict.get('high_quality_batch_size', 3)
         )
 
     def _update_start_button_text(self):
