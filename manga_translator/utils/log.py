@@ -30,13 +30,18 @@ class Filter(logging.Filter):
 root = logging.getLogger(ROOT_TAG)
 
 def init_logging():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     for h in logging.root.handlers:
         h.setFormatter(Formatter())
         h.addFilter(Filter())
+    # Explicitly set the root logger level
+    root.setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.DEBUG)
 
 def set_log_level(level):
     root.setLevel(level)
+    # Also set the root logger level to ensure DEBUG messages pass through
+    logging.getLogger().setLevel(level)
 
 def get_logger(name: str):
     return root.getChild(name)

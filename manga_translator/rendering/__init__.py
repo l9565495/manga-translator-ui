@@ -53,9 +53,9 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
     for region in text_regions:
         if region is None:
             dst_points_list.append(None)
-            continue 
+            continue
         original_region_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
-        
+
         font_size_offset = config.render.font_size_offset
         min_font_size = max(config.render.font_size_minimum if config.render.font_size_minimum > 0 else 1, 1)
         target_font_size = max(original_region_font_size + font_size_offset, min_font_size)
