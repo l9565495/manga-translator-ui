@@ -135,6 +135,7 @@ class AppController:
             "cli.overwrite": bool,
             "cli.prep_manual": bool,
             "cli.batch_concurrent": bool,
+            "cli.generate_and_export": bool,
             "cli.ignore_errors": bool,
             "render.disable_font_border": bool,
             "render.disable_auto_wrap": bool,
@@ -627,6 +628,7 @@ class AppController:
             "batch_size": "批量大小",
             "batch_concurrent": "并发批量处理",
             "high_quality_batch_size": "高质量批次大小",
+            "generate_and_export": "导出翻译",
             "config_file": "配置文件",
             "template": "导出翻译"
         }
@@ -696,8 +698,12 @@ class AppController:
         for i, (key, value) in enumerate(data.items()):
             row = start_row + i
             full_key = f"{prefix}.{key}" if prefix else key
+
+            label_text = self.translate(key)
+            if full_key == "cli.template":
+                label_text = "导出原文"
             
-            label = ctk.CTkLabel(parent_frame, text=self.translate(key), anchor="w")
+            label = ctk.CTkLabel(parent_frame, text=label_text, anchor="w")
             widget = None
 
             if full_key == "render.font_path":
@@ -764,6 +770,8 @@ class AppController:
                 command = lambda w=widget, k=full_key: self._save_widget_change(k, w)
                 if full_key == "cli.load_text":
                     command = self._on_load_text_toggled
+                elif full_key == "cli.generate_and_export":
+                    command = self._on_generate_and_export_toggled
                 elif full_key == "cli.save_text":
                     command = self._on_save_text_toggled
                 elif full_key == "cli.template":
@@ -2334,14 +2342,21 @@ class AppController:
     def _update_start_button_text(self):
         load_switch = self.parameter_widgets.get("cli.load_text")
         template_switch = self.parameter_widgets.get("cli.template")
+        generate_switch = self.parameter_widgets.get("cli.generate_and_export")
         button = self.main_view_widgets.get('start_translation_button')
 
-        if not all([load_switch, template_switch, button]):
+        if not button:
             return
 
-        if load_switch.get() == 1:
+        load_is_on = load_switch and load_switch.get() == 1
+        template_is_on = template_switch and template_switch.get() == 1
+        generate_is_on = generate_switch and generate_switch.get() == 1
+
+        if load_is_on:
             button.configure(text="导入翻译并渲染")
-        elif template_switch.get() == 1:
+        elif template_is_on:
+            button.configure(text="仅生成原文模板")
+        elif generate_is_on:
             button.configure(text="导出翻译")
         else:
             button.configure(text="开始翻译")
@@ -2349,10 +2364,15 @@ class AppController:
     def _on_load_text_toggled(self):
         load_switch = self.parameter_widgets.get("cli.load_text")
         template_switch = self.parameter_widgets.get("cli.template")
+        generate_switch = self.parameter_widgets.get("cli.generate_and_export")
 
-        if load_switch and template_switch and load_switch.get() == 1:
-            template_switch.deselect()
-            self._save_widget_change("cli.template", template_switch)
+        if load_switch and load_switch.get() == 1:
+            if template_switch:
+                template_switch.deselect()
+                self._save_widget_change("cli.template", template_switch)
+            if generate_switch:
+                generate_switch.deselect()
+                self._save_widget_change("cli.generate_and_export", generate_switch)
 
         self._update_start_button_text()
         self._save_widget_change("cli.load_text", load_switch)
@@ -2365,13 +2385,34 @@ class AppController:
     def _on_template_toggled(self):
         template_switch = self.parameter_widgets.get("cli.template")
         load_switch = self.parameter_widgets.get("cli.load_text")
+        generate_switch = self.parameter_widgets.get("cli.generate_and_export")
 
-        if template_switch and load_switch and template_switch.get() == 1:
-            load_switch.deselect()
-            self._save_widget_change("cli.load_text", load_switch)
+        if template_switch and template_switch.get() == 1:
+            if load_switch:
+                load_switch.deselect()
+                self._save_widget_change("cli.load_text", load_switch)
+            if generate_switch:
+                generate_switch.deselect()
+                self._save_widget_change("cli.generate_and_export", generate_switch)
 
         self._update_start_button_text()
         self._save_widget_change("cli.template", template_switch)
+
+    def _on_generate_and_export_toggled(self):
+        generate_switch = self.parameter_widgets.get("cli.generate_and_export")
+        load_switch = self.parameter_widgets.get("cli.load_text")
+        template_switch = self.parameter_widgets.get("cli.template")
+
+        if generate_switch and generate_switch.get() == 1:
+            if load_switch:
+                load_switch.deselect()
+                self._save_widget_change("cli.load_text", load_switch)
+            if template_switch:
+                template_switch.deselect()
+                self._save_widget_change("cli.template", template_switch)
+
+        self._update_start_button_text()
+        self._save_widget_change("cli.generate_and_export", generate_switch)
 
     def _update_template_state(self):
         # This function is no longer needed for disabling, but we keep it for now
@@ -2420,7 +2461,7 @@ class MainView(ctk.CTkFrame):
         # --- Left Column (I/O) ---
         self.left_frame = ctk.CTkFrame(self, width=300)
         self.left_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        self.left_frame.grid_rowconfigure(4, weight=1)
+        self.left_frame.grid_rowconfigure(5, weight=1)
 
         self.source_frame = ctk.CTkFrame(self.left_frame)
         self.source_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")

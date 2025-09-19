@@ -231,6 +231,10 @@ def generate_text_from_template(
         original_text = region.get('text', '')
         translated_text = region.get('translation', '')
         
+        # Filter out [BR] tags for clean export
+        original_text = original_text.replace('[BR]', '')
+        translated_text = translated_text.replace('[BR]', '')
+        
         original_text_json = json.dumps(original_text, ensure_ascii=False)
         translated_text_json = json.dumps(translated_text, ensure_ascii=False)
 

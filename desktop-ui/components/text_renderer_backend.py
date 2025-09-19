@@ -149,8 +149,8 @@ class BackendTextRenderer:
             if not text_to_process:
                 return
 
-            # 1. Normalize newlines and [BR] tags
-            processed_text = re.sub(r'\s*\[BR\]\s*', '\n', text_to_process.replace('↵', '\n'), flags=re.IGNORECASE)
+            # 1. Normalize newlines and all break tag variants
+            processed_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text_to_process.replace('↵', '\n'), flags=re.IGNORECASE)
 
             # 2. For vertical text, auto-add horizontal tags
             if not text_block.horizontal and render_config and render_config.get('auto_rotate_symbols'):

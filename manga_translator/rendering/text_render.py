@@ -395,7 +395,7 @@ def calc_vertical(font_size: int, text: str, max_height: int, config=None):
 
     return line_text_list, line_height_list
 
-def put_char_vertical(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_text: np.ndarray, canvas_border: np.ndarray, border_size: int, config=None):  
+def put_char_vertical(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_text: np.ndarray, canvas_border: np.ndarray, border_size: int, config=None, line_width: int = 0):  
     if cdpt == '＿':
         # For the placeholder, just advance the pen vertically and do nothing else.
         return font_size
@@ -419,7 +419,14 @@ def put_char_vertical(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_
         return char_offset_y  
     char_offset_y = slot.metrics.vertAdvance >> 6  
     bitmap_char = np.array(bitmap.buffer, dtype=np.uint8).reshape((char_bitmap_rows, char_bitmap_width))  
-    char_place_x = pen[0] + (slot.metrics.vertBearingX >> 6)  
+    
+    # --- ALIGNMENT FIX ---
+    if line_width <= 0:
+        line_width = font_size
+    # The pen's x-coordinate is the right boundary of the line. Center the character in the column.
+    char_place_x = (pen[0] - line_width) + (line_width - char_bitmap_width) // 2
+    # --- END FIX ---
+    
     char_place_y = pen[1] + (slot.metrics.vertBearingY >> 6)   
     paste_y_start = max(0, char_place_y)  
     paste_x_start = max(0, char_place_x)  
@@ -474,35 +481,45 @@ def put_char_vertical(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_
                         logger.warning(f"Shape mismatch: target={{target_slice.shape}}, source={{bitmap_border_slice.shape}}")  
     return char_offset_y  
 
-def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tuple[int, int, int], bg: Optional[Tuple[int, int, int]], line_spacing: int, config=None):
-
-
+def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tuple[int, int, int], bg: Optional[Tuple[int, int, int]], line_spacing: int, config=None, region_count: int = 1):
 
     text = compact_special_symbols(text)
     if not text:
         return
 
+    # --- FIX FOR BLURRY FONT ---
+    scale = 4
+    font_size_scaled = font_size * scale
     bg_size = int(max(font_size * 0.07, 1)) if bg is not None else 0
-    spacing_x = int(font_size * (line_spacing or 0.2))
+    bg_size_scaled = bg_size * scale
+    spacing_x_scaled = int(font_size_scaled * (line_spacing or 0.2))
+    # --- END FIX ---
 
-    line_text_list, line_height_list = calc_vertical(font_size, text, h, config=config)
-    if not line_height_list:
+    # Conditional wrapping logic based on the new region_count parameter
+    effective_max_height = h
+    if config and config.render.layout_mode == 'smart_scaling':
+        if config.render.disable_auto_wrap or region_count <= 1:
+            effective_max_height = 99999
+
+    # Use scaled font size for line breaking calculation
+    line_text_list, line_height_list_scaled = calc_vertical(font_size_scaled, text, effective_max_height * scale, config=config)
+    if not line_height_list_scaled:
         return
         
-    canvas_x = font_size * len(line_text_list) + spacing_x * (len(line_text_list) - 1) + (font_size + bg_size) * 2
-    canvas_y = max(line_height_list) + (font_size + bg_size) * 2
+    canvas_x_scaled = font_size_scaled * len(line_text_list) + spacing_x_scaled * (len(line_text_list) - 1) + (font_size_scaled + bg_size_scaled) * 2
+    canvas_y_scaled = max(line_height_list_scaled) + (font_size_scaled + bg_size_scaled) * 2
 
-    canvas_text = np.zeros((canvas_y, canvas_x), dtype=np.uint8)
+    canvas_text = np.zeros((canvas_y_scaled, canvas_x_scaled), dtype=np.uint8)
     canvas_border = canvas_text.copy()
-    pen_orig = [canvas_text.shape[1] - (font_size + bg_size), (font_size + bg_size)]
+    pen_orig = [canvas_text.shape[1] - (font_size_scaled + bg_size_scaled), (font_size_scaled + bg_size_scaled)]
 
-    for line_idx, (line_text, line_height) in enumerate(zip(line_text_list, line_height_list)):
+    for line_idx, (line_text, line_height) in enumerate(zip(line_text_list, line_height_list_scaled)):
         pen_line = pen_orig.copy()
 
         if alignment == 'center':
-            pen_line[1] += (max(line_height_list) - line_height) // 2
+            pen_line[1] += (max(line_height_list_scaled) - line_height) // 2
         elif alignment == 'right': # In vertical, right means bottom
-            pen_line[1] += max(line_height_list) - line_height
+            pen_line[1] += max(line_height_list_scaled) - line_height
 
         parts = re.split(r'(<H>.*?</H>)', line_text, flags=re.IGNORECASE | re.DOTALL)
 
@@ -516,22 +533,22 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
                 content = part[3:-4]
                 if not content:
                     continue
-
-                # Render the horizontal part using the original font size
-                h_width = get_string_width(font_size, content) + font_size # Add padding
-                h_height = font_size * 2 # Add padding
+                
+                # --- RENDER HORIZONTAL BLOCK AT SCALE ---
+                h_font_size_scaled = font_size_scaled
+                h_width = get_string_width(h_font_size_scaled, content) + h_font_size_scaled
+                h_height = h_font_size_scaled * 2
 
                 temp_canvas_text = np.zeros((h_height, h_width), dtype=np.uint8)
                 temp_canvas_border = np.zeros((h_height, h_width), dtype=np.uint8)
-                pen_h = [font_size // 2, font_size] # Start pen for horizontal temp canvas
+                pen_h = [h_font_size_scaled // 2, h_font_size_scaled]
 
                 for char_h in content:
                     if char_h == '！': char_h = '!'
                     elif char_h == '？': char_h = '?'
-                    offset_x = put_char_horizontal(font_size, char_h, pen_h, temp_canvas_text, temp_canvas_border, border_size=bg_size)
+                    offset_x = put_char_horizontal(h_font_size_scaled, char_h, pen_h, temp_canvas_text, temp_canvas_border, border_size=bg_size_scaled)
                     pen_h[0] += offset_x
 
-                # Crop the small horizontal text
                 combined_temp = cv2.add(temp_canvas_text, temp_canvas_border)
                 x, y, w, h_crop = cv2.boundingRect(combined_temp)
                 if w == 0 or h_crop == 0:
@@ -542,9 +559,7 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
 
                 rh, rw = horizontal_block_text.shape
 
-                # Paste the small horizontal block onto the main vertical canvas
-                # Center it horizontally in the column
-                paste_x = pen_line[0] - (rw // 2) 
+                paste_x = pen_line[0] - (rw // 2)
                 paste_y = pen_line[1]
 
                 if paste_y + rh > canvas_text.shape[0] or paste_x + rw > canvas_text.shape[1] or paste_x < 0 or paste_y < 0:
@@ -556,22 +571,35 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
                 target_border_roi = canvas_border[paste_y:paste_y+rh, paste_x:paste_x+rw]
                 canvas_border[paste_y:paste_y+rh, paste_x:paste_x+rw] = np.maximum(target_border_roi, horizontal_block_border)
 
-                # Advance vertical pen by a single character height
-                pen_line[1] += font_size
-                # --- NEW FIX END ---
+                pen_line[1] += font_size_scaled
+                # --- END HORIZONTAL BLOCK RENDER ---
 
             else: # It's a vertical part
                 for char_idx, c in enumerate(part):
-                    offset_y = put_char_vertical(font_size, c, pen_line, canvas_text, canvas_border, border_size=bg_size, config=config)
+                    offset_y = put_char_vertical(font_size_scaled, c, pen_line, canvas_text, canvas_border, border_size=bg_size_scaled, config=config, line_width=font_size_scaled)
                     pen_line[1] += offset_y
         
-        pen_orig[0] -= spacing_x + font_size
+        pen_orig[0] -= spacing_x_scaled + font_size_scaled
 
     canvas_border = np.clip(canvas_border, 0, 255)
     line_box = add_color(canvas_text, fg, canvas_border, bg)
     combined_canvas = cv2.add(canvas_text, canvas_border)
     x, y, w, h = cv2.boundingRect(combined_canvas)
-    result = line_box[y:y+h, x:x+w]
+    
+    if w == 0 or h == 0:
+        return
+
+    result_scaled = line_box[y:y+h, x:x+w]
+
+    # --- FIX FOR BLURRY FONT ---
+    # High-quality downscaling
+    new_w, new_h = w // scale, h // scale
+    if new_w == 0 or new_h == 0:
+        return
+        
+    result = cv2.resize(result_scaled, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+    # --- END FIX ---
+    
     return result
 
 def select_hyphenator(lang: str):
@@ -986,7 +1014,7 @@ def is_cjk_lang(lang: str):
 
 def put_text_horizontal(font_size: int, text: str, width: int, height: int, alignment: str,
                         reversed_direction: bool, fg: Tuple[int, int, int], bg: Tuple[int, int, int],
-                        lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0, config=None):
+                        lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0, config=None, region_count: int = 1):
 
     text = compact_special_symbols(text)
     if not text :
@@ -997,10 +1025,14 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
         layout_mode = config.render.layout_mode
         # Check for no-wrap condition and handle AI line breaks
         if layout_mode == 'smart_scaling':
-            # For smart scaling, we prevent automatic line wrapping by giving a large width.
-            # The box is expected to be resized by the caller. We still respect AI-inserted [BR] tags.
-            width = 99999
+            # In smart_scaling mode, wrapping is conditional.
+            # It wraps only if manual line breaks ([BR] or \n) are present.
+            # Otherwise, it expands without wrapping.
             text = re.sub(r'\s*\[BR\]\s*', '\n', text, flags=re.IGNORECASE)
+            if '\n' not in text:
+                # No manual breaks found, so disable wrapping by setting a large width.
+                if config.render.disable_auto_wrap or region_count <= 1:
+                    width = 99999
 
     bg_size = int(max(font_size * 0.07, 1)) if bg is not None else 0
     spacing_y = int(font_size * (line_spacing or 0.01))

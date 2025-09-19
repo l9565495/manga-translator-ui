@@ -151,32 +151,95 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             region.font_size = int(target_font_size)
             continue
 
-        # --- Mode 4: smart_scaling (MODIFIED with user-defined logic) ---
+        # --- Mode 4: smart_scaling ---
         elif mode == 'smart_scaling':
-
-            # Per user request, use different logic based on number of polygons
-            if len(region.lines) > 1:
-                # For multi-polygon regions, use the new dynamic heuristic
-                from shapely.ops import unary_union
-
-                # 1. Un-rotate all polygons and compute their union to get the true area and base shape
+            # Check if AI line breaking is enabled.
+            if config.render.disable_auto_wrap:
+                # --- FINAL UNIFIED ALGORITHM for AI ON ---
                 try:
-                    unrotated_polygons = []
-                    for i, p in enumerate(region.lines):
-                        # Reshape to (1, -1, 2) for rotate_polygons function
-                        unrotated_p = rotate_polygons(region.center, p.reshape(1, -1, 2), region.angle, to_int=False)
-                        unrotated_polygons.append(Polygon(unrotated_p.reshape(-1, 2)))
+                    # This is the 'Precise Fit' direct calculation method.
+                    # It correctly handles both enlargement and shrinking by finding the max font size that fits.
+                    F_REF = 10.0  # Use float for precision
+                    ref_width, ref_height = 0.0, 0.0
+                    bubble_width, bubble_height = region.unrotated_size
 
-                    union_poly = unary_union(unrotated_polygons)
-                    original_area = union_poly.area
-                    # Use the envelope (axis-aligned bounding box) of the unrotated union as the base for scaling
-                    unrotated_base_poly = union_poly.envelope
+                    # Simple helper to check for CJK languages
+                    def is_cjk_lang(lang: str):
+                        return lang and lang.lower() in ['chs', 'cht', 'jpn', 'kor', 'zh', 'ja', 'ko']
+
+                    if region.horizontal:
+                        # For horizontal, respect AI newlines but also wrap to bubble width.
+                        text_for_calc = region.translation
+                        if is_cjk_lang(region.target_lang):
+                            lines, widths = text_render.calc_horizontal_cjk(F_REF, text_for_calc, max_width=int(bubble_width))
+                        else:
+                            lines, widths = text_render.calc_horizontal(F_REF, text_for_calc, max_width=int(bubble_width), max_height=int(bubble_height), language=region.target_lang)
+                        
+                        if widths:
+                            ref_width = max(widths)
+                            ref_height = len(lines) * (F_REF * (1 + (config.render.line_spacing or 0.01)))
+                    else: # Vertical
+                        # For vertical, ignore AI newlines and let calc_vertical handle layout based on bubble height.
+                        text_for_calc = region.translation.replace('\n', '')
+                        lines, heights = text_render.calc_vertical(F_REF, text_for_calc, max_height=int(bubble_height))
+                        
+                        if heights:
+                            ref_height = max(heights)
+                            ref_width = len(lines) * (F_REF * (1 + (config.render.line_spacing or 0.2)))
+
+                    if ref_width > 0 and ref_height > 0:
+                        # Calculate the max font size that can fit based on width and height independently
+                        max_font_from_width = (bubble_width / ref_width) * F_REF
+                        max_font_from_height = (bubble_height / ref_height) * F_REF
+                        
+                        # The final font size is the smaller of the two, to satisfy both constraints
+                        target_font_size = int(min(max_font_from_width, max_font_from_height))
+                    else:
+                        # Fallback to initial guess if calculation fails
+                        target_font_size = region.offset_applied_font_size
+
+                    # With this method, the bubble should not be resized.
+                    dst_points = region.min_rect
+                    
+                    # --- DEBUG LOGGING ---
+                    final_fs = int(max(target_font_size, min_font_size))
+                    logger.info(f"--- FONT SIZE DEBUG (Final) ---")
+                    logger.info(f"  - Bubble (W, H)      : ({bubble_width:.1f}, {bubble_height:.1f})")
+                    logger.info(f"  - Initial Font Size    : {region.offset_applied_font_size}")
+                    logger.info(f"  - Calculated Font Size : {final_fs}")
+                    # --- END DEBUG LOGGING ---
+
                 except Exception as e:
-                    logger.warning(f"Failed to compute union of polygons: {e}")
+                    logger.error(f"Error in new smart_scaling algorithm: {e}")
+                    # Fallback to a safe state
+                    target_font_size = region.offset_applied_font_size
+                    dst_points = region.min_rect
+
+                dst_points_list.append(dst_points)
+                region.font_size = int(max(target_font_size, min_font_size))
+                continue
+
+            else:
+                # --- ORIGINAL smart_scaling LOGIC for AI OFF ---
+                # This is the old logic based on diff_ratio, preserved for when AI splitting is off.
+                if len(region.lines) > 1:
+                    from shapely.ops import unary_union
+                    try:
+                        unrotated_polygons = []
+                        for i, p in enumerate(region.lines):
+                            unrotated_p = rotate_polygons(region.center, p.reshape(1, -1, 2), region.angle, to_int=False)
+                            unrotated_polygons.append(Polygon(unrotated_p.reshape(-1, 2)))
+                        union_poly = unary_union(unrotated_polygons)
+                        original_area = union_poly.area
+                        unrotated_base_poly = union_poly.envelope
+                    except Exception as e:
+                        logger.warning(f"Failed to compute union of polygons: {e}")
+                        original_area = region.unrotated_size[0] * region.unrotated_size[1]
+                        unrotated_base_poly = Polygon(region.unrotated_min_rect[0])
+                else:
                     original_area = region.unrotated_size[0] * region.unrotated_size[1]
                     unrotated_base_poly = Polygon(region.unrotated_min_rect[0])
 
-                # 2. Calculate required area for the text
                 required_area = 0
                 if region.horizontal:
                     lines, widths = text_render.calc_horizontal(target_font_size, region.translation, max_width=99999, max_height=99999, language=region.target_lang)
@@ -191,35 +254,24 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         required_width = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.2)))
                         required_area = required_width * required_height
 
-                dst_points = region.min_rect # Default
-
-                # 3. Compare areas and apply scaling heuristic
+                dst_points = region.min_rect
                 diff_ratio = 0
                 if original_area > 0 and required_area > 0:
                     diff_ratio = (required_area - original_area) / original_area
 
                 if diff_ratio > 0:
-                    # Box expansion ratio
                     box_expansion_ratio = diff_ratio / 2
-                    box_scale_factor = 1 + min(box_expansion_ratio, 1.0) # Cap at 2x size
-
-                    # Font shrink ratio
+                    box_scale_factor = 1 + min(box_expansion_ratio, 1.0)
                     font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                    font_scale_factor = 1 - min(font_shrink_ratio, 0.5) # Cap at 50% shrink
-
-                    # Apply scaling to the unrotated base polygon
+                    font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
                     try:
                         scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=box_scale_factor, yfact=box_scale_factor, origin='center')
                         scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
-
-                        # Rotate the scaled shape back to its original orientation
                         dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                     except Exception as e:
                         logger.warning(f"Failed to apply dynamic scaling: {e}")
-
                     target_font_size = int(target_font_size * font_scale_factor)
                 elif diff_ratio < 0:
-                    # If text is smaller, enlarge font to fill the box
                     try:
                         area_ratio = original_area / required_area
                         font_scale_factor = np.sqrt(area_ratio)
@@ -229,72 +281,12 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     except Exception as e:
                         logger.warning(f"Failed to apply font enlargement: {e}")
                 else:
-                    # If no scaling is needed, still use the calculated base polygon for rendering
                     try:
                         unrotated_points = np.array(unrotated_base_poly.exterior.coords[:4])
                         dst_points = rotate_polygons(region.center, unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                     except Exception as e:
                         logger.warning(f"Failed to use base polygon: {e}")
-
-                dst_points_list.append(dst_points)
-                region.font_size = int(target_font_size)
-                continue
-
-            else: # For single-polygon regions, use the new dynamic heuristic
-                # 1. Calculate original area
-                original_area = region.unrotated_size[0] * region.unrotated_size[1]
-
-                # 2. Calculate required area
-                required_area = 0
-                if region.horizontal:
-                    lines, widths = text_render.calc_horizontal(target_font_size, region.translation, max_width=99999, max_height=99999, language=region.target_lang)
-                    if widths:
-                        required_width = max(widths)
-                        required_height = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.01)))
-                        required_area = required_width * required_height
-                else: # Vertical
-                    lines, heights = text_render.calc_vertical(target_font_size, region.translation, max_height=99999)
-                    if heights:
-                        required_height = max(heights)
-                        required_width = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.2)))
-                        required_area = required_width * required_height
-
-                dst_points = region.min_rect # Default
-
-                # 3. Compare and apply user's dynamic heuristic
-                diff_ratio = 0
-                if original_area > 0 and required_area > 0:
-                    diff_ratio = (required_area - original_area) / original_area
-
-                if diff_ratio > 0:
-                    # Box expansion ratio
-                    box_expansion_ratio = diff_ratio / 2
-                    box_scale_factor = 1 + min(box_expansion_ratio, 1.0) # Cap at 2x size
-
-                    # Font shrink ratio
-                    font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                    font_scale_factor = 1 - min(font_shrink_ratio, 0.5) # Cap at 50% shrink
-
-                    # Apply scaling
-                    try:
-                        poly = Polygon(region.unrotated_min_rect[0])
-                        poly = affinity.scale(poly, xfact=box_scale_factor, yfact=box_scale_factor, origin='center')
-                        scaled_unrotated_points = np.array(poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                    except Exception as e:
-                        logger.warning(f"Failed to apply dynamic scaling: {e}")
-
-                    target_font_size = int(target_font_size * font_scale_factor)
-                elif diff_ratio < 0:
-                    # If text is smaller, enlarge font to fill the box
-                    try:
-                        area_ratio = original_area / required_area
-                        font_scale_factor = np.sqrt(area_ratio)
-                        target_font_size = int(target_font_size * font_scale_factor)
-                    except Exception as e:
-                        logger.warning(f"Failed to apply font enlargement: {e}")
-                else:
-                    pass
+                
                 dst_points_list.append(dst_points)
                 region.font_size = int(target_font_size)
                 continue
@@ -378,8 +370,9 @@ def render(
 
     # Centralized text preprocessing
     text_to_render = region.get_translation_for_rendering()
-    if config and config.render.layout_mode != 'default' and config.render.disable_auto_wrap:
-        text_to_render = re.sub(r'\s*\[BR\]\s*', '\n', text_to_render, flags=re.IGNORECASE)
+    # If AI line breaking is enabled, standardize all break tags ([BR], <br>, and 【BR】) to \n
+    if config and config.render.disable_auto_wrap:
+        text_to_render = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text_to_render, flags=re.IGNORECASE)
 
     # Automatically add horizontal tags for vertical text
     if region.vertical and config.render.auto_rotate_symbols:
@@ -418,7 +411,8 @@ def render(
             region.target_lang,
             hyphenate,
             line_spacing,
-            config
+            config,
+            len(region.lines)  # Pass region count
         )
     else:
         temp_box = text_render.put_text_vertical(
@@ -429,7 +423,8 @@ def render(
             fg,
             bg,
             line_spacing,
-            config
+            config,
+            len(region.lines)  # Pass region count
         )
     h, w, _ = temp_box.shape
     if h == 0 or w == 0:

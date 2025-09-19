@@ -27,5 +27,5 @@
     },
     "output_format": "仅提供翻译后的文本。每一行翻译文本都必须与输入的编号文本一一对应。"
   },
-  "system_prompt": "Translate the text to {{{target_lang}}}. Provide only the translated text, line by line, matching the input order."
+  "system_prompt": "Translate the text to {{{target_lang}}}. Provide ONLY the translated text, line by line, matching the input order. DO NOT include numbering, explanations, or any extra text."
 }

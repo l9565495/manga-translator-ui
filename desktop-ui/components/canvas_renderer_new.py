@@ -273,6 +273,11 @@ class CanvasRenderer:
             if 'font_size_fixed' in render_config and 'font_size' not in render_config:
                 render_config['font_size'] = render_config.pop('font_size_fixed')
 
+            # If any region contains manual newlines, force disable_auto_wrap for this render
+            # This ensures editor previews respect AI-generated (or manually inserted) line breaks
+            if any('\n' in r.get('translation', '') for r in regions):
+                render_config['disable_auto_wrap'] = True
+
             config = Config(render=RenderConfig(**render_config))
 
             # Re-enabled with precision fixes to prevent visual displacement

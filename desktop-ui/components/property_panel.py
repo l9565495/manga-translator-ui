@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import colorchooser
 from typing import Dict, Any, Callable, Optional
 import logging
+import re
 
 from manga_translator.rendering.text_render import auto_add_horizontal_tags
 
@@ -528,10 +529,25 @@ class PropertyPanel(ctk.CTkScrollableFrame):
         original_text = region_data.get('text', '')
         translation_text = region_data.get('translation', '')
         
+        # Standardize all break tags ([BR], <br>, and 【BR】) to \n for consistent processing in the editor
+        import re
+        translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
+        
         # Conditionally preprocess text based on the global setting
         config = get_config_service().get_config()
-        if config.get('render', {}).get('auto_rotate_symbols', False):
-            processed_translation = auto_add_horizontal_tags(translation_text)
+
+        # Determine if the region is vertical
+        direction = region_data.get('direction', 'auto')
+        is_vertical = direction == 'v'
+        if direction == 'auto':
+            # Fallback to 'horizontal' property if direction is auto
+            is_vertical = not region_data.get('horizontal', True)
+
+        if is_vertical and config.get('render', {}).get('auto_rotate_symbols', False):
+            # BUG FIX: Use a self-contained, correct regex to ensure the editor's highlighting
+            # logic matches the renderer's logic (2-4 chars only).
+            horizontal_char_pattern = r'([a-zA-Z0-9_.-]{2,4}|[!?！？]{2,4})'
+            processed_translation = re.sub(horizontal_char_pattern, r'<H>\1</H>', translation_text)
         else:
             processed_translation = translation_text
 

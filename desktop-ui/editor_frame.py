@@ -730,13 +730,23 @@ class EditorFrame(ctk.CTkFrame):
                 self._clear_editor()
                 print("已清空编辑器状态")
 
-                # 如果还有其他文件，加载第一个
+                # 如果还有其他文件，加载第一个有效的文件
+                next_file_to_load = None
                 if self.translated_files:
-                    print(f"加载下一个翻译图: {self.translated_files[0]}")
-                    self._on_file_selected_from_list(self.translated_files[0])
-                elif self.source_files:
-                    print(f"加载下一个源图: {self.source_files[0]}")
-                    self._on_file_selected_from_list(self.source_files[0])
+                    for f in self.translated_files:
+                        if f:
+                            next_file_to_load = f
+                            break
+                
+                if not next_file_to_load and self.source_files:
+                    for f in self.source_files:
+                        if f:
+                            next_file_to_load = f
+                            break
+
+                if next_file_to_load:
+                    print(f"加载下一个文件: {next_file_to_load}")
+                    self._on_file_selected_from_list(next_file_to_load)
                 else:
                     print("没有其他文件可加载")
             else:

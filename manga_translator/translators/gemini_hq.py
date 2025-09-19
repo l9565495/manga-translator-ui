@@ -103,25 +103,35 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 client_options=client_options
             )
             
-            generation_config = {
-                "temperature": self.temperature,
-                "top_p": 0.95,
-                "top_k": 64,
-                "max_output_tokens": self.max_tokens,
-                "response_mime_type": "text/plain",
-            }
-
-            model_args = {
-                "model_name": self.model_name,
-                "generation_config": generation_config,
-            }
-
-            # Conditionally add safety settings
+            # Apply different configs for different API types
             is_third_party_api = self.base_url and self.base_url != 'https://generativelanguage.googleapis.com'
+
             if not is_third_party_api:
-                model_args["safety_settings"] = self.safety_settings
+                # Official Google API - full config
+                generation_config = {
+                    "temperature": self.temperature,
+                    "top_p": 0.95,
+                    "top_k": 64,
+                    "max_output_tokens": self.max_tokens,
+                    "response_mime_type": "text/plain",
+                }
+                model_args = {
+                    "model_name": self.model_name,
+                    "generation_config": generation_config,
+                    "safety_settings": self.safety_settings
+                }
+                self.logger.info("使用官方Google API，应用完整配置。")
             else:
-                self.logger.info("检测到第三方API，已禁用安全设置。")
+                # Third-party API - minimal config to avoid format issues
+                generation_config = {
+                    "temperature": self.temperature,
+                    "max_output_tokens": self.max_tokens,
+                }
+                model_args = {
+                    "model_name": self.model_name,
+                    "generation_config": generation_config,
+                }
+                self.logger.info("检测到第三方API，使用简化配置避免格式冲突。")
 
             self.client = genai.GenerativeModel(**model_args)
     
@@ -175,10 +185,9 @@ class GeminiHighQualityTranslator(CommonTranslator):
             final_prompt += f"{custom_prompt_str}\n\n---\n\n"
         
         final_prompt += base_prompt
-        # self.logger.info(f"--- Complete System Prompt ---\n{final_prompt}\n--------------------------")
         return final_prompt
 
-    def _build_user_prompt(self, batch_data: List[Dict], texts: List[str]) -> str:
+    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any) -> str:
         """构建用户提示词"""
         prompt = "Please translate the following manga text regions. I'm providing multiple images with their text regions in reading order:\n\n"
         
@@ -191,14 +200,24 @@ class GeminiHighQualityTranslator(CommonTranslator):
             prompt += "\n"
         
         prompt += "All texts to translate (in order):\n"
-        for i, text in enumerate(texts):
-            prompt += f"{i+1}. {text}\n"
+        text_index = 1
+        for img_idx, data in enumerate(batch_data):
+            for region_idx, text in enumerate(data['original_texts']):
+                text_to_translate = text.replace('\n', ' ').replace('\ufffd', '')
+                # 获取对应的text_region来获取区域数
+                if data['text_regions'] and region_idx < len(data['text_regions']):
+                    region = data['text_regions'][region_idx]
+                    region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                else:
+                    region_count = 1
+                prompt += f"{text_index}. [Original regions: {region_count}] {text_to_translate}\n"
+                text_index += 1
         
         prompt += "\nCRITICAL: Provide translations in the exact same order as the numbered input text regions. Your first line of output must be the translation for text region #1, your second line for #2, and so on. DO NOT CHANGE THE ORDER."
         
         return prompt
 
-    async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None) -> List[str]:
+    async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None) -> List[str]:
         """高质量批量翻译方法"""
         if not texts:
             return []
@@ -228,7 +247,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
 
         # 添加系统提示词和用户提示词
         system_prompt = self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json)
-        user_prompt = self._build_user_prompt(batch_data, texts)
+        user_prompt = self._build_user_prompt(batch_data, ctx)
         
         content_parts.append(system_prompt + "\n\n" + user_prompt)
         
@@ -243,15 +262,72 @@ class GeminiHighQualityTranslator(CommonTranslator):
         attempt = 0
         is_infinite = max_retries == -1
 
+        # Dynamically construct arguments for generate_content
+        request_args = {
+            "contents": content_parts
+        }
+        is_third_party_api = self.base_url and self.base_url != 'https://generativelanguage.googleapis.com'
+        if is_third_party_api:
+            self.logger.warning("Omitting safety settings for third-party API request.")
+        else:
+            request_args["safety_settings"] = self.safety_settings
+
+        def generate_content_with_logging(**kwargs):
+            # Create a serializable copy of the arguments for logging
+            log_kwargs = kwargs.copy()
+            if 'contents' in log_kwargs and isinstance(log_kwargs['contents'], list):
+                serializable_contents = []
+                for item in log_kwargs['contents']:
+                    if isinstance(item, Image.Image):
+                        serializable_contents.append(f"<PIL.Image.Image size={item.size} mode={item.mode}>")
+                    else:
+                        serializable_contents.append(item)
+                log_kwargs['contents'] = serializable_contents
+
+            self.logger.info(f"--- Gemini Request Body ---\n{json.dumps(log_kwargs, indent=2, ensure_ascii=False)}\n---------------------------")
+            return self.client.generate_content(**kwargs)
+
         while is_infinite or attempt < max_retries:
             try:
                 response = await asyncio.to_thread(
-                    self.client.generate_content,
-                    content_parts
+                    generate_content_with_logging,
+                    **request_args
                 )
-                
+
+                # 检查finish_reason，只有成功(1)才继续，其他都重试
+                if hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'finish_reason'):
+                        finish_reason = candidate.finish_reason
+
+                        if finish_reason != 1:  # 不是STOP(成功)
+                            attempt += 1
+                            log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
+
+                            # 显示具体的finish_reason信息
+                            finish_reason_map = {
+                                1: "STOP(成功)",
+                                2: "SAFETY(安全策略拦截)",
+                                3: "MAX_TOKENS(达到最大token限制)",
+                                4: "RECITATION(内容重复检测)",
+                                5: "OTHER(其他未知错误)"
+                            }
+                            reason_desc = finish_reason_map.get(finish_reason, f"未知错误码({finish_reason})")
+
+                            self.logger.warning(f"Gemini API失败 ({log_attempt}): finish_reason={finish_reason} - {reason_desc}")
+
+                            if not is_infinite and attempt >= max_retries:
+                                self.logger.error(f"Gemini翻译在多次重试后仍失败: {reason_desc}")
+                                break
+                            await asyncio.sleep(1)
+                            continue
+
                 # 尝试访问 .text 属性，如果API因安全原因等返回空内容，这里会触发异常
                 result_text = response.text.strip()
+
+                # 调试日志：打印Gemini的原始返回内容
+                self.logger.info(f"--- Gemini Raw Response ---\n{result_text}\n---------------------------")
+
                 # 增加清理步骤，移除可能的Markdown代码块
                 if result_text.startswith("```") and result_text.endswith("```"):
                     result_text = result_text[3:-3].strip()
@@ -267,9 +343,9 @@ class GeminiHighQualityTranslator(CommonTranslator):
                         line = line.replace('\\n', '\n').replace('↵', '\n')
                         translations.append(line)
                 
-                # 确保翻译数量匹配
+                # 确保翻译数量匹配 - 用空字符串填充而不是原文
                 while len(translations) < len(texts):
-                    translations.append(texts[len(translations)] if len(translations) < len(texts) else "")
+                    translations.append("")
                 
                 # 打印原文和译文的对应关系
                 self.logger.info("--- Translation Results ---")
@@ -312,7 +388,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 self.logger.info(f"高质量翻译模式：正在打包 {len(batch_data)} 张图片并发送...")
                 custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
                 line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
-                return await self._translate_batch_high_quality(queries, batch_data, from_lang, to_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json)
+                return await self._translate_batch_high_quality(queries, batch_data, from_lang, to_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, ctx=ctx)
         
         # 普通单文本翻译（后备方案）
         if not self.client:
@@ -325,9 +401,33 @@ class GeminiHighQualityTranslator(CommonTranslator):
         try:
             simple_prompt = f"Translate the following {from_lang} text to {to_lang}. Provide only the translation:\n\n" + "\n".join(queries)
             
+            # Dynamically construct arguments to handle safety settings for the fallback path
+            request_args = {
+                "contents": simple_prompt
+            }
+            is_third_party_api = self.base_url and self.base_url != 'https://generativelanguage.googleapis.com'
+            if is_third_party_api:
+                # For third-party APIs, omit the safety_settings parameter entirely
+                pass
+            else:
+                request_args["safety_settings"] = self.safety_settings
+
+            def generate_content_with_logging(**kwargs):
+                log_kwargs = kwargs.copy()
+                if 'contents' in log_kwargs and isinstance(log_kwargs['contents'], list):
+                    serializable_contents = []
+                    for item in log_kwargs['contents']:
+                        if isinstance(item, Image.Image):
+                            serializable_contents.append(f"<PIL.Image.Image size={item.size} mode={item.mode}>")
+                        else:
+                            serializable_contents.append(item)
+                    log_kwargs['contents'] = serializable_contents
+                self.logger.info(f"--- Gemini Fallback Request Body ---\n{json.dumps(log_kwargs, indent=2, ensure_ascii=False)}\n------------------------------------")
+                return self.client.generate_content(**kwargs)
+
             response = await asyncio.to_thread(
-                self.client.generate_content,
-                simple_prompt
+                generate_content_with_logging,
+                **request_args
             )
             
             if response and response.text:

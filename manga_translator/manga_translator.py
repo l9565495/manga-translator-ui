@@ -321,6 +321,7 @@ class MangaTranslator:
         self.attempts = params.get('attempts', -1)
         self.save_quality = params.get('save_quality', 100)
         self.skip_no_text = params.get('skip_no_text', False)
+        self.generate_and_export = params.get('generate_and_export', False)
         
         
         # batch_concurrent 已在初始化时设置并验证
@@ -1556,6 +1557,28 @@ class MangaTranslator:
             else:
                 logger.warning("Could not save translation file, image_name not in context.")
 
+        # --- NEW: Generate and Export Workflow ---
+        if self.generate_and_export:
+            logger.info("'Generate and Export' mode: Halting pipeline after translation and exporting clean text.")
+            if hasattr(ctx, 'image_name') and ctx.image_name and ctx.text_regions:
+                try:
+                    json_path = os.path.splitext(ctx.image_name)[0] + '_translations.json'
+                    if os.path.exists(json_path):
+                        from services.workflow_service import generate_text_from_template, get_template_path_from_config
+                        template_path = get_template_path_from_config()
+                        if template_path and os.path.exists(template_path):
+                            result = generate_text_from_template(json_path, template_path)
+                            logger.info(f"Clean text export result: {result}")
+                        else:
+                            logger.warning(f"Template file not found, cannot export clean text: {template_path}")
+                    else:
+                        logger.warning(f"JSON file not found, cannot export clean text: {json_path}")
+                except Exception as e:
+                    logger.error(f"Failed to export clean text in 'Generate and Export' mode: {e}")
+            
+            ctx.pipeline_should_stop = True # Set flag to stop before rendering
+            # Do not return here, let the function complete to return all regions
+
         # === 模板+保存文本模式退出逻辑 ===
         if self.template and self.save_text:
             logger.info("Template + Save Text mode: Stopping pipeline for this file to generate text template only.")
@@ -1971,6 +1994,29 @@ class MangaTranslator:
             except Exception as e:
                 logger.error(f"Error during batch translation stage: {e}")
                 translated_contexts = preprocessed_contexts
+
+            # --- NEW: Handle Generate and Export for Standard Batch Mode ---
+            if self.generate_and_export:
+                logger.info("'Generate and Export' mode enabled for standard batch. Skipping rendering.")
+                for ctx, config in translated_contexts:
+                    if ctx.text_regions and hasattr(ctx, 'image_name') and ctx.image_name:
+                        self._save_text_to_file(ctx.image_name, ctx)
+                        try:
+                            json_path = os.path.splitext(ctx.image_name)[0] + '_translations.json'
+                            if os.path.exists(json_path):
+                                from services.workflow_service import generate_text_from_template, get_template_path_from_config
+                                template_path = get_template_path_from_config()
+                                if template_path and os.path.exists(template_path):
+                                    export_result = generate_text_from_template(json_path, template_path)
+                                    logger.info(f"Clean text export result for {os.path.basename(ctx.image_name)}: {export_result}")
+                                else:
+                                    logger.warning(f"Template file not found for {os.path.basename(ctx.image_name)}: {template_path}")
+                            else:
+                                logger.warning(f"JSON file not found for {os.path.basename(ctx.image_name)}: {json_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to export clean text for {os.path.basename(ctx.image_name)}: {e}")
+                    results.append(ctx)
+                continue # Skip rendering and proceed to the next batch
 
             # 阶段三：渲染并保存当前批次
             for ctx, config in translated_contexts:
@@ -3286,6 +3332,33 @@ class MangaTranslator:
                         if ctx.text_regions:
                             for region in ctx.text_regions:
                                 region.translation = region.text
+            # --- NEW: Handle Generate and Export for High-Quality Mode ---
+            if self.generate_and_export:
+                logger.info("'Generate and Export' mode enabled for high-quality translation. Skipping rendering.")
+                for ctx, config in preprocessed_contexts:
+                    # Ensure JSON is saved first
+                    if ctx.text_regions and hasattr(ctx, 'image_name') and ctx.image_name:
+                        self._save_text_to_file(ctx.image_name, ctx)
+                        
+                        # Export the clean text using the template
+                        try:
+                            json_path = os.path.splitext(ctx.image_name)[0] + '_translations.json'
+                            if os.path.exists(json_path):
+                                from services.workflow_service import generate_text_from_template, get_template_path_from_config
+                                template_path = get_template_path_from_config()
+                                if template_path and os.path.exists(template_path):
+                                    export_result = generate_text_from_template(json_path, template_path)
+                                    logger.info(f"Clean text export result for {os.path.basename(ctx.image_name)}: {export_result}")
+                                else:
+                                    logger.warning(f"Template file not found, cannot export clean text for {os.path.basename(ctx.image_name)}: {template_path}")
+                            else:
+                                logger.warning(f"JSON file not found, cannot export clean text for {os.path.basename(ctx.image_name)}: {json_path}")
+                        except Exception as e:
+                            logger.error(f"Failed to export clean text for {os.path.basename(ctx.image_name)} in HQ mode: {e}")
+
+                    results.append(ctx)
+                
+                continue # BUG FIX: Continue to the next batch instead of returning
 
             # 阶段三：渲染并保存当前批次
             for ctx, config in preprocessed_contexts:

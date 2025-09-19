@@ -181,9 +181,10 @@ This is an incorrect response because it includes extra text and explanations.
             final_prompt += f"{custom_prompt_str}\n\n---\n\n"
         
         final_prompt += base_prompt
+        # self.logger.info(f"--- OpenAI HQ Final System Prompt ---\n{final_prompt}")
         return final_prompt
 
-    def _build_user_prompt(self, batch_data: List[Dict], texts: List[str]) -> str:
+    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any) -> str:
         """构建用户提示词"""
         prompt = "Please translate the following manga text regions. I'm providing multiple images with their text regions in reading order:\n\n"
         
@@ -196,14 +197,24 @@ This is an incorrect response because it includes extra text and explanations.
             prompt += "\n"
         
         prompt += "All texts to translate (in order):\n"
-        for i, text in enumerate(texts):
-            prompt += f"{i+1}. {text}\n"
+        text_index = 1
+        for img_idx, data in enumerate(batch_data):
+            for region_idx, text in enumerate(data['original_texts']):
+                text_to_translate = text.replace('\n', ' ').replace('\ufffd', '')
+                # 获取对应的text_region来获取区域数
+                if data['text_regions'] and region_idx < len(data['text_regions']):
+                    region = data['text_regions'][region_idx]
+                    region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                else:
+                    region_count = 1
+                prompt += f"{text_index}. [Original regions: {region_count}] {text_to_translate}\n"
+                text_index += 1
         
         prompt += "\nCRITICAL: Provide translations in the exact same order as the numbered input text regions. Your first line of output must be the translation for text region #1, your second line for #2, and so on. DO NOT CHANGE THE ORDER."
         
         return prompt
 
-    async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None) -> List[str]:
+    async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None) -> List[str]:
         """高质量批量翻译方法"""
         if not texts:
             return []
@@ -232,13 +243,15 @@ This is an incorrect response because it includes extra text and explanations.
         
         # 构建消息
         system_prompt = self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json)
-        user_prompt = self._build_user_prompt(batch_data, texts)
+        user_prompt = self._build_user_prompt(batch_data, ctx)
         
-        user_content = [{"type": "text", "text": user_prompt}]
+        # Combine system and user prompts into a single user message, similar to Gemini's approach
+        combined_prompt_text = system_prompt + "\n\n" + user_prompt
+        user_content = [{"type": "text", "text": combined_prompt_text}]
         user_content.extend(image_contents)
         
         messages = [
-            {"role": "system", "content": system_prompt},
+            # The system message is removed and merged into the user message.
             {"role": "user", "content": user_content}
         ]
         
@@ -329,14 +342,14 @@ This is an incorrect response because it includes extra text and explanations.
                 self.logger.info(f"使用OpenAI高质量翻译模式处理{len(batch_data)}张图片")
                 custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
                 line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
-                return await self._translate_batch_high_quality(queries, batch_data, from_lang, to_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json)
+                return await self._translate_batch_high_quality(queries, batch_data, from_lang, to_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, ctx=ctx)
         
         # 普通单文本翻译（后备方案）
         if not self.client:
             self._setup_client()
         
         try:
-            simple_prompt = f"Translate the following {from_lang} text to {target_lang}. Provide only the translation:\n\n" + "\n".join(queries)
+            simple_prompt = f"Translate the following {from_lang} text to {to_lang}. Provide only the translation:\n\n" + "\n".join(queries)
             
             response = await self.client.chat.completions.create(
                 model=self.model,

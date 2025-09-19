@@ -224,7 +224,7 @@ def render_textblock_list_eng(
             align="center", spacing=line_spacing_px, anchor="mm"
         )
 
-        rotated_text_layer = text_layer.rotate(region.angle, expand=True, fillcolor=(0, 0, 0, 0))
+        rotated_text_layer = text_layer.rotate(region.angle, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.LANCZOS)
         rotated_width, rotated_height = rotated_text_layer.size
 
         # Calculate paste position with bounds checking
