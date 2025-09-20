@@ -63,10 +63,20 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Fetch LFS files
+    - name: Download and Extract Models
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        git lfs fetch --all
-        git lfs pull
+        echo "Downloading models from release assets..."
+        gh release download v1.4.6 -p "models.7z"
+
+        echo "Decompressing models..."
+        7z x "models.7z" -o./extracted_models
+
+        echo "Replacing models directory..."
+        rm -rf ./models
+        mv ./extracted_models/models ./models
+        echo "Models replaced successfully."
 
     # - name: Restore Previous TUF Assets
     #   env:
