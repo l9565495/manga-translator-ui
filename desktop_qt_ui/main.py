@@ -3,6 +3,17 @@ import os
 import logging
 import warnings
 
+# 修复PyInstaller打包后onnxruntime的DLL加载问题
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    # 运行在PyInstaller打包环境中
+    if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
+        # 只设置DLL搜索路径，不预加载
+        # 让Python的导入机制自然处理DLL加载
+        os.add_dll_directory(sys._MEIPASS)
+        onnx_capi_dir = os.path.join(sys._MEIPASS, 'onnxruntime', 'capi')
+        if os.path.exists(onnx_capi_dir):
+            os.add_dll_directory(onnx_capi_dir)
+
 # 抑制 xformers/triton 警告
 warnings.filterwarnings('ignore', message='.*Triton.*')
 warnings.filterwarnings('ignore', module='xformers')

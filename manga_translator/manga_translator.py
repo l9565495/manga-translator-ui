@@ -307,10 +307,12 @@ class MangaTranslator:
         if self._gpu_limited_memory and not self.using_gpu:
             self.device = device
         if self.using_gpu and ( not torch.cuda.is_available() and not torch.backends.mps.is_available()):
-            raise Exception(
-                'CUDA or Metal compatible device could not be found in torch whilst --use-gpu args was set.\n'
-                'Is the correct pytorch version installed? (See https://pytorch.org/)'
+            # GPU不可用时，自动回退到CPU而不是抛出异常
+            logger.warning(
+                'CUDA or Metal compatible device could not be found in torch whilst --use-gpu was set. '
+                'Automatically falling back to CPU mode.'
             )
+            self.device = 'cpu'
         if params.get('model_dir'):
             ModelWrapper._MODEL_DIR = params.get('model_dir')
         #todo: fix why is kernel size loaded in the constructor
