@@ -41,12 +41,6 @@
     "required_env_vars": ["GEMINI_API_KEY"],
     "optional_env_vars": ["GEMINI_MODEL", "GEMINI_API_BASE"]
   },
-  "deepseek": {
-    "name": "deepseek",
-    "display_name": "DeepSeek",
-    "required_env_vars": ["DEEPSEEK_API_KEY"],
-    "optional_env_vars": ["DEEPSEEK_MODEL", "DEEPSEEK_API_BASE"]
-  },
   "groq": {
     "name": "groq",
     "display_name": "Groq",
@@ -59,12 +53,6 @@
     "required_env_vars": ["SAKURA_API_BASE"],
     "optional_env_vars": ["SAKURA_DICT_PATH", "SAKURA_VERSION"]
   },
-  "custom_openai": {
-    "name": "custom_openai",
-    "display_name": "自定义 OpenAI",
-    "required_env_vars": ["CUSTOM_OPENAI_API_KEY", "CUSTOM_OPENAI_API_BASE"],
-    "optional_env_vars": ["CUSTOM_OPENAI_MODEL", "CUSTOM_OPENAI_MODEL_CONF"]
-  },
   "openai_hq": {
     "name": "openai_hq",
     "display_name": "高质量翻译 OpenAI",
@@ -76,11 +64,5 @@
     "display_name": "高质量翻译 Gemini",
     "required_env_vars": ["GEMINI_API_KEY"],
     "optional_env_vars": ["GEMINI_MODEL", "GEMINI_API_BASE"]
-  },
-  "chatgpt_2stage": {
-    "name": "chatgpt_2stage",
-    "display_name": "ChatGPT (2-Stage)",
-    "required_env_vars": ["OPENAI_API_KEY"],
-    "optional_env_vars": ["OPENAI_MODEL", "OPENAI_API_BASE", "OPENAI_HTTP_PROXY"]
   }
 }

@@ -121,10 +121,17 @@ class MainAppLogic(QObject):
             os.makedirs(final_output_folder, exist_ok=True)
 
             save_kwargs = {}
-            if final_output_path.lower().endswith(('.jpg', '.jpeg', '.webp')):
+            image_to_save = result['image_data']
+
+            # Convert RGBA to RGB for JPEG format
+            if final_output_path.lower().endswith(('.jpg', '.jpeg')):
+                if image_to_save.mode == 'RGBA':
+                    image_to_save = image_to_save.convert('RGB')
+                save_kwargs['quality'] = save_quality
+            elif final_output_path.lower().endswith('.webp'):
                 save_kwargs['quality'] = save_quality
 
-            result['image_data'].save(final_output_path, **save_kwargs)
+            image_to_save.save(final_output_path, **save_kwargs)
 
             # 更新translation_map.json
             self._update_translation_map(original_path, final_output_path)
@@ -335,10 +342,10 @@ class MainAppLogic(QObject):
                 },
                 "translator": {
                     "youdao": "有道翻译", "baidu": "百度翻译", "deepl": "DeepL", "papago": "Papago",
-                    "caiyun": "彩云小译", "chatgpt": "ChatGPT", "chatgpt_2stage": "ChatGPT (2-Stage)",
-                    "none": "无", "original": "原文", "sakura": "Sakura", "deepseek": "DeepSeek",
-                    "groq": "Groq", "gemini": "Google Gemini", "gemini_2stage": "Gemini (2-Stage)",
-                    "openai_hq": "高质量翻译 OpenAI", "gemini_hq": "高质量翻译 Gemini", "custom_openai": "自定义 OpenAI",
+                    "caiyun": "彩云小译", "openai": "OpenAI",
+                    "none": "无", "original": "原文", "sakura": "Sakura",
+                    "groq": "Groq", "gemini": "Google Gemini",
+                    "openai_hq": "高质量翻译 OpenAI", "gemini_hq": "高质量翻译 Gemini",
                     "offline": "离线翻译", "nllb": "NLLB", "nllb_big": "NLLB (Big)", "sugoi": "Sugoi",
                     "jparacrawl": "JParaCrawl", "jparacrawl_big": "JParaCrawl (Big)", "m2m100": "M2M100",
                     "m2m100_big": "M2M100 (Big)", "mbart50": "mBART50", "qwen2": "Qwen2", "qwen2_big": "Qwen2 (Big)",
@@ -357,6 +364,8 @@ class MainAppLogic(QObject):
                     "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度",
                     "renderer": "渲染器", "alignment": "对齐方式", "disable_font_border": "禁用字体边框",
                     "disable_auto_wrap": "AI断句", "font_size_offset": "字体大小偏移量", "font_size_minimum": "最小字体大小",
+                    "max_font_size": "最大字体大小", "font_scale_ratio": "字体缩放比例",
+                    "center_text_in_bubble": "AI断句时文本居中",
                     "direction": "文本方向", "uppercase": "大写", "lowercase": "小写", "gimp_font": "GIMP字体",
                     "font_path": "字体路径", "no_hyphenation": "禁用连字符", "font_color": "字体颜色",
                     "auto_rotate_symbols": "竖排内横排", "rtl": "从右到左", "layout_mode": "排版模式",
@@ -572,10 +581,17 @@ class MainAppLogic(QObject):
                                     os.makedirs(output_folder, exist_ok=True)
                                     
                                     save_kwargs = {}
-                                    if file_extension in ['.jpg', '.jpeg', '.webp']:
+                                    image_to_save = result['image_data']
+
+                                    # Convert RGBA to RGB for JPEG format
+                                    if file_extension in ['.jpg', '.jpeg']:
+                                        if image_to_save.mode == 'RGBA':
+                                            image_to_save = image_to_save.convert('RGB')
                                         save_kwargs['quality'] = save_quality
-                                    
-                                    result['image_data'].save(final_output_path, **save_kwargs)
+                                    elif file_extension == '.webp':
+                                        save_kwargs['quality'] = save_quality
+
+                                    image_to_save.save(final_output_path, **save_kwargs)
                                     saved_files.append(final_output_path)
                                     self.logger.info(f"成功保存文件: {final_output_path}")
                                 except Exception as e:

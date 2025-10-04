@@ -1,6 +1,6 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QWheelEvent
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -21,6 +21,24 @@ from services import get_config_service
 
 from .collapsible_frame import CollapsibleFrame
 from .syntax_highlighter import HorizontalTagHighlighter
+
+
+class CustomSlider(QSlider):
+    """自定义滑块，鼠标滚轮滚动一次数字变1"""
+
+    def wheelEvent(self, event: QWheelEvent):
+        """重写滚轮事件，让滚动一次数字变1"""
+        # 获取滚轮滚动方向
+        delta = event.angleDelta().y()
+
+        # 根据滚动方向增加或减少1
+        if delta > 0:
+            self.setValue(self.value() + 1)
+        elif delta < 0:
+            self.setValue(self.value() - 1)
+
+        # 接受事件，防止传递给父控件
+        event.accept()
 
 
 class PropertyPanel(QWidget):
@@ -195,7 +213,7 @@ class PropertyPanel(QWidget):
         font_size_layout = QHBoxLayout()
         self.font_size_input = QLineEdit()
         font_size_layout.addWidget(self.font_size_input)
-        self.font_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
         self.font_size_slider.setRange(8, 72)
         style_layout.addRow("字体大小:", font_size_layout)
         style_layout.addRow("", self.font_size_slider)

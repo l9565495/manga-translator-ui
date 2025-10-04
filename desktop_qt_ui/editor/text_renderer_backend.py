@@ -113,15 +113,22 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
                 h_ext = int((w_temp / r_orig - h_temp) // 2) if r_orig > 0 else 0
                 if h_ext >= 0:
                     box = np.zeros((h_temp + h_ext * 2, w_temp, 4), dtype=np.uint8)
-                    box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
+                    # Center vertically when enabled
+                    if config_obj and config_obj.render.center_text_in_bubble and config_obj.render.disable_auto_wrap:
+                        box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
+                    else:
+                        box[0:h_temp, 0:w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
             else:
                 w_ext = int((h_temp * r_orig - w_temp) // 2)
                 if w_ext >= 0:
                     box = np.zeros((h_temp, w_temp + w_ext * 2, 4), dtype=np.uint8)
-                    # 完全匹配后端逻辑：文字放在左侧而不是居中
-                    box[0:h_temp, 0:w_temp] = rendered_surface 
+                    # Center horizontally when enabled
+                    if config_obj and config_obj.render.center_text_in_bubble and config_obj.render.disable_auto_wrap:
+                        box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
+                    else:
+                        box[0:h_temp, 0:w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
         else: # Vertical
@@ -129,14 +136,22 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
                 h_ext = int(w_temp / (2 * r_orig) - h_temp / 2) if r_orig > 0 else 0
                 if h_ext >= 0:
                     box = np.zeros((h_temp + h_ext * 2, w_temp, 4), dtype=np.uint8)
-                    box[0:h_temp, 0:w_temp] = rendered_surface
+                    # Center vertically when enabled
+                    if config_obj and config_obj.render.center_text_in_bubble and config_obj.render.disable_auto_wrap:
+                        box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
+                    else:
+                        box[0:h_temp, 0:w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
             else:
                 w_ext = int((h_temp * r_orig - w_temp) / 2)
                 if w_ext >= 0:
                     box = np.zeros((h_temp, w_temp + w_ext * 2, 4), dtype=np.uint8)
-                    box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
+                    # Center horizontally when enabled
+                    if config_obj and config_obj.render.center_text_in_bubble and config_obj.render.disable_auto_wrap:
+                        box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
+                    else:
+                        box[0:h_temp, 0:w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
 

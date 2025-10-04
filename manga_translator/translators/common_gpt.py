@@ -161,37 +161,57 @@ class CommonGPTTranslator(ConfigGPT, CommonTranslator):
 
         return fewshot
 
-    def _assemble_prompts(self, from_lang: str, to_lang: str, queries: List[str]):
+    def _assemble_prompts(self, from_lang: str, to_lang: str, queries: List[str], ctx=None):
         """
         原脚本中用来把多个 query 组装到一个 Prompt。
         同时可以做长度控制，如果过长就切分成多个 prompt。
-        
+
         Original script's method to assemble multiple queries into prompts.
         Handles length control by splitting long queries into multiple prompts.
         """
         batch = []          # List [ <queries> ]
-        chunk_queries = []  # List [ List [ <queries> ] ] 
+        chunk_queries = []  # List [ List [ <queries> ] ]
         current_length = 0
 
-        def _list2prompt(queryList=List[str]):
+        def _list2prompt(queryList=List[str], idx_offset=0):
             prompt = ""
             if self.include_template:
                 prompt = self.prompt_template.format(to_lang=to_lang)
-            
-            # 加上分行内容
-            # Add line breaks
-            for id_num, query in enumerate(queryList, start=1):
-                prompt += f"\n<|{id_num}|>{query.strip()}"
 
-            return prompt            
+            # 加上分行内容，并添加原始区域数量信息（用于AI断句）
+            # Add line breaks and original region count info (for AI line breaking)
+            for id_num, query in enumerate(queryList, start=1):
+                region_count_prefix = ""
+                if ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
+                    # 计算当前query对应的region索引（在整个queries列表中的索引）
+                    region_idx = idx_offset + id_num - 1  # enumerate从1开始，但列表索引从0开始
+                    self.logger.debug(f"[AI断句调试] region_idx={region_idx}, total_regions={len(ctx.text_regions)}")
+                    if region_idx < len(ctx.text_regions):
+                        region = ctx.text_regions[region_idx]
+                        region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                        region_count_prefix = f"[Original regions: {region_count}] "
+                        self.logger.debug(f"[AI断句调试] Region {region_idx}: region_count={region_count}, prefix={region_count_prefix}")
+                    else:
+                        self.logger.warning(f"[AI断句调试] region_idx={region_idx} 超出范围 (total={len(ctx.text_regions)})")
+                else:
+                    if not ctx:
+                        self.logger.debug(f"[AI断句调试] ctx is None")
+                    elif not hasattr(ctx, 'text_regions'):
+                        self.logger.debug(f"[AI断句调试] ctx没有text_regions属性")
+                    elif not ctx.text_regions:
+                        self.logger.debug(f"[AI断句调试] ctx.text_regions为空")
+
+                prompt += f"\n<|{id_num}|>{region_count_prefix}{query.strip()}"
+
+            return prompt
 
         # Test if batching is necessary
-        #   Chunking is likely only necessary in edge-cases 
+        #   Chunking is likely only necessary in edge-cases
         #       (small token limit or huge amounts of text)
-        #   
+        #
         #   Checking if it is required should reduce workload and minimize
         #       repeated `count_token` queries (which is not always be done locally)
-        prompt=_list2prompt(queries)
+        prompt=_list2prompt(queries, idx_offset=0)
         if self.withinTokenLimit(prompt):
             yield prompt, len(queries)
         else:
@@ -219,10 +239,12 @@ class CommonGPTTranslator(ConfigGPT, CommonTranslator):
 
             # 逐个批次生成 prompt
             # Generate prompts batch by batch
+            idx_offset = 0  # 跟踪当前处理到queries列表的哪个位置
             for this_batch in chunk_queries:
-                prompt = _list2prompt(this_batch)
-                
+                prompt = _list2prompt(this_batch, idx_offset=idx_offset)
+
                 yield prompt.lstrip(), len(this_batch)
+                idx_offset += len(this_batch)  # 更新偏移量
     
     def _assemble_request(self, to_lang: str, prompt: str) -> Dict:
         messages = [{'role': 'system', 'content': self.chat_system_template.format(to_lang=to_lang)}]
@@ -308,31 +330,44 @@ class _CommonGPTTranslator_JSON:
                                 )
     
 
-    def _assemble_prompts(self, from_lang: str, to_lang: str, queries: List[str]):
+    def _assemble_prompts(self, from_lang: str, to_lang: str, queries: List[str], ctx=None):
         """
         原脚本中用来把多个 query 组装到一个 Prompt。
-        同时可以做长度控制，如果过长就切分成多个 prompt。
+        同时可以做长度控制,如果过长就切分成多个 prompt。
 
         Original script's method to assemble multiple queries into prompts.
         Handles length control by splitting long queries into multiple prompts.
         """
         batch = []          # List [ <queries> ]
-        chunk_queries = []  # List [ List [ <queries> ] ] 
+        chunk_queries = []  # List [ List [ <queries> ] ]
         input_ID = 0
-        
+
+        # 检查是否开启AI断句
+        enable_ai_break = False
+        if ctx and hasattr(ctx, 'config') and ctx.config and hasattr(ctx.config, 'render'):
+            enable_ai_break = getattr(ctx.config.render, 'disable_auto_wrap', False)
+
         # Test if batching is necessary
-        #   Chunking is likely only necessary in edge-cases 
+        #   Chunking is likely only necessary in edge-cases
         #       (small token limit or huge amounts of text)
         #
         #   Checking if it is required should reduce workload and minimize
         #       repeated `count_token` queries (which is not always be done locally)
-        testFull=self._list2json(queries)
+        testFull=self._list2json(queries, ctx if enable_ai_break else None)
         if self.translator.withinTokenLimit(testFull.model_dump_json()):
             yield testFull.model_dump_json(), len(testFull.TextList)
         else:
-            for input_text in queries:
+            for idx, input_text in enumerate(queries):
+                # 获取带region_count前缀的文本（如果开启AI断句）
+                text_with_prefix = input_text
+                if enable_ai_break and ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
+                    if idx < len(ctx.text_regions):
+                        region = ctx.text_regions[idx]
+                        region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                        text_with_prefix = f"[Original regions: {region_count}] {input_text}"
+
                 # temp list, to check if it exceeds token limit:
-                temp_list = batch + [TextValue(ID=input_ID, text=input_text)]
+                temp_list = batch + [TextValue(ID=input_ID, text=text_with_prefix)]
                 temp_json = TranslationList(TextList=temp_list).model_dump_json()
 
                 if self.translator.withinTokenLimit(temp_json):
@@ -345,11 +380,11 @@ class _CommonGPTTranslator_JSON:
                         chunk_queries.append(TranslationList(TextList=batch))
 
                     # Start new chunk with current item (even if it exceeds limit)
-                    batch = [TextValue(ID=0, text=input_text)]
-                    
+                    batch = [TextValue(ID=0, text=text_with_prefix)]
+
                     # Reset ID counter for new chunk
                     input_ID = 0
-        
+
             if batch:
                 chunk_queries.append(TranslationList(TextList=batch))
 
@@ -482,25 +517,31 @@ class _CommonGPTTranslator_JSON:
 
         return jsonified
 
-    def _list2json(self, vals: List[str]) -> TranslationList:
+    def _list2json(self, vals: List[str], ctx=None) -> TranslationList:
         """
         Convert list text values to TranslationList format.
-        
+
         Args:
-            input_data: List of text samples
-            
+            vals: List of text samples
+            ctx: Context containing text_regions for AI line breaking (only when AI break is enabled)
+
         Returns:
             Text samples stored as a TranslationList
         """
+        text_list = []
+        for id_num, line in enumerate(vals):
+            text = line.strip()
+            # ctx只有在AI断句开启时才会传入，添加 [Original regions: X] 前缀
+            if ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
+                if id_num < len(ctx.text_regions):
+                    region = ctx.text_regions[id_num]
+                    region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                    text = f"[Original regions: {region_count}] {text}"
 
-        jsonified=TranslationList(
-                            TextList=[
-                                TextValue(
-                                    ID=id_num,
-                                    text=line.strip()
-                                ) for id_num, line 
-                                    in enumerate(vals)
-                            ]
-                        )
+            text_list.append(TextValue(
+                ID=id_num,
+                text=text
+            ))
 
+        jsonified = TranslationList(TextList=text_list)
         return jsonified

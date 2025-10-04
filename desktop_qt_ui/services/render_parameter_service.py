@@ -49,7 +49,10 @@ class RenderParameters:
     disable_auto_wrap: bool = False  # 禁用自动换行（AI断句）
     font_size_offset: int = 0  # 字体大小偏移
     font_size_minimum: int = 0  # 最小字体大小
-    
+    max_font_size: int = 0  # 最大字体大小
+    font_scale_ratio: float = 1.0  # 字体缩放比例
+    center_text_in_bubble: bool = False  # AI断句时文本居中
+
     # 效果参数
     stroke_width: float = 0.2  # 描边宽度
     shadow_radius: float = 0.0  # 阴影半径
@@ -411,6 +414,9 @@ class RenderParameterService:
             'layout_mode': params.layout_mode,
             'font_size_offset': params.font_size_offset,
             'font_size_minimum': params.font_size_minimum,
+            'max_font_size': params.max_font_size,
+            'font_scale_ratio': params.font_scale_ratio,
+            'center_text_in_bubble': params.center_text_in_bubble,
             'auto_rotate_symbols': params.auto_rotate_symbols,
 
             # 添加元数据

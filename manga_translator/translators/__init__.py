@@ -4,14 +4,12 @@ import py3langid as langid
 
 from .common import *
 from .baidu import BaiduTranslator
-from .deepseek import DeepseekTranslator
 # # from .google import GoogleTranslator
 from .youdao import YoudaoTranslator
 from .deepl import DeeplTranslator
 from .papago import PapagoTranslator
 from .caiyun import CaiyunTranslator
-from .chatgpt import OpenAITranslator
-from .chatgpt_2stage import ChatGPT2StageTranslator
+from .openai import OpenAITranslator
 from .nllb import NLLBTranslator, NLLBBigTranslator
 from .sugoi import JparacrawlTranslator, JparacrawlBigTranslator, SugoiTranslator
 from .m2m100 import M2M100Translator, M2M100BigTranslator
@@ -23,8 +21,6 @@ from .sakura import SakuraTranslator
 from .qwen2 import Qwen2Translator, Qwen2BigTranslator
 from .groq import GroqTranslator
 from .gemini import GeminiTranslator
-from .gemini_2stage import Gemini2StageTranslator
-from .custom_openai import CustomOpenAiTranslator
 from .openai_hq import OpenAIHighQualityTranslator
 from .gemini_hq import GeminiHighQualityTranslator
 from ..config import Config, Translator, TranslatorConfig, TranslatorChain
@@ -45,13 +41,9 @@ OFFLINE_TRANSLATORS = {
 }
 
 GPT_TRANSLATORS = {
-    Translator.chatgpt: OpenAITranslator,
-    Translator.chatgpt_2stage: ChatGPT2StageTranslator,
-    Translator.deepseek: DeepseekTranslator,
-    Translator.groq:GroqTranslator,
-    Translator.custom_openai: CustomOpenAiTranslator,
+    Translator.openai: OpenAITranslator,
+    Translator.groq: GroqTranslator,
     Translator.gemini: GeminiTranslator,
-    Translator.gemini_2stage: Gemini2StageTranslator,
     Translator.openai_hq: OpenAIHighQualityTranslator,
     Translator.gemini_hq: GeminiHighQualityTranslator,
 }
@@ -106,10 +98,7 @@ async def dispatch(chain: TranslatorChain, queries: List[str], config: Config, u
                 await translator.load('auto', chain.langs[flag], device)
                 pass
             translator.parse_args(config.translator)
-            if key == "gemini_2stage" or key == "chatgpt_2stage":
-                queries = await translator.translate('auto', chain.langs[flag], queries, args)
-            else:
-                queries = await translator.translate('auto', chain.langs[flag], queries, use_mtpe)
+            queries = await translator.translate('auto', chain.langs[flag], queries, use_mtpe)
             await translator.unload(device)
             flag+=1
         return queries
@@ -120,10 +109,11 @@ async def dispatch(chain: TranslatorChain, queries: List[str], config: Config, u
         if isinstance(translator, OfflineTranslator):
             await translator.load('auto', tgt_lang, device)
         translator.parse_args(config.translator)
-        if key.value in ["gemini_2stage", "chatgpt_2stage", "gemini_hq", "openai_hq"]:
+        if key.value in ["gemini_hq", "openai_hq"]:
             queries = await translator.translate('auto', tgt_lang, queries, ctx=args)
         else:
-            queries = await translator.translate('auto', tgt_lang, queries, use_mtpe=use_mtpe)
+            # 传递ctx参数（用于AI断句）
+            queries = await translator.translate('auto', tgt_lang, queries, use_mtpe=use_mtpe, ctx=args)
         if args is not None:
             args['translations'][tgt_lang] = queries
     return queries

@@ -619,6 +619,35 @@ class RegionTextItem(QGraphicsItemGroup):
         event.accept()
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
+        # CRITICAL FIX: 即使 _interaction_mode 是 'none'，也要检查位置是否变化
+        # Qt 的 ItemIsMovable 会自动移动 item，但不会触发我们的 move 逻辑
+        current_pos = self.pos()
+        if current_pos != self.visual_center:
+            # 位置发生了变化，需要更新模型
+            delta_x = current_pos.x() - self.visual_center.x()
+            delta_y = current_pos.y() - self.visual_center.y()
+
+            if abs(delta_x) >= 0.1 or abs(delta_y) >= 0.1:
+                # 更新 lines：所有点都加上偏移量
+                new_lines = []
+                for poly in self.desktop_geometry.lines:
+                    new_poly = [[p[0] + delta_x, p[1] + delta_y] for p in poly]
+                    new_lines.append(new_poly)
+
+                # 更新内部状态
+                self.visual_center = current_pos
+                self.desktop_geometry.center = [current_pos.x(), current_pos.y()]
+                self.desktop_geometry.lines = new_lines
+
+                import copy
+                new_region_data = copy.deepcopy(self.region_data)
+                new_region_data['center'] = [current_pos.x(), current_pos.y()]
+                new_region_data['lines'] = new_lines
+
+                # 更新模型
+                self.geometry_callback(self.region_index, new_region_data)
+                self.region_data.update(new_region_data)
+
         if self._interaction_mode != 'none':
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
 
@@ -652,8 +681,6 @@ class RegionTextItem(QGraphicsItemGroup):
                 new_region_data = copy.deepcopy(self.region_data)
                 new_region_data['center'] = [new_center.x(), new_center.y()]
                 new_region_data['lines'] = new_lines
-
-                print(f"[MOVE DEBUG] Region {self.region_index}: old_center=({old_center.x():.1f}, {old_center.y():.1f}), new_center=({new_center.x():.1f}, {new_center.y():.1f})")
 
                 # Update the model via callback
                 self.geometry_callback(self.region_index, new_region_data)

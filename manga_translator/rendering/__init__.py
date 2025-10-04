@@ -77,14 +77,35 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
         # --- Mode 1: disable_all (unchanged) ---
         if mode == 'disable_all':
-            region.font_size = int(target_font_size)
-            dst_points_list.append(region.min_rect)
+            # Calculate total font scale (font_scale_ratio + max_font_size limit)
+            final_font_size = int(target_font_size * config.render.font_scale_ratio)
+            total_font_scale = config.render.font_scale_ratio
+
+            if config.render.max_font_size > 0 and final_font_size > config.render.max_font_size:
+                total_font_scale *= config.render.max_font_size / final_font_size
+                final_font_size = config.render.max_font_size
+
+            # Scale region to match final font size
+            dst_points = region.min_rect
+            if total_font_scale != 1.0:
+                try:
+                    poly = Polygon(region.unrotated_min_rect[0])
+                    scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
+                    scaled_points = np.array(scaled_poly.exterior.coords[:4])
+                    dst_points = rotate_polygons(region.center, scaled_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                except Exception as e:
+                    logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
+
+            region.font_size = final_font_size
+            dst_points_list.append(dst_points)
             continue
 
-        # --- Mode 2: strict (unchanged) ---
+        # --- Mode 2: strict ---
         elif mode == 'strict':
             font_size = target_font_size
             min_shrink_font_size = max(min_font_size, 8)
+
+            # Step 1: 先缩小字体直到文本能放进文本框
             iteration_count = 0
             while font_size >= min_shrink_font_size:
                 iteration_count += 1
@@ -97,8 +118,49 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     if len(lines) <= len(region.texts):
                         break
                 font_size -= 1
-            region.font_size = int(max(font_size, min_shrink_font_size))
-            dst_points_list.append(region.min_rect)
+
+            # Step 2: 尝试扩大字体以更好地填充空间（但不超过初始大小）
+            # 从当前能放下的字体大小开始，逐步增加
+            max_fitting_font_size = font_size
+            test_font_size = font_size + 1
+
+            while test_font_size <= target_font_size:
+                if region.horizontal:
+                    test_lines, _ = text_render.calc_horizontal(test_font_size, region.translation, max_width=region.unrotated_size[0], max_height=region.unrotated_size[1], language=region.target_lang)
+                    if len(test_lines) <= len(region.texts):
+                        max_fitting_font_size = test_font_size
+                        test_font_size += 1
+                    else:
+                        break
+                else:
+                    test_lines, _ = text_render.calc_vertical(test_font_size, region.translation, max_height=region.unrotated_size[1])
+                    if len(test_lines) <= len(region.texts):
+                        max_fitting_font_size = test_font_size
+                        test_font_size += 1
+                    else:
+                        break
+
+            # Calculate total font scale (font_scale_ratio + max_font_size limit)
+            final_font_size = int(max(max_fitting_font_size, min_shrink_font_size) * config.render.font_scale_ratio)
+            total_font_scale = config.render.font_scale_ratio
+
+            if config.render.max_font_size > 0 and final_font_size > config.render.max_font_size:
+                total_font_scale *= config.render.max_font_size / final_font_size
+                final_font_size = config.render.max_font_size
+
+            # Scale region to match final font size
+            dst_points = region.min_rect
+            if total_font_scale != 1.0:
+                try:
+                    poly = Polygon(region.unrotated_min_rect[0])
+                    scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
+                    scaled_points = np.array(scaled_poly.exterior.coords[:4])
+                    dst_points = rotate_polygons(region.center, scaled_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                except Exception as e:
+                    logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
+
+            region.font_size = final_font_size
+            dst_points_list.append(dst_points)
             continue
 
         # --- Mode 3: default (uses old logic, unchanged) ---
@@ -153,8 +215,25 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             else:
                 dst_points = region.min_rect
 
+            # Calculate total font scale (font_scale_ratio + max_font_size limit)
+            final_font_size = int(target_font_size * config.render.font_scale_ratio)
+            total_font_scale = config.render.font_scale_ratio
+
+            if config.render.max_font_size > 0 and final_font_size > config.render.max_font_size:
+                total_font_scale *= config.render.max_font_size / final_font_size
+                final_font_size = config.render.max_font_size
+
+            # Scale dst_points to match final font size
+            if total_font_scale != 1.0:
+                try:
+                    poly = Polygon(dst_points.reshape(-1, 2))
+                    scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
+                    dst_points = np.array(scaled_poly.exterior.coords[:4]).reshape(-1, 4, 2)
+                except Exception as e:
+                    logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
+
+            region.font_size = final_font_size
             dst_points_list.append(dst_points)
-            region.font_size = int(target_font_size)
             continue
 
         # --- Mode 4: smart_scaling ---
@@ -171,7 +250,10 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                             isinstance(bubble_height, (int, float)) and np.isfinite(bubble_height) and bubble_height > 0):
                         logger.warning(f"Invalid bubble size for region: w={bubble_width}, h={bubble_height}. Skipping smart scaling for this region.")
                         dst_points_list.append(region.min_rect)
-                        region.font_size = int(max(target_font_size, min_font_size))
+                        final_font_size = int(max(target_font_size, min_font_size) * config.render.font_scale_ratio)
+                        if config.render.max_font_size > 0:
+                            final_font_size = min(final_font_size, config.render.max_font_size)
+                        region.font_size = final_font_size
                         continue
 
                     # Create base polygon for scaling
@@ -183,18 +265,21 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     # Calculate required width and height (no auto wrap)
                     required_width = 0
                     required_height = 0
+
                     if region.horizontal:
                         lines, widths = text_render.calc_horizontal(target_font_size, region.translation, max_width=99999, max_height=99999, language=region.target_lang)
                         if widths:
+                            spacing_y = int(target_font_size * (config.render.line_spacing or 0.01))
                             required_width = max(widths)
-                            required_height = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.01)))
+                            required_height = target_font_size * len(lines) + spacing_y * max(0, len(lines) - 1)
                     else: # Vertical
                         # Convert [BR] tags to \n for vertical text
                         text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', region.translation, flags=re.IGNORECASE)
                         lines, heights = text_render.calc_vertical(target_font_size, text_for_calc, max_height=99999)
                         if heights:
+                            spacing_x = int(target_font_size * (config.render.line_spacing or 0.2))
                             required_height = max(heights)
-                            required_width = len(lines) * (target_font_size * (1 + (config.render.line_spacing or 0.2)))
+                            required_width = target_font_size * len(lines) + spacing_x * max(0, len(lines) - 1)
 
                     # Check for overflow in either dimension
                     width_overflow = max(0, required_width - bubble_width)
@@ -203,26 +288,57 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     dst_points = region.min_rect
 
                     if width_overflow > 0 or height_overflow > 0:
-                        # Calculate scale needed for each dimension
-                        width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
-                        height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
-                        scale_needed = max(width_scale_needed, height_scale_needed)
+                        # 单列/单行时，独立缩放宽度和高度
+                        if len(lines) == 1:
+                            width_scale_factor = 1.0
+                            height_scale_factor = 1.0
 
-                        # Use same expansion logic as disable_auto_wrap = False
-                        diff_ratio = scale_needed - 1.0
-                        box_expansion_ratio = diff_ratio / 2
-                        box_scale_factor = 1 + min(box_expansion_ratio, 1.0)
-                        font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                        font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
+                            if width_overflow > 0:
+                                width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
+                                diff_ratio_w = width_scale_needed - 1.0
+                                box_expansion_ratio_w = diff_ratio_w / 2
+                                width_scale_factor = 1 + min(box_expansion_ratio_w, 1.0)
 
-                        try:
-                            scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=box_scale_factor, yfact=box_scale_factor, origin='center')
-                            scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
-                            dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                        except Exception as e:
-                            logger.warning(f"Failed to apply dynamic scaling: {e}")
+                            if height_overflow > 0:
+                                height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
+                                diff_ratio_h = height_scale_needed - 1.0
+                                box_expansion_ratio_h = diff_ratio_h / 2
+                                height_scale_factor = 1 + min(box_expansion_ratio_h, 1.0)
 
-                        target_font_size = int(target_font_size * font_scale_factor)
+                            try:
+                                scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
+                                scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
+                                dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                            except Exception as e:
+                                logger.warning(f"Failed to apply independent scaling: {e}")
+
+                            # 字体也需要独立缩放
+                            scale_needed = max(required_width / bubble_width if bubble_width > 0 else 1.0,
+                                             required_height / bubble_height if bubble_height > 0 else 1.0)
+                            diff_ratio = scale_needed - 1.0
+                            font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
+                            font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
+                            target_font_size = int(target_font_size * font_scale_factor)
+                        else:
+                            # 多列/多行时，使用原来的统一缩放逻辑
+                            width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
+                            height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
+                            scale_needed = max(width_scale_needed, height_scale_needed)
+
+                            diff_ratio = scale_needed - 1.0
+                            box_expansion_ratio = diff_ratio / 2
+                            box_scale_factor = 1 + min(box_expansion_ratio, 1.0)
+                            font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
+                            font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
+
+                            try:
+                                scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=box_scale_factor, yfact=box_scale_factor, origin='center')
+                                scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
+                                dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                            except Exception as e:
+                                logger.warning(f"Failed to apply dynamic scaling: {e}")
+
+                            target_font_size = int(target_font_size * font_scale_factor)
                     else:
                         # No overflow, can enlarge font to fit better
                         if required_width > 0 and required_height > 0:
@@ -266,8 +382,25 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     target_font_size = region.offset_applied_font_size
                     dst_points = region.min_rect
 
+                # Calculate total font scale (font_scale_ratio + max_font_size limit)
+                final_font_size = int(max(target_font_size, min_font_size) * config.render.font_scale_ratio)
+                total_font_scale = config.render.font_scale_ratio
+
+                if config.render.max_font_size > 0 and final_font_size > config.render.max_font_size:
+                    total_font_scale *= config.render.max_font_size / final_font_size
+                    final_font_size = config.render.max_font_size
+
+                # Scale dst_points to match final font size
+                if total_font_scale != 1.0:
+                    try:
+                        poly = Polygon(dst_points.reshape(-1, 2))
+                        scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
+                        dst_points = np.array(scaled_poly.exterior.coords[:4]).reshape(-1, 4, 2)
+                    except Exception as e:
+                        logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
+
+                region.font_size = final_font_size
                 dst_points_list.append(dst_points)
-                region.font_size = int(max(target_font_size, min_font_size))
                 continue
 
             else:
@@ -337,15 +470,51 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         dst_points = rotate_polygons(region.center, unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                     except Exception as e:
                         logger.warning(f"Failed to use base polygon: {e}")
-                
+
+                # Calculate total font scale (font_scale_ratio + max_font_size limit)
+                final_font_size = int(target_font_size * config.render.font_scale_ratio)
+                total_font_scale = config.render.font_scale_ratio
+
+                if config.render.max_font_size > 0 and final_font_size > config.render.max_font_size:
+                    total_font_scale *= config.render.max_font_size / final_font_size
+                    final_font_size = config.render.max_font_size
+
+                # Scale dst_points to match final font size
+                if total_font_scale != 1.0:
+                    try:
+                        poly = Polygon(dst_points.reshape(-1, 2))
+                        scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
+                        dst_points = np.array(scaled_poly.exterior.coords[:4]).reshape(-1, 4, 2)
+                    except Exception as e:
+                        logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
+
+                region.font_size = final_font_size
                 dst_points_list.append(dst_points)
-                region.font_size = int(target_font_size)
                 continue
 
         # --- Fallback for any other modes (e.g., 'fixed_font') ---
         else:
-            dst_points_list.append(region.min_rect)
-            region.font_size = int(min(target_font_size, 512))
+            # Calculate total font scale (font_scale_ratio + max_font_size limit)
+            final_font_size = int(min(target_font_size, 512) * config.render.font_scale_ratio)
+            total_font_scale = config.render.font_scale_ratio
+
+            if config.render.max_font_size > 0 and final_font_size > config.render.max_font_size:
+                total_font_scale *= config.render.max_font_size / final_font_size
+                final_font_size = config.render.max_font_size
+
+            # Scale region to match final font size
+            dst_points = region.min_rect
+            if total_font_scale != 1.0:
+                try:
+                    poly = Polygon(region.unrotated_min_rect[0])
+                    scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
+                    scaled_points = np.array(scaled_poly.exterior.coords[:4])
+                    dst_points = rotate_polygons(region.center, scaled_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                except Exception as e:
+                    logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
+
+            region.font_size = final_font_size
+            dst_points_list.append(dst_points)
             continue
 
     return dst_points_list
@@ -492,14 +661,22 @@ def render(
             h_ext = int((w / r_orig - h) // 2) if r_orig > 0 else 0
             if h_ext >= 0:
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                box[h_ext:h_ext+h, 0:w] = temp_box
+                # Center vertically when enabled
+                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
+                    box[h_ext:h_ext+h, 0:w] = temp_box
+                else:
+                    box[0:h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
         else:
             w_ext = int((h * r_orig - w) // 2)
             if w_ext >= 0:
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                box[0:h, 0:w] = temp_box
+                # Center horizontally when enabled
+                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
+                    box[0:h, w_ext:w_ext+w] = temp_box
+                else:
+                    box[0:h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
     else:
@@ -507,14 +684,22 @@ def render(
             h_ext = int(w / (2 * r_orig) - h / 2) if r_orig > 0 else 0
             if h_ext >= 0:
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                box[0:h, 0:w] = temp_box
+                # Center vertically when enabled
+                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
+                    box[h_ext:h_ext+h, 0:w] = temp_box
+                else:
+                    box[0:h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
         else:
             w_ext = int((h * r_orig - w) / 2)
             if w_ext >= 0:
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                box[0:h, w_ext:w_ext+w] = temp_box
+                # Center horizontally when enabled
+                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
+                    box[0:h, w_ext:w_ext+w] = temp_box
+                else:
+                    box[0:h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
 

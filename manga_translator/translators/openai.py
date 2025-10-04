@@ -108,7 +108,7 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                 await asyncio.sleep(total_delay - elapsed)
             self._last_request_ts = time.time()
 
-    def _assemble_prompts(self, from_lang: str, to_lang: str, queries: List[str]):
+    def _assemble_prompts(self, from_lang: str, to_lang: str, queries: List[str], ctx=None):
         """
         原脚本中用来把多个 query 组装到一个 Prompt。
         同时可以做长度控制，如果过长就切分成多个 prompt。
@@ -118,7 +118,7 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
         """
 
         lang_name = self._LANGUAGE_CODE_MAP.get(to_lang, to_lang) if to_lang in self._LANGUAGE_CODE_MAP else to_lang
-        
+
         MAX_CHAR_PER_PROMPT = self._MAX_TOKENS * 4  # 粗略: 1 token ~ 4 chars
         chunk_queries = []
         current_length = 0
@@ -137,14 +137,37 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             chunk_queries.append(batch)
 
         # 逐个批次生成 prompt
+        idx_offset = 0  # 跟踪当前处理到queries列表的哪个位置
         for this_batch in chunk_queries:
             prompt = ""
             if self.include_template:
                 prompt = self.prompt_template.format(to_lang=lang_name)
-            # 加上分行内容
+            # 加上分行内容，并添加原始区域数量信息（用于AI断句）
+            # Add line breaks and original region count info (for AI line breaking)
             for i, query in enumerate(this_batch):
-                prompt += f"\n<|{i+1}|>{query}"
+                region_count_prefix = ""
+                if ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
+                    # 计算当前query对应的region索引（在整个queries列表中的索引）
+                    region_idx = idx_offset + i
+                    self.logger.debug(f"[AI断句调试] region_idx={region_idx}, total_regions={len(ctx.text_regions)}")
+                    if region_idx < len(ctx.text_regions):
+                        region = ctx.text_regions[region_idx]
+                        region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                        region_count_prefix = f"[Original regions: {region_count}] "
+                        self.logger.debug(f"[AI断句调试] Region {region_idx}: region_count={region_count}, prefix={region_count_prefix}")
+                    else:
+                        self.logger.warning(f"[AI断句调试] region_idx={region_idx} 超出范围 (total={len(ctx.text_regions)})")
+                else:
+                    if not ctx:
+                        self.logger.debug(f"[AI断句调试] ctx is None")
+                    elif not hasattr(ctx, 'text_regions'):
+                        self.logger.debug(f"[AI断句调试] ctx没有text_regions属性")
+                    elif not ctx.text_regions:
+                        self.logger.debug(f"[AI断句调试] ctx.text_regions为空")
+
+                prompt += f"\n<|{i+1}|>{region_count_prefix}{query}"
             yield prompt.lstrip(), len(this_batch)
+            idx_offset += len(this_batch)  # 更新偏移量
 
     async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
         """
@@ -152,12 +175,15 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             1. 把 queries 拆成多个 prompt 批次
             2. 对每个批次调用 translate_batch，并将结果写回 translations
         """
+        # 保存ctx到实例变量，供_request_translation使用
+        self.ctx = ctx
+
         translations = [''] * len(queries)
         # 记录当前处理到 queries 列表的哪个位置
         idx_offset = 0
 
         # 分批处理
-        for prompt, batch_size in self._assemble_prompts(from_lang, to_lang, queries):
+        for prompt, batch_size in self._assemble_prompts(from_lang, to_lang, queries, ctx):
             # 实际要翻译的子列表
             batch_queries = queries[idx_offset : idx_offset + batch_size]
             indices = list(range(idx_offset, idx_offset + batch_size))
@@ -550,10 +576,10 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             left_indices = batch_indices[:mid]  
             right_indices = batch_indices[mid:]  
 
-            # 并发翻译左半部分和右半部分 
+            # 并发翻译左半部分和右半部分
             # Concurrently translate the left and right halves
-            left_prompt, _ = next(self._assemble_prompts(from_lang, to_lang, left_queries))  
-            right_prompt, _ = next(self._assemble_prompts(from_lang, to_lang, right_queries))
+            left_prompt, _ = next(self._assemble_prompts(from_lang, to_lang, left_queries, ctx))
+            right_prompt, _ = next(self._assemble_prompts(from_lang, to_lang, right_queries, ctx))
             
             # 使用 asyncio.gather 实现并发翻译  
             # Use asyncio.gather for concurrent translation
@@ -664,29 +690,40 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
         """
         The actual request part that calls openai.ChatCompletion.
         Incorporate the glossary function.
-        """        
+        """
+        # 从ctx获取line_break_prompt（如果有）
+        line_break_prompt_str = ""
+        if hasattr(self, 'ctx') and self.ctx and hasattr(self.ctx, 'line_break_prompt_json'):
+            line_break_prompt_json = self.ctx.line_break_prompt_json
+            if line_break_prompt_json and line_break_prompt_json.get('line_break_prompt'):
+                line_break_prompt_str = line_break_prompt_json['line_break_prompt']
+
         lang_name = self._LANGUAGE_CODE_MAP.get(to_lang, to_lang) if to_lang in self._LANGUAGE_CODE_MAP else to_lang
-                
+
         # 构建 messages / Construct messages
-        messages = [  
-            {'role': 'system', 'content': self.chat_system_template.format(to_lang=lang_name)},  
-        ]  
+        messages = [
+            {'role': 'system', 'content': self.chat_system_template.format(to_lang=lang_name)},
+        ]
+
+        # 如果有line_break_prompt，添加到messages中
+        if line_break_prompt_str:
+            messages.append({'role': 'system', 'content': line_break_prompt_str})
 
         # 提取相关术语并添加到系统消息中  / Extract relevant terms and add them to the system message
         has_glossary = False  # 添加标志表示是否有术语表 / Add a flag to indicate whether there is a glossary
-        relevant_terms = self.extract_relevant_terms(prompt)  
-        if relevant_terms:  
+        relevant_terms = self.extract_relevant_terms(prompt)
+        if relevant_terms:
             has_glossary = True  # 设置标志 / Set the flag
             # 构建术语表字符串 / Construct the glossary string
-            glossary_text = "\n".join([f"{term}->{translation}" for term, translation in relevant_terms.items()])  
-            system_message = self.glossary_system_template.format(glossary_text=glossary_text)  
-            messages.append({'role': 'system', 'content': system_message})  
-            self.logger.info(f"Loaded {len(relevant_terms)} relevant terms from the glossary.")  
-        
-        # 如果有上文，添加到系统消息中 / If there is a previous context, add it to the system message        
+            glossary_text = "\n".join([f"{term}->{translation}" for term, translation in relevant_terms.items()])
+            system_message = self.glossary_system_template.format(glossary_text=glossary_text)
+            messages.append({'role': 'system', 'content': system_message})
+            self.logger.info(f"Loaded {len(relevant_terms)} relevant terms from the glossary.")
+
+        # 如果有上文，添加到系统消息中 / If there is a previous context, add it to the system message
         if self.prev_context:
-            messages.append({'role': 'system', 'content': self.prev_context})            
-        
+            messages.append({'role': 'system', 'content': self.prev_context})
+
         # 如果需要先给出示例对话
         # Add chat samples if available
         lang_chat_samples = self.get_chat_sample(to_lang)
@@ -696,25 +733,25 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             messages.append({'role': 'user', 'content': lang_chat_samples[0]})
             messages.append({'role': 'assistant', 'content': lang_chat_samples[1]})
 
-        # 最终用户请求 / End-user request 
-        messages.append({'role': 'user', 'content': prompt})  
+        # 最终用户请求 / End-user request
+        messages.append({'role': 'user', 'content': prompt})
 
-        # 准备输出的 prompt 文本 / Prepare the output prompt text 
-        if self.verbose_logging:  
-            prompt_text = "\n".join(f"{m['role'].upper()}:\n{m['content']}" for m in messages) 
-                    
-            self.print_boxed(prompt_text, border_color="cyan", title="GPT Prompt")      
-        else:  
-            simplified_msgs = []  
-            for i, m in enumerate(messages):  
-                if (has_glossary and i == 1) or (i == len(messages) - 1):  
-                    simplified_msgs.append(f"{m['role'].upper()}:\n{m['content']}")  
-                else:  
-                    simplified_msgs.append(f"{m['role'].upper()}:\n[HIDDEN CONTENT]")  
+        # 准备输出的 prompt 文本 / Prepare the output prompt text
+        if self.verbose_logging:
+            prompt_text = "\n".join(f"{m['role'].upper()}:\n{m['content']}" for m in messages)
+
+            self.print_boxed(prompt_text, border_color="cyan", title="GPT Prompt")
+        else:
+            simplified_msgs = []
+            for i, m in enumerate(messages):
+                if (has_glossary and i == 1) or (i == len(messages) - 1):
+                    simplified_msgs.append(f"{m['role'].upper()}:\n{m['content']}")
+                else:
+                    simplified_msgs.append(f"{m['role'].upper()}:\n[HIDDEN CONTENT]")
             prompt_text = "\n".join(simplified_msgs)
             # 使用 rich 输出 prompt / Use rich to output the prompt
-            self.print_boxed(prompt_text, border_color="cyan", title="GPT Prompt (verbose=False)") 
-        
+            self.print_boxed(prompt_text, border_color="cyan", title="GPT Prompt (verbose=False)")
+
 
         # 发起请求 / Initiate the request
         response = await self.client.chat.completions.create(
@@ -736,7 +773,7 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
         raw_text = re.sub(r'(</think>)?<think>.*?</think>', '', raw_text, flags=re.DOTALL)
 
         # 删除多余的空行 / Remove extra blank lines
-        
+
         cleaned_text = re.sub(r'\n\s*\n', '\n', raw_text).strip()
 
         # 删除数字前缀前后的不相关的解释性文字。但不出现数字前缀时，保留限制词防止删得什么都不剩
@@ -755,7 +792,7 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                     min_index_line_index = index
                 if max_index_line_index == -1 or current_index > int(re.search(r'<\|(\d+)\|>', lines[max_index_line_index]).group(1)):  # 查找最大标号 / find max number
                     max_index_line_index = index
-                    
+
         if has_numeric_prefix:
             modified_lines = []
             if min_index_line_index != -1:
@@ -764,25 +801,25 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             if max_index_line_index != -1 and modified_lines:  # 确保 modified_lines 不为空，且找到了最大标号 / Ensure that modified_lines is not empty and that the maximum label has been found
                 modified_lines = modified_lines[:max_index_line_index - min_index_line_index + 1]  # 只保留到最大标号行 (相对于 modified_lines 的索引) / Retain only up to the row with the maximum label (relative to the index of modified_lines)
 
-            cleaned_text = "\n".join(modified_lines)      
-        
+            cleaned_text = "\n".join(modified_lines)
+
         # 记录 token 消耗 / Record token consumption
         if not hasattr(response, 'usage') or not hasattr(response.usage, 'total_tokens'):
             self.logger.warning("Response does not contain usage information") #第三方逆向中转api不返回token数 / The third-party reverse proxy API does not return token counts
             self.token_count_last = 0
-            
+
         # 记录 token 消耗   (rich模式) / Record token consumption (rich mode)
-        # if not hasattr(response, 'usage') or not hasattr(response.usage, 'total_tokens'):  
-            # warning_text = "WARNING: [OpenAITranslator] Response does not contain usage information"  
-            # self.print_boxed(warning_text, border_color="yellow")  
-            # self.token_count_last = 0              
-            
+        # if not hasattr(response, 'usage') or not hasattr(response.usage, 'total_tokens'):
+            # warning_text = "WARNING: [OpenAITranslator] Response does not contain usage information"
+            # self.print_boxed(warning_text, border_color="yellow")
+            # self.token_count_last = 0
+
         else:
             self.token_count += response.usage.total_tokens
             self.token_count_last = response.usage.total_tokens
-        
+
         response_text = cleaned_text
-        self.print_boxed(response_text, border_color="green", title="GPT Response")          
+        self.print_boxed(response_text, border_color="green", title="GPT Response")
         return cleaned_text
 
     def _fix_prefix_spacing(self, text_to_fix):

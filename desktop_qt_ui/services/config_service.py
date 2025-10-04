@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from dotenv import dotenv_values, set_key
+from dotenv import dotenv_values, set_key, load_dotenv
 
 from core.config_models import AppSettings
 
@@ -237,11 +237,13 @@ class ConfigService(QObject):
                 os.makedirs(os.path.dirname(self.env_path), exist_ok=True)
                 with open(self.env_path, 'w'):
                     pass
-                    
+
             set_key(self.env_path, key, value)
+            # 重新加载环境变量到os.environ，使其立即生效
+            load_dotenv(self.env_path, override=True)
             self.logger.info(f"保存环境变量: {key}")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"保存环境变量失败: {e}")
             return False

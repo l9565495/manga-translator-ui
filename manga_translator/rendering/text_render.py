@@ -503,6 +503,10 @@ def put_char_vertical(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_
 
 def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tuple[int, int, int], bg: Optional[Tuple[int, int, int]], line_spacing: int, config=None, region_count: int = 1):
 
+    # 应用最大字体限制
+    if config and hasattr(config.render, 'max_font_size') and config.render.max_font_size > 0:
+        font_size = min(font_size, config.render.max_font_size)
+
     text = compact_special_symbols(text)
     if not text:
         return
@@ -520,7 +524,7 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     line_text_list, line_height_list = calc_vertical(font_size, text, effective_max_height, config=config)
     if not line_height_list:
         return
-        
+
     canvas_x = font_size * len(line_text_list) + spacing_x * (len(line_text_list) - 1) + (font_size + bg_size) * 2
     canvas_y = max(line_height_list) + (font_size + bg_size) * 2
 
@@ -608,12 +612,12 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     line_box = add_color(canvas_text, fg, canvas_border, bg)
     combined_canvas = cv2.add(canvas_text, canvas_border)
     x, y, w, h = cv2.boundingRect(combined_canvas)
-    
+
     if w == 0 or h == 0:
         return
 
     result = line_box[y:y+h, x:x+w]
-    
+
     return result
 
 def select_hyphenator(lang: str):
@@ -1035,6 +1039,10 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
                         reversed_direction: bool, fg: Tuple[int, int, int], bg: Tuple[int, int, int],
                         lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0, config=None, region_count: int = 1):
 
+    # 应用最大字体限制
+    if config and hasattr(config.render, 'max_font_size') and config.render.max_font_size > 0:
+        font_size = min(font_size, config.render.max_font_size)
+
     text = compact_special_symbols(text)
     if not text :
         return
@@ -1067,6 +1075,21 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     canvas_text = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
     canvas_border = canvas_text.copy()
     pen_orig = [font_size + bg_size, font_size + bg_size]
+
+    # Center text block when AI line breaking is enabled
+    if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
+        # Horizontal centering: based on the widest line
+        max_width = max(line_width_list)
+        horizontal_offset = (canvas_w - max_width - (font_size + bg_size) * 2) // 2
+        if horizontal_offset > 0:
+            pen_orig[0] += horizontal_offset
+
+        # Vertical centering: based on total height of all lines
+        total_lines_height = font_size * len(line_width_list) + spacing_y * (len(line_width_list) - 1)
+        vertical_offset = (canvas_h - total_lines_height - (font_size + bg_size) * 2) // 2
+        if vertical_offset > 0:
+            pen_orig[1] += vertical_offset
+
     if reversed_direction:
         pen_orig[0] = canvas_w - bg_size - 10
 

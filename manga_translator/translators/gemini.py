@@ -131,19 +131,26 @@ class GeminiTranslator(CommonGPTTranslator):
     def _needRecache(self) -> bool:
         return False
 
-    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:  
-        self.to_lang=to_lang
-        translations = [''] * len(queries)  
-        self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')  
-        MAX_SPLIT_ATTEMPTS = 5
-        RETRY_ATTEMPTS = self._RETRY_ATTEMPTS  
+    async def _translate(self, from_lang: str, to_lang: str, queries: List[str], ctx=None) -> List[str]:
+        # 保存ctx到实例变量，供_request_translation使用
+        self.ctx = ctx
 
-        async def translate_batch(prompt_queries, prompt_query_indices, split_level=0):  
+        self.to_lang=to_lang
+        translations = [''] * len(queries)
+        self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')
+        MAX_SPLIT_ATTEMPTS = 5
+        # 优先使用配置中的attempts，如果没有则使用默认的_RETRY_ATTEMPTS
+        RETRY_ATTEMPTS = self.attempts if hasattr(self, 'attempts') and self.attempts is not None else self._RETRY_ATTEMPTS
+
+        async def translate_batch(prompt_queries, prompt_query_indices, split_level=0):
             nonlocal MAX_SPLIT_ATTEMPTS
-            prompt, query_size = self._assemble_prompts(from_lang, to_lang, prompt_queries).__next__()
+            prompt, query_size = self._assemble_prompts(from_lang, to_lang, prompt_queries, ctx).__next__()
 
             server_error_attempt = 0
-            for attempt in range(RETRY_ATTEMPTS):  
+            attempt = 0
+            while True:  # 使用while True来支持无限重试
+                if RETRY_ATTEMPTS != -1 and attempt >= RETRY_ATTEMPTS:
+                    break
                 try:
                     response_text = await self._request_translation(to_lang, prompt)
                     new_translations = self._parse_response(response_text, prompt_queries)
@@ -153,6 +160,7 @@ class GeminiTranslator(CommonGPTTranslator):
 
                     if len(new_translations) < query_size:
                         self.logger.warning(f'Incomplete response, retrying...')
+                        attempt += 1
                         continue
 
                     new_translations = new_translations[:query_size] + [''] * (query_size - len(new_translations))
@@ -183,11 +191,15 @@ class GeminiTranslator(CommonGPTTranslator):
                         raise
 
                     server_error_attempt += 1
-                    if server_error_attempt >= RETRY_ATTEMPTS:
+                    # 检查是否超过重试次数（-1表示无限重试）
+                    if RETRY_ATTEMPTS != -1 and server_error_attempt >= RETRY_ATTEMPTS:
                         self.logger.error(f'Gemini encountered a server error: {e}. Use a different translator or try again later.')
                         raise
                     self.logger.warning(f'Restarting request due to a server error. Attempt: {server_error_attempt}')
                     await asyncio.sleep(1)
+
+                # 增加尝试计数器
+                attempt += 1
 
             if split_level < MAX_SPLIT_ATTEMPTS:  
                 mid_index = len(prompt_queries) // 2  
@@ -206,7 +218,19 @@ class GeminiTranslator(CommonGPTTranslator):
         return '\n---\n'.join(f"\n{BOLD}{aKey}{NRML}:\n{aVal}" for aKey, aVal in vals.items())
 
     async def _request_translation(self, to_lang: str, prompt: str) -> str:
+        # 从ctx获取line_break_prompt（如果有）
+        line_break_prompt_str = ""
+        if hasattr(self, 'ctx') and self.ctx and hasattr(self.ctx, 'line_break_prompt_json'):
+            line_break_prompt_json = self.ctx.line_break_prompt_json
+            if line_break_prompt_json and line_break_prompt_json.get('line_break_prompt'):
+                line_break_prompt_str = line_break_prompt_json['line_break_prompt']
+
         system_instruction = self.chat_system_template.format(to_lang=to_lang)
+
+        # 如果有line_break_prompt，添加到system instruction前面
+        if line_break_prompt_str:
+            system_instruction = f"{line_break_prompt_str}\n\n---\n\n{system_instruction}"
+
         lang_chat_samples = self.get_chat_sample(to_lang)
 
         messages = []
@@ -270,7 +294,19 @@ class _GeminiTranslator_json (_CommonGPTTranslator_JSON):
         pass
 
     async def _request_translation(self, to_lang: str, prompt: str) -> str:
+        # 从ctx获取line_break_prompt（如果有）
+        line_break_prompt_str = ""
+        if hasattr(self.translator, 'ctx') and self.translator.ctx and hasattr(self.translator.ctx, 'line_break_prompt_json'):
+            line_break_prompt_json = self.translator.ctx.line_break_prompt_json
+            if line_break_prompt_json and line_break_prompt_json.get('line_break_prompt'):
+                line_break_prompt_str = line_break_prompt_json['line_break_prompt']
+
         system_instruction = self.translator.chat_system_template.format(to_lang=to_lang)
+
+        # 如果有line_break_prompt，添加到system instruction前面
+        if line_break_prompt_str:
+            system_instruction = f"{line_break_prompt_str}\n\n---\n\n{system_instruction}"
+
         lang_JSON_samples = self.translator.get_json_sample(to_lang)
 
         messages = []

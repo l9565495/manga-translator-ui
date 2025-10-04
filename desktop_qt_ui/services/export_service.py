@@ -145,17 +145,18 @@ class ExportService:
         )
         export_thread.start()
     
-    def _perform_backend_render_export(self, image: Image.Image, regions_data: List[Dict[str, Any]], 
+    def _perform_backend_render_export(self, image: Image.Image, regions_data: List[Dict[str, Any]],
                                      config: Dict[str, Any], output_path: str,
                                      mask: Optional[np.ndarray] = None,
                                      progress_callback: Optional[callable] = None,
                                      success_callback: Optional[callable] = None,
                                      error_callback: Optional[callable] = None):
         """在后台线程中执行后端渲染导出"""
+        import gc
         try:
             if progress_callback:
                 progress_callback("准备导出环境...")
-            
+
             # 创建临时目录
             with tempfile.TemporaryDirectory() as temp_dir:
                 # 保存当前图片到临时文件
@@ -182,30 +183,38 @@ class ExportService:
                     # Composite the text layer onto the original image
                     final_image = image.copy()
                     if final_image.mode != 'RGBA':
-                        final_image = final_image.convert('RGBA')
+                        temp_img = final_image.convert('RGBA')
+                        final_image.close()  # 释放旧图像
+                        final_image = temp_img
                     if rendered_text_layer.mode != 'RGBA':
-                        rendered_text_layer = rendered_text_layer.convert('RGBA')
+                        temp_layer = rendered_text_layer.convert('RGBA')
+                        rendered_text_layer.close()  # 释放旧图像
+                        rendered_text_layer = temp_layer
 
                     # Ensure sizes match before pasting, resizing if necessary
                     if final_image.size != rendered_text_layer.size:
                         self.logger.warning(f"Size mismatch: Original {final_image.size}, Rendered {rendered_text_layer.size}. Resizing text layer.")
-                        rendered_text_layer = rendered_text_layer.resize(final_image.size, Image.LANCZOS)
+                        temp_layer = rendered_text_layer.resize(final_image.size, Image.LANCZOS)
+                        rendered_text_layer.close()  # 释放旧图像
+                        rendered_text_layer = temp_layer
 
                     final_image.paste(rendered_text_layer, (0, 0), rendered_text_layer)
+                    rendered_text_layer.close()  # 释放渲染层
 
                     # --- Safer saving logic ---
                     temp_output_path = output_path + ".tmp"
-                    
+
                     try:
                         # Handle image saving, applying quality settings for supported formats
                         output_lower = output_path.lower()
 
                         if output_lower.endswith(('.jpg', '.jpeg')):
                             self.logger.info("Output is JPEG, converting from RGBA to RGB...")
-                            final_image = final_image.convert('RGB')
+                            temp_img = final_image.convert('RGB')
                             save_quality = config.get('cli', {}).get('save_quality', 95)
                             self.logger.info(f"Saving JPEG with quality: {save_quality}")
-                            final_image.save(temp_output_path, format='JPEG', quality=save_quality)
+                            temp_img.save(temp_output_path, format='JPEG', quality=save_quality)
+                            temp_img.close()  # 释放转换后的图像
                         elif output_lower.endswith('.webp'):
                             save_quality = config.get('cli', {}).get('save_quality', 95)
                             self.logger.info(f"Saving WEBP with quality: {save_quality}")
@@ -213,13 +222,19 @@ class ExportService:
                         else:
                             # For other formats like PNG, save directly
                             final_image.save(temp_output_path, format='PNG')
-                        
+
+                        # 释放 final_image
+                        final_image.close()
+
                         # If save is successful, rename the temp file to the final output path
                         os.replace(temp_output_path, output_path)
                         self.logger.info(f"Successfully saved and replaced file at: {output_path}")
 
                     except Exception as e:
                         self.logger.error(f"Failed to save image to {output_path}: {e}")
+                        # 确保释放图像
+                        if 'final_image' in locals():
+                            final_image.close()
                         # Re-raise the exception to be caught by the main try-except block
                         raise
                     finally:
@@ -229,19 +244,22 @@ class ExportService:
                     
                     if success_callback:
                         success_callback(f"图片已导出到: {output_path}")
-                    
+
                     self.logger.info(f"图片已成功导出到: {output_path}")
                 else:
                     if error_callback:
                         error_callback("导出失败: 没有生成结果图片")
-                    
+
         except Exception as e:
             self.logger.error(f"后端渲染导出失败: {e}")
             import traceback
             traceback.print_exc()
-            
+
             if error_callback:
                 error_callback(f"后端渲染导出失败: {e}")
+        finally:
+            # 强制执行垃圾回收，释放内存
+            gc.collect()
     
     def _save_regions_data(self, regions_data: List[Dict[str, Any]], json_path: str, mask: Optional[np.ndarray] = None):
         """保存区域数据到JSON文件，确保格式与TextBlock兼容"""
@@ -249,7 +267,7 @@ class ExportService:
         save_data = []
         for region in regions_data:
             region_copy = region.copy()
-            
+
             # 确保必要字段存在
             if 'translation' not in region_copy:
                 region_copy['translation'] = region_copy.get('text', '')
@@ -402,62 +420,71 @@ class ExportService:
         
         return translator_params
     
-    def _execute_backend_render(self, image_path: str, regions_json_path: str, 
+    def _execute_backend_render(self, image_path: str, regions_json_path: str,
                               translator_params: Dict[str, Any], config: Dict[str, Any],
                               progress_callback: Optional[callable] = None) -> Optional[Image.Image]:
         """执行后端渲染"""
+        image = None
         try:
             from manga_translator.config import Config, RenderConfig
             from manga_translator.manga_translator import MangaTranslator
-            
+
             if progress_callback:
                 progress_callback("创建翻译器实例...")
-            
+
             # 创建翻译器实例
             translator = MangaTranslator(params=translator_params)
-            
+
             if progress_callback:
                 progress_callback("加载图片和配置...")
-            
+
             # 加载图片
             image = Image.open(image_path)
             image.name = image_path  # 确保图片名称正确，用于load_text模式查找翻译文件
-            
+
             # 创建配置对象
             render_config = config.get('render', {})
             render_config['font_color'] = None # Explicitly disable global font color
             render_cfg = RenderConfig(**render_config)
-            
+
             # 创建翻译器配置，设置为none以跳过翻译
             from manga_translator.config import TranslatorConfig
             translator_cfg = TranslatorConfig(translator='none')
-            
+
             cfg = Config(render=render_cfg, translator=translator_cfg)
-            
+
             if progress_callback:
                 progress_callback("执行后端渲染...")
-            
+
             # 执行翻译（实际是渲染）
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             try:
                 ctx = loop.run_until_complete(translator.translate(image, cfg, image_name=image.name))
-                
+
                 if ctx.result is not None:
                     # ctx.result is already a PIL Image object, no conversion needed.
                     result_image = ctx.result
+                    # 关闭输入图像以释放内存
+                    if image:
+                        image.close()
+                        image = None
                     return result_image
                 else:
                     self.logger.error("后端渲染没有生成结果")
                     return None
-                    
+
             finally:
                 loop.close()
-                
+
         except Exception as e:
             self.logger.error(f"执行后端渲染时出错: {e}")
             raise
+        finally:
+            # 确保输入图像被关闭
+            if image:
+                image.close()
     
     def export_regions_json(self, regions_data: List[Dict[str, Any]], output_path: str) -> bool:
         """导出区域数据为JSON文件"""

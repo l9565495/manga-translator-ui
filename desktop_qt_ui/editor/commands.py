@@ -37,7 +37,6 @@ class UpdateRegionCommand(Command):
     def _apply_data(self, data_to_apply: Dict[str, Any]):
         """将给定的数据字典应用到模型中的区域。"""
         if not (0 <= self._index < len(self._model._regions)):
-            print(f"DEBUG: Invalid index {self._index} for model with {len(self._model._regions)} regions")
             return
 
         # 检查 center 是否改变
@@ -46,16 +45,11 @@ class UpdateRegionCommand(Command):
         center_changed = old_center != new_center
 
         # 直接更新模型中的区域字典
-        old_angle = self._model._regions[self._index].get('angle', 0.0)
-        new_angle = data_to_apply.get('angle', 0.0)
-        print(f"DEBUG: Applying data to region {self._index}: angle {old_angle:.2f} -> {new_angle:.2f}, center_changed={center_changed}")
-
         self._model._regions[self._index] = data_to_apply
 
         # 如果 center 改变了,需要触发完全更新,重新创建 item
         # 否则只触发单个 item 更新
         if center_changed:
-            print(f"DEBUG: Center changed, triggering full update")
             # 保存当前选择状态
             old_selection = self._model.get_selection()
             # 触发完全更新

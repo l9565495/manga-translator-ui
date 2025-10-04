@@ -57,6 +57,9 @@ class RenderSettings(BaseModel):
     auto_rotate_symbols: bool = True
     rtl: bool = False
     layout_mode: str = "smart_scaling"
+    max_font_size: int = 0
+    font_scale_ratio: float = 1.0
+    center_text_in_bubble: bool = False
 
 class UpscaleSettings(BaseModel):
     upscaler: str = "esrgan"

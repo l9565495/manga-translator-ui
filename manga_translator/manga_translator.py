@@ -1505,16 +1505,12 @@ class MangaTranslator:
         # Build the context string
         prev_ctx = self._build_prev_context()
 
-        # 如果是 ChatGPT 或 ChatGPT2Stage 翻译器，则专门处理上下文注入
-        # Special handling for ChatGPT and ChatGPT2Stage translators: inject context
-        if config.translator.translator in [Translator.chatgpt, Translator.chatgpt_2stage]:
-            if config.translator.translator == Translator.chatgpt:
-                from .translators.chatgpt import OpenAITranslator
-                translator = OpenAITranslator()
-            else:  # chatgpt_2stage
-                from .translators.chatgpt_2stage import ChatGPT2StageTranslator
-                translator = ChatGPT2StageTranslator()
-                
+        # 如果是 OpenAI 翻译器，则专门处理上下文注入
+        # Special handling for OpenAI translator: inject context
+        if config.translator.translator == Translator.openai:
+            from .translators.openai import OpenAITranslator
+            translator = OpenAITranslator()
+
             translator.parse_args(config.translator)
             translator.set_prev_context(prev_ctx)
 
@@ -1525,14 +1521,9 @@ class MangaTranslator:
                 logger.warning(f"Skipped {skipped} pages with no sentences")
                 
 
-            
-            # ChatGPT2Stage 需要传递 ctx 参数，普通 ChatGPT 不需要
-            if config.translator.translator == Translator.chatgpt_2stage:
-                # 添加result_path_callback到Context，让translator可以保存bboxes_fixed.png
-                ctx.result_path_callback = self._result_path
-                return await translator._translate(ctx.from_lang, config.translator.target_lang, texts, ctx)
-            else:
-                return await translator._translate(ctx.from_lang, config.translator.target_lang, texts)
+
+            # OpenAI 需要传递 ctx 参数（用于AI断句）
+            return await translator._translate(ctx.from_lang, config.translator.target_lang, texts, ctx)
         else:
             return await dispatch_translation(
                 config.translator.translator_gen,
@@ -2797,14 +2788,11 @@ class MangaTranslator:
 
 
 
-        # 如果是ChatGPT翻译器或高质量翻译器，需要处理上下文
-        if config.translator.translator in [Translator.chatgpt, Translator.chatgpt_2stage, Translator.openai_hq, Translator.gemini_hq]:
-            if config.translator.translator == Translator.chatgpt:
-                from .translators.chatgpt import OpenAITranslator
+        # 如果是OpenAI翻译器或高质量翻译器，需要处理上下文
+        if config.translator.translator in [Translator.openai, Translator.openai_hq, Translator.gemini_hq]:
+            if config.translator.translator == Translator.openai:
+                from .translators.openai import OpenAITranslator
                 translator = OpenAITranslator()
-            elif config.translator.translator == Translator.chatgpt_2stage:
-                from .translators.chatgpt_2stage import ChatGPT2StageTranslator
-                translator = ChatGPT2StageTranslator()
             elif config.translator.translator == Translator.openai_hq:
                 from .translators.openai_hq import OpenAIHighQualityTranslator
                 translator = OpenAIHighQualityTranslator()
@@ -2851,49 +2839,8 @@ class MangaTranslator:
                 if skipped > 0:
                     logger.warning(f"Skipped {skipped} pages with no sentences")
 
-            # ChatGPT2Stage, openai_hq, gemini_hq 等需要传递ctx参数
-            if config.translator.translator in [Translator.chatgpt_2stage, Translator.openai_hq, Translator.gemini_hq]:
-                # 为chatgpt_2stage创建专用的result_path_callback
-                if config.translator.translator == Translator.chatgpt_2stage:
-                    current_image_context = getattr(ctx, 'image_context', None) or self._current_image_context
-
-                    def result_path_callback(path: str) -> str:
-                        """为特定图片创建结果路径，使用保存的图片上下文"""
-                        original_context = self._current_image_context
-                        self._current_image_context = current_image_context
-                        try:
-                            return self._result_path(path)
-                        finally:
-                            self._current_image_context = original_context
-
-                    ctx.result_path_callback = result_path_callback
-
-                    # Check if batch processing is enabled and batch_contexts are provided
-                    if batch_contexts and len(batch_contexts) > 1 and not self.batch_concurrent:
-                        # Enable batch processing for chatgpt_2stage
-                        ctx.batch_contexts = batch_contexts
-                        logger.info(f"Enabling batch processing for chatgpt_2stage with {len(batch_contexts)} images")
-
-                        # Set result_path_callback for each context in the batch
-                        for batch_ctx in batch_contexts:
-                            if hasattr(batch_ctx, 'image_context'):
-                                batch_image_context = batch_ctx.image_context
-                            else:
-                                batch_image_context = self._current_image_context
-
-                            def create_result_path_callback(image_context):
-                                def result_path_callback(path: str) -> str:
-                                    """为特定图片创建结果路径，使用保存的图片上下文"""
-                                    original_context = self._current_image_context
-                                    self._current_image_context = image_context
-                                    try:
-                                        return self._result_path(path)
-                                    finally:
-                                        self._current_image_context = original_context
-                                return result_path_callback
-
-                            batch_ctx.result_path_callback = create_result_path_callback(batch_image_context)
-
+            # openai_hq, gemini_hq 等需要传递ctx参数
+            if config.translator.translator in [Translator.openai_hq, Translator.gemini_hq]:
                 # 所有需要上下文的翻译器都在这里传递ctx
                 return await translator._translate(
                     ctx.from_lang,
@@ -2902,11 +2849,12 @@ class MangaTranslator:
                     ctx
                 )
             else:
-                # 普通ChatGPT不需要ctx参数
+                # 普通OpenAI需要ctx参数（用于AI断句）
                 return await translator._translate(
                     ctx.from_lang,
                     config.translator.target_lang,
-                    texts
+                    texts,
+                    ctx
                 )
 
         else:

@@ -116,18 +116,14 @@ class Translator(str, Enum):
     deepl = "deepl"
     papago = "papago"
     caiyun = "caiyun"
-    chatgpt = "chatgpt"
-    chatgpt_2stage = "chatgpt_2stage"
+    openai = "openai"
     none = "none"
     original = "original"
     sakura = "sakura"
-    deepseek = "deepseek"
     groq = "groq"
     gemini = "gemini"
-    gemini_2stage = "gemini_2stage"
     openai_hq = "openai_hq"
     gemini_hq = "gemini_hq"
-    custom_openai = "custom_openai"
     offline = "offline"
     nllb = "nllb"
     nllb_big = "nllb_big"
@@ -143,11 +139,11 @@ class Translator(str, Enum):
     def __str__(self):
         return self.name
 
-    # Map 'openai' and any translator starting with 'gpt'* to 'chatgpt'
+    # Map 'chatgpt' and any translator starting with 'gpt'* to 'openai'
     @classmethod
     def _missing_(cls, value):
-        if value.startswith('gpt') or value == 'openai':
-            return cls.chatgpt
+        if value.startswith('gpt') or value == 'chatgpt':
+            return cls.openai
         raise ValueError(f"{value} is not a valid {cls.__name__}")
 
 
@@ -170,6 +166,12 @@ class RenderConfig(BaseModel):
     """Offset font size by a given amount, positive number increase font size and vice versa"""
     font_size_minimum: int = -1
     """Minimum output font size. Default is image_sides_sum/200"""
+    max_font_size: int = 0
+    """Maximum output font size. 0 means no limit"""
+    font_scale_ratio: float = 1.0
+    """Font size scale ratio. Applied before max_font_size limit"""
+    center_text_in_bubble: bool = False
+    """Center the entire text block in the bubble when AI line breaking is enabled"""
     direction: Direction = Direction.auto
     """Force text to be rendered horizontally/vertically/none"""
     uppercase: bool = False

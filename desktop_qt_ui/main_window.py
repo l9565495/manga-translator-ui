@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
 
         # --- View Switching Connections ---
         self.main_view_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view))
-        self.editor_view_action.triggered.connect(self.enter_editor_mode)
+        self.editor_view_action.triggered.connect(self.switch_to_editor_view)
 
         # --- 撤销/重做连接到编辑器controller ---
         self.undo_action.triggered.connect(self.editor_controller.undo)
@@ -132,6 +132,13 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self.logger.info("User chose to open results in editor.")
             self.enter_editor_mode(files_to_load=saved_files)
+
+    def switch_to_editor_view(self):
+        """
+        Simply switches to the editor view without reloading file lists.
+        Used when user manually switches views.
+        """
+        self.stacked_widget.setCurrentWidget(self.editor_view)
 
     def enter_editor_mode(self, file_to_load: str = None, files_to_load: list = None):
         """
