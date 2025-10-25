@@ -58,7 +58,7 @@ transformers
 tqdm
 uvicorn
 websockets
-xformers
+xformers==0.0.32.post2
 google-generativeai
 git+https://github.com/lucasb-eyer/pydensecrf.git
 deepl
