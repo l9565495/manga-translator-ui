@@ -1,4 +1,5 @@
 from typing import Optional
+import os
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +11,24 @@ class TranslatorSettings(BaseModel):
     # 相对路径，后端会用BASE_PATH拼接（打包后=_internal，开发时=项目根目录）
     gpt_config: Optional[str] = "examples/gpt_config-example.yaml"
     high_quality_prompt_path: Optional[str] = "dict/prompt_example.json"
+    
+    @property
+    def chatgpt_config(self):
+        """加载GPT配置文件"""
+        if self.gpt_config is not None:
+            try:
+                from omegaconf import OmegaConf
+                from manga_translator.utils.generic import BASE_PATH
+                
+                config_path = self.gpt_config
+                if not os.path.isabs(config_path):
+                    config_path = os.path.join(BASE_PATH, config_path)
+                
+                if os.path.exists(config_path):
+                    return OmegaConf.load(config_path)
+            except Exception:
+                pass
+        return None
 
 class OcrSettings(BaseModel):
     use_mocr_merge: bool = False
@@ -90,6 +109,7 @@ class CliSettings(BaseModel):
     batch_size: int = 1
     batch_concurrent: bool = False
     generate_and_export: bool = False
+    colorize_only: bool = False
     high_quality_batch_size: int = 3
 
 class AppSection(BaseModel):

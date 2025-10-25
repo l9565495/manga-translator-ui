@@ -35,6 +35,16 @@
       "DEEPL_AUTH_KEY": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}:fx$"
     }
   },
+  "caiyun": {
+    "name": "caiyun",
+    "display_name": "彩云小译",
+    "required_env_vars": ["CAIYUN_TOKEN"]
+  },
+  "papago": {
+    "name": "papago",
+    "display_name": "Papago",
+    "required_env_vars": ["PAPAGO_CLIENT_ID", "PAPAGO_CLIENT_SECRET"]
+  },
   "gemini": {
     "name": "gemini",
     "display_name": "Google Gemini",

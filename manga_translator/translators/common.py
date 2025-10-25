@@ -165,7 +165,8 @@ class CommonTranslator(InfererModule):
         self.logger.info(f'Translating into {VALID_LANGUAGES[to_lang]}')
 
         if from_lang == to_lang:
-            return queries
+            # 即使源语言和目标语言相同，也应用文本清理（如全角句点替换）
+            return [self._clean_translation_output(q, q, to_lang) for q in queries]
 
         # Dont translate queries without text
         query_indices = []
@@ -271,6 +272,15 @@ class CommonTranslator(InfererModule):
         """
         if not query or not trans:
             return ''
+
+        # 移除内部标记：【Original regions: X】或 [Original regions: X]
+        # Remove internal markers: 【Original regions: X】 or [Original regions: X]
+        trans = re.sub(r'【Original regions:\s*\d+】\s*', '', trans, flags=re.IGNORECASE)
+        trans = re.sub(r'\[Original regions:\s*\d+\]\s*', '', trans, flags=re.IGNORECASE)
+        
+        # 替换全角句点连续出现（．．．或．．）为省略号
+        trans = trans.replace('．．．', '…')
+        trans = trans.replace('．．', '…')
 
         # '  ' -> ' '
         trans = re.sub(r'\s+', r' ', trans)

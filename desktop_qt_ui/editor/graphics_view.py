@@ -66,6 +66,11 @@ class GraphicsView(QGraphicsView):
         self._is_drawing_geometry = False
         self._geometry_start_pos = None
         self._geometry_preview_item = None
+        
+        # 拖动相关状态
+        self._potential_drag = False  # 是否可能开始拖动
+        self._drag_start_pos = None  # 拖动起始位置
+        self._drag_threshold = 5  # 拖动阈值（像素）
 
         # --- Text Box Drawing State ---
         self._is_drawing_textbox = False
@@ -526,6 +531,10 @@ class GraphicsView(QGraphicsView):
             elif 'fg_colors' in constructor_args: constructor_args['fg_color'] = constructor_args.pop('fg_colors')
             if 'bg_colors' in constructor_args: constructor_args['bg_color'] = constructor_args.pop('bg_colors')
             
+            # 使用缓存中计算好的 font_size（经过 resize_regions_to_font_size 计算的）
+            if text_block is not None and hasattr(text_block, 'font_size'):
+                constructor_args['font_size'] = text_block.font_size
+            
             try:
                 unrotated_text_block = TextBlock(**constructor_args)
             except Exception as e:
@@ -536,6 +545,8 @@ class GraphicsView(QGraphicsView):
             # --- END FIX ---
 
             render_params = render_parameter_service.export_parameters_for_backend(i, region_data)
+            # 同步算法计算的 font_size 到 render_params，确保缓存键使用正确的值
+            render_params['font_size'] = unrotated_text_block.font_size
             
             cache_key = (
                 unrotated_text_block.get_translation_for_rendering(),
@@ -739,6 +750,10 @@ class GraphicsView(QGraphicsView):
         if 'bg_colors' in constructor_args:
             constructor_args['bg_color'] = constructor_args.pop('bg_colors')
 
+        # 使用缓存中计算好的 font_size（经过 resize_regions_to_font_size 计算的）
+        if text_block is not None and hasattr(text_block, 'font_size'):
+            constructor_args['font_size'] = text_block.font_size
+
         try:
             unrotated_text_block = TextBlock(**constructor_args)
         except Exception as e:
@@ -749,6 +764,8 @@ class GraphicsView(QGraphicsView):
 
         render_parameter_service = get_render_parameter_service()
         render_params = render_parameter_service.export_parameters_for_backend(index, region_data)
+        # 同步算法计算的 font_size 到 render_params
+        render_params['font_size'] = unrotated_text_block.font_size
 
         # 渲染文字（不使用缓存，因为几何已经改变）
         identity_transform = QTransform()
@@ -880,6 +897,14 @@ class GraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         """处理鼠标按下事件以实现平移、选择和开始绘图"""
+        # 确保点击画布时，保存文本框的编辑内容
+        parent_view = self.parent()
+        if hasattr(parent_view, 'force_save_property_panel_edits'):
+            parent_view.force_save_property_panel_edits()
+        
+        # 让画布获取焦点
+        self.setFocus()
+        
         if self._active_tool == 'geometry_edit' and event.button() == Qt.MouseButton.LeftButton:
             if len(self.model.get_selection()) == 1:
                 self._is_drawing_geometry = True
@@ -918,18 +943,26 @@ class GraphicsView(QGraphicsView):
         # --- Panning and Item Interaction Logic ---
         if event.button() == Qt.MouseButton.MiddleButton:
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            dummy_event = event.clone()
-            dummy_event.setButton(Qt.MouseButton.LeftButton)
+            # Create a new event with LeftButton instead of modifying the original
+            from PyQt6.QtGui import QMouseEvent
+            dummy_event = QMouseEvent(
+                event.type(),
+                event.position(),
+                event.globalPosition(),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                event.modifiers()
+            )
             super().mousePressEvent(dummy_event)
         elif event.button() == Qt.MouseButton.LeftButton:
             # 检查是否点击在空白区域
             item_at_pos = self.itemAt(event.pos())
 
-            # 如果点击在空白区域（没有 item 或只有图片），启用拖动模式
+            # 如果点击在空白区域（没有 item 或只有图片），记录为潜在拖动
             if item_at_pos is None or item_at_pos == self._image_item:
-                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-                dummy_event = event.clone()
-                super().mousePressEvent(dummy_event)
+                self._potential_drag = True
+                self._drag_start_pos = event.pos()
+                event.accept()
                 return
 
             # 先记录当前选择
@@ -949,6 +982,36 @@ class GraphicsView(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         """Handle mouse move for drawing."""
+        # 检查是否应该开始拖动
+        if self._potential_drag and self._drag_start_pos:
+            # 计算移动距离
+            delta = event.pos() - self._drag_start_pos
+            distance = (delta.x() ** 2 + delta.y() ** 2) ** 0.5
+            
+            if distance > self._drag_threshold:
+                # 超过阈值，开始拖动
+                self._potential_drag = False
+                self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+                # 创建一个从起始位置开始的鼠标事件
+                from PyQt6.QtGui import QMouseEvent
+                from PyQt6.QtCore import QEvent, QPointF
+                press_event = QMouseEvent(
+                    QEvent.Type.MouseButtonPress,
+                    QPointF(self._drag_start_pos),
+                    QPointF(self.mapToGlobal(self._drag_start_pos)),
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier
+                )
+                super().mousePressEvent(press_event)
+                # 然后发送移动事件
+                super().mouseMoveEvent(event)
+                return
+            else:
+                # 还没超过阈值，不做任何事
+                event.accept()
+                return
+        
         if self._is_drawing_textbox:
             self._update_textbox_drawing(event.pos())
             event.accept()
@@ -984,6 +1047,16 @@ class GraphicsView(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         """处理鼠标释放事件"""
+        # 清除潜在拖动状态
+        if self._potential_drag and event.button() == Qt.MouseButton.LeftButton:
+            self._potential_drag = False
+            self._drag_start_pos = None
+            # 如果是单击空白处（没有拖动），清除选择
+            if self._active_tool == 'select':
+                self.model.set_selection([])
+            event.accept()
+            return
+        
         if self._is_drawing_textbox and event.button() == Qt.MouseButton.LeftButton:
             self._finish_textbox_drawing()
             event.accept()
@@ -1021,6 +1094,10 @@ class GraphicsView(QGraphicsView):
 
         if event.button() == Qt.MouseButton.MiddleButton or event.button() == Qt.MouseButton.LeftButton:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            # 清除拖动状态
+            if self._drag_start_pos:
+                self._potential_drag = False
+                self._drag_start_pos = None
         super().mouseReleaseEvent(event)
 
     def _start_drawing(self, pos):

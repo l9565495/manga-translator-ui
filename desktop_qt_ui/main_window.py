@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
         # self.main_view.enter_editor_button.clicked.connect(self.enter_editor_mode) # Example for a dedicated button
 
         # --- Editor related connections ---
-        # self.editor_view.return_to_main_button.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view)) # Example
+        self.editor_view.back_to_main_requested.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view))
 
         # --- View Switching Connections ---
         self.main_view_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view))

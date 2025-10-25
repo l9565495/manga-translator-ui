@@ -11,19 +11,19 @@
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "gpt_config": "../examples/gpt_config-example.yaml",
-    "high_quality_prompt_path": "dict/prompt_example.json"
+    "high_quality_prompt_path": "dict/wyxxl.json"
   },
   "ocr": {
     "use_mocr_merge": false,
-    "ocr": "paddleocr",
+    "ocr": "48px",
     "use_hybrid_ocr": false,
-    "secondary_ocr": "48px",
+    "secondary_ocr": "mocr",
     "min_text_length": 0,
     "ignore_bubble": 0,
     "prob": 0.1,
     "merge_gamma": 0.8,
     "merge_sigma": 2.5,
-    "merge_edge_ratio_threshold": "0"
+    "merge_edge_ratio_threshold": 0.0
   },
   "detector": {
     "detector": "default",
@@ -74,8 +74,8 @@
     "colorizer": "none"
   },
   "cli": {
-    "verbose": true,
-    "attempts": -1,
+    "verbose": false,
+    "attempts": 2,
     "ignore_errors": false,
     "use_gpu": true,
     "use_gpu_limited": false,
@@ -89,9 +89,10 @@
     "template": false,
     "prep_manual": false,
     "save_quality": 100,
-    "batch_size": 1,
+    "batch_size": 3,
     "batch_concurrent": false,
     "generate_and_export": false,
+    "colorize_only": false,
     "high_quality_batch_size": 3
   }
 }

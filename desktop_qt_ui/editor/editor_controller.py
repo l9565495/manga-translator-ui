@@ -38,6 +38,11 @@ class EditorController(QObject):
     _update_refined_mask = pyqtSignal(object)
     _update_display_mask_type = pyqtSignal(str)
     _regions_update_finished = pyqtSignal(list)
+    _ocr_completed = pyqtSignal()
+    _translation_completed = pyqtSignal()
+    
+    # Signal for thread-safe Toast notifications
+    _show_toast_signal = pyqtSignal(str, int, bool, str)  # message, duration, success, clickable_path
 
     def __init__(self, model: EditorModel, parent=None):
         super().__init__(parent)
@@ -62,7 +67,9 @@ class EditorController(QObject):
         # Connect internal signals for thread-safe updates
         self._update_refined_mask.connect(self.model.set_refined_mask)
         self._update_display_mask_type.connect(self.model.set_display_mask_type)
-        self._regions_update_finished.connect(self.on_regions_update_finished) # New connection
+        self._regions_update_finished.connect(self.on_regions_update_finished)
+        self._ocr_completed.connect(self._on_ocr_completed)
+        self._translation_completed.connect(self._on_translation_completed)
         self.logger.info("[CONTROLLER LOG] Internal signals connected to model methods")
 
         self._connect_model_signals()
@@ -70,8 +77,41 @@ class EditorController(QObject):
     def set_view(self, view):
         """设置view引用，用于更新UI状态"""
         self.view = view
+        # 初始化Toast管理器
+        from desktop_qt_ui.widgets.toast_notification import ToastManager
+        self.toast_manager = ToastManager(view)
+        # 连接Toast信号到主线程槽函数
+        self._show_toast_signal.connect(self._show_toast_in_main_thread)
         # 初始化撤销/重做按钮状态
         self._update_undo_redo_buttons()
+    
+    @pyqtSlot(str, int, bool, str)
+    def _show_toast_in_main_thread(self, message: str, duration: int, success: bool, clickable_path: str):
+        """在主线程显示Toast通知的槽函数"""
+        self.logger.info(f"[TOAST_DEBUG] _show_toast_in_main_thread called in main thread: message='{message}'")
+        try:
+            # 先关闭"正在导出"Toast（在主线程中安全关闭）
+            if hasattr(self, '_export_toast') and self._export_toast:
+                try:
+                    self.logger.info(f"[TOAST_DEBUG] Closing export toast in main thread...")
+                    self._export_toast.close()
+                    self._export_toast = None
+                    self.logger.info(f"[TOAST_DEBUG] Export toast closed")
+                except Exception as e:
+                    self.logger.warning(f"[TOAST_DEBUG] Failed to close export toast: {e}")
+            
+            # 显示新Toast
+            if hasattr(self, 'toast_manager'):
+                if success:
+                    result = self.toast_manager.show_success(message, duration, clickable_path if clickable_path else None)
+                    self.logger.info(f"[TOAST_DEBUG] show_success returned: {result}")
+                else:
+                    result = self.toast_manager.show_error(message, duration)
+                    self.logger.info(f"[TOAST_DEBUG] show_error returned: {result}")
+            else:
+                self.logger.warning("[TOAST_DEBUG] toast_manager not found!")
+        except Exception as e:
+            self.logger.error(f"[TOAST_DEBUG] Exception in _show_toast_in_main_thread: {e}", exc_info=True)
 
     def _connect_model_signals(self):
         """监听模型的变化，可能需要触发一些后续逻辑"""
@@ -736,11 +776,12 @@ class EditorController(QObject):
     @pyqtSlot(int, str)
     def update_original_text(self, region_index: int, text: str):
         old_region_data = self.model.get_region_by_index(region_index)
-        if not old_region_data or old_region_data.get('original_text') == text:
+        if not old_region_data or old_region_data.get('text') == text:
             return
 
         new_region_data = old_region_data.copy()
-        new_region_data['original_text'] = text
+        # 统一使用 text 字段，用户编辑和OCR识别都更新这个字段
+        new_region_data['text'] = text
         command = UpdateRegionCommand(
             model=self.model,
             region_index=region_index,
@@ -1278,6 +1319,8 @@ class EditorController(QObject):
             regions = self.model.get_regions()
             if not image or not regions:
                 self.logger.warning("Cannot export: missing image or regions data")
+                if hasattr(self, 'toast_manager'):
+                    self.toast_manager.show_error("导出失败：缺少图像或区域数据")
                 return
 
             mask = self.model.get_refined_mask()
@@ -1285,13 +1328,20 @@ class EditorController(QObject):
                 mask = self.model.get_raw_mask()
             if mask is None:
                 self.logger.warning("Cannot export: no mask data available")
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(None, "导出失败", "没有可用的蒙版数据，无法导出。")
+                if hasattr(self, 'toast_manager'):
+                    self.toast_manager.show_error("导出失败：没有可用的蒙版数据")
                 return
 
+            # 显示开始Toast，保存引用以便后续关闭
+            self._export_toast = None
+            if hasattr(self, 'toast_manager'):
+                self._export_toast = self.toast_manager.show_info("正在导出...", duration=0)
+            
             self.async_service.submit_task(self._async_export_with_desktop_ui_service(image, regions, mask))
         except Exception as e:
             self.logger.error(f"Error during export request: {e}", exc_info=True)
+            if hasattr(self, 'toast_manager'):
+                self.toast_manager.show_error("导出失败")
 
     async def _async_export_with_desktop_ui_service(self, image, regions, mask):
         """使用desktop-ui导出服务进行异步导出"""
@@ -1350,12 +1400,16 @@ class EditorController(QObject):
                 self.logger.info(f"Export progress: {message}")
 
             def success_callback(message):
-                self.logger.info(f"Export success: {message}")
-                QTimer.singleShot(0, lambda: QMessageBox.information(None, "导出成功", f"图片已成功导出到:\n{output_path}"))
+                self.logger.info(f"[TOAST_DEBUG] Export success callback called: {message}")
+                # 使用信号在主线程显示Toast，显示完整路径
+                self.logger.info(f"[TOAST_DEBUG] Emitting _show_toast_signal to main thread...")
+                self._show_toast_signal.emit(f"导出成功\n{output_path}", 5000, True, output_path)
+                self.logger.info(f"[TOAST_DEBUG] Signal emitted successfully")
 
             def error_callback(message):
                 self.logger.error(f"Export error: {message}")
-                QTimer.singleShot(0, lambda: QMessageBox.critical(None, "导出失败", f"导出失败:\n{message}"))
+                # 使用信号在主线程显示Toast
+                self._show_toast_signal.emit(f"导出失败：{message}", 5000, False, "")
 
             # 转换配置为字典
             if hasattr(config, 'model_dump'):
@@ -1524,28 +1578,76 @@ class EditorController(QObject):
 
         all_regions = self.model.get_regions()
         selected_regions_data = [all_regions[i] for i in selected_indices]
+        
+        # 显示开始Toast，保存引用以便后续关闭
+        self._ocr_toast = None
+        if hasattr(self, 'toast_manager'):
+            self._ocr_toast = self.toast_manager.show_info("正在识别...", duration=0)
+        
         self.async_service.submit_task(self._async_ocr_task(image, selected_regions_data, selected_indices))
 
     @pyqtSlot(list)
     def on_regions_update_finished(self, updated_regions: list):
         """Slot to safely update regions from the main thread."""
         self.model.set_regions(updated_regions)
+        # 强制刷新属性栏（忽略焦点状态）
+        if hasattr(self, 'view') and self.view and hasattr(self.view, 'property_panel'):
+            self.view.property_panel.force_refresh_from_model()
+    
+    @pyqtSlot()
+    def _on_ocr_completed(self):
+        """OCR完成后在主线程处理Toast"""
+        # 关闭"正在识别"Toast
+        if hasattr(self, '_ocr_toast') and self._ocr_toast:
+            try:
+                self._ocr_toast.close()
+                self._ocr_toast = None
+            except:
+                pass
+        
+        # 显示完成Toast
+        if hasattr(self, 'toast_manager'):
+            self.toast_manager.show_success("识别完成")
+    
+    @pyqtSlot()
+    def _on_translation_completed(self):
+        """翻译完成后在主线程处理Toast"""
+        # 关闭"正在翻译"Toast
+        if hasattr(self, '_translation_toast') and self._translation_toast:
+            try:
+                self._translation_toast.close()
+                self._translation_toast = None
+            except:
+                pass
+        
+        # 显示完成Toast
+        if hasattr(self, 'toast_manager'):
+            self.toast_manager.show_success("翻译完成")
 
     async def _async_ocr_task(self, image, regions_to_process, indices):
         current_regions = self.model.get_regions()
         updated_regions = list(current_regions) # Create a shallow copy of the list
 
+        success_count = 0
         for i, region_data in enumerate(regions_to_process):
             region_idx = indices[i]
-            ocr_result = await self.ocr_service.recognize_region(image, region_data)
-            if ocr_result and ocr_result.text:
-                # Create a copy of the specific region dict to modify
-                new_region_data = updated_regions[region_idx].copy()
-                new_region_data['text'] = ocr_result.text
-                updated_regions[region_idx] = new_region_data # Replace the old dict with the new one
+            try:
+                ocr_result = await self.ocr_service.recognize_region(image, region_data)
+                if ocr_result and ocr_result.text:
+                    # Create a copy of the specific region dict to modify
+                    new_region_data = updated_regions[region_idx].copy()
+                    new_region_data['text'] = ocr_result.text
+                    updated_regions[region_idx] = new_region_data # Replace the old dict with the new one
+                    success_count += 1
+            except Exception as e:
+                self.logger.error(f"OCR识别失败: {e}")
 
         # Emit a signal to have the model updated on the main thread
         self._regions_update_finished.emit(updated_regions)
+        
+        # 发送OCR完成信号（在主线程处理Toast）
+        self._ocr_completed.emit()
+        
 
     @pyqtSlot()
     def run_translation_for_selection(self):
@@ -1559,25 +1661,40 @@ class EditorController(QObject):
         all_regions = self.model.get_regions()
         selected_regions_data = [all_regions[i] for i in selected_indices]
         texts_to_translate = [r.get('text', '') for r in selected_regions_data]
+        
+        # 显示开始Toast，保存引用以便后续关闭
+        self._translation_toast = None
+        if hasattr(self, 'toast_manager'):
+            self._translation_toast = self.toast_manager.show_info("正在翻译...", duration=0)
+        
         # 传递所有区域以提供上下文，但只翻译选中的文本
         self.async_service.submit_task(self._async_translation_task(texts_to_translate, selected_indices, image, all_regions))
 
     async def _async_translation_task(self, texts, indices, image, regions):
         # 将image和所有regions信息传递给翻译服务以提供完整上下文
-        results = await self.translation_service.translate_text_batch(texts, image=image, regions=regions)
-        current_regions = self.model.get_regions()
-        updated_regions = list(current_regions) # Create a shallow copy
+        success_count = 0
+        try:
+            results = await self.translation_service.translate_text_batch(texts, image=image, regions=regions)
+            current_regions = self.model.get_regions()
+            updated_regions = list(current_regions) # Create a shallow copy
 
-        for i, result in enumerate(results):
-            if result and result.translated_text:
-                region_idx = indices[i]
-                # Create a copy of the specific region dict to modify
-                new_region_data = updated_regions[region_idx].copy()
-                new_region_data['translation'] = result.translated_text
-                updated_regions[region_idx] = new_region_data # Replace the old dict
+            for i, result in enumerate(results):
+                if result and result.translated_text:
+                    region_idx = indices[i]
+                    # Create a copy of the specific region dict to modify
+                    new_region_data = updated_regions[region_idx].copy()
+                    new_region_data['translation'] = result.translated_text
+                    updated_regions[region_idx] = new_region_data # Replace the old dict
+                    success_count += 1
 
-        # Emit a signal to have the model updated on the main thread
-        self._regions_update_finished.emit(updated_regions)
+            # Emit a signal to have the model updated on the main thread
+            self._regions_update_finished.emit(updated_regions)
+            
+            # 发送翻译完成信号
+            self._translation_completed.emit()
+        except Exception as e:
+            self.logger.error(f"翻译失败: {e}")
+            # TODO: 添加翻译失败的信号处理
 
     @pyqtSlot(list)
     def set_selection_from_list(self, indices: list):

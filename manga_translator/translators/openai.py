@@ -33,14 +33,23 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
     _MAX_TOKENS = 8192           # prompt+completion 的最大 token (可按模型类型调整)
 
     def __init__(self, check_openai_key=True):
-        # ConfigGPT 的初始化
-        _CONFIG_KEY = 'chatgpt.' + OPENAI_MODEL
-        ConfigGPT.__init__(self, config_key=_CONFIG_KEY)
-        CommonTranslator.__init__(self)
-
-        # 重新加载 .env 文件以获取最新配置
+        # 重新加载 .env 文件以获取最新配置 - 必须在任何环境变量读取之前
+        # Reload .env file to get latest config - must be before any env var reads
         from dotenv import load_dotenv
         load_dotenv(override=True)
+        
+        # 动态读取OPENAI_MODEL，而不是使用模块级常量
+        # Dynamically read OPENAI_MODEL instead of using module-level constant
+        self.model = os.getenv('OPENAI_MODEL', 'chatgpt-4o-latest')
+        
+        # ConfigGPT 的初始化
+        _CONFIG_KEY = 'chatgpt.' + self.model
+        ConfigGPT.__init__(self, config_key=_CONFIG_KEY)
+        CommonTranslator.__init__(self)
+        
+        # 初始化 attempts，将在 parse_args 中从 UI 配置读取
+        # 默认值 -1 表示无限重试，用于向后兼容
+        self.attempts = -1
 
         # 重新读取环境变量
         api_key = os.getenv('OPENAI_API_KEY', OPENAI_API_KEY)
@@ -96,6 +105,8 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
     def parse_args(self, args: CommonTranslator):
         """如果你有外部参数要解析，可在此对 self.config 做更新"""
         self.config = args.chatgpt_config
+        # 从配置中读取重试次数
+        self.attempts = getattr(args, 'attempts', self.attempts)
 
     async def _ratelimit_sleep(self):
         """
@@ -145,6 +156,11 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
         if batch:
             chunk_queries.append(batch)
 
+        # 检查是否开启AI断句
+        enable_ai_break = False
+        if ctx and hasattr(ctx, 'config') and ctx.config and hasattr(ctx.config, 'render'):
+            enable_ai_break = getattr(ctx.config.render, 'disable_auto_wrap', False)
+
         # 逐个批次生成 prompt
         idx_offset = 0  # 跟踪当前处理到queries列表的哪个位置
         for this_batch in chunk_queries:
@@ -155,7 +171,8 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             # Add line breaks and original region count info (for AI line breaking)
             for i, query in enumerate(this_batch):
                 region_count_prefix = ""
-                if ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
+                # 只有开启AI断句时才添加区域信息
+                if enable_ai_break and ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
                     # 计算当前query对应的region索引（在整个queries列表中的索引）
                     region_idx = idx_offset + i
                     self.logger.debug(f"[AI断句调试] region_idx={region_idx}, total_regions={len(ctx.text_regions)}")
@@ -167,7 +184,9 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                     else:
                         self.logger.warning(f"[AI断句调试] region_idx={region_idx} 超出范围 (total={len(ctx.text_regions)})")
                 else:
-                    if not ctx:
+                    if not enable_ai_break:
+                        self.logger.debug(f"[AI断句调试] AI断句未开启")
+                    elif not ctx:
                         self.logger.debug(f"[AI断句调试] ctx is None")
                     elif not hasattr(ctx, 'text_regions'):
                         self.logger.debug(f"[AI断句调试] ctx没有text_regions属性")
@@ -201,6 +220,12 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             success, partial_results = await self._translate_batch(
                 from_lang, to_lang, batch_queries, indices, prompt, split_level=0, ctx=ctx
             )
+            
+            # 检查翻译是否成功
+            if not success:
+                self.logger.error(f"Translation failed for batch starting at index {idx_offset}")
+                raise RuntimeError(f"Translation failed after all retries, fallback attempts, and split attempts")
+            
             # 将结果写入 translations
             for i, r in zip(indices, partial_results):
                 translations[i] = r
@@ -339,12 +364,14 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
         if not batch_queries:  
             return True, partial_results  
 
-        # 进行 _RETRY_ATTEMPTS 次重试  
-        # Retry for _RETRY_ATTEMPTS times  
-        # 确保至少尝试一次，即使 _RETRY_ATTEMPTS = 0
-        # Ensure at least one attempt, even if _RETRY_ATTEMPTS = 0
-        max_attempts = max(1, self._RETRY_ATTEMPTS + 1)
-        for attempt in range(max_attempts):  
+        # 进行重试（使用UI配置的attempts）
+        # Retry for attempts times (from UI config)
+        # -1 表示无限重试，否则使用指定的重试次数
+        # -1 means infinite retry, otherwise use specified retry count
+        is_infinite = self.attempts == -1
+        max_attempts = self.attempts if not is_infinite else -1
+        attempt = 0
+        while is_infinite or attempt < max_attempts:  
             try:  
                 # 发起请求  
                 # Send request  
@@ -390,9 +417,9 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                 # Strictly check prefix format  
                 is_valid_format = True  
                 if not merged_single_query:
-                    lines = response_text.strip().split('\n')  
-                    if not lines and len(batch_queries) > 0: # fix: IndexError: list index out of range  
-                        self.logger.warning(f"[Attempt {attempt+1}/{max_attempts}] Received empty response for non-empty batch. Retrying...")  
+                    if not response_text.strip() and len(batch_queries) > 0: # fix: IndexError: list index out of range  
+                        log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
+                        self.logger.warning(f"[{log_attempt}] Received empty response for non-empty batch. Retrying...")  
                         is_valid_format = False  
                     else:  
                         # 预期的索引集合，从1开始  
@@ -401,57 +428,47 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                         # 用来跟踪已经找到的索引，检查重复  
                         # Track found indices to check for duplicates  
                         found_indices = set()   
-                        non_empty_lines_count = 0  
     
-                        # 逐行检查响应格式  
-                        # Check response format line by line  
-                        for line_idx, line in enumerate(lines):  
-                            line = line.strip()  
-                            if not line:  
-                                continue # 跳过空行 / Skip empty lines  
-                            non_empty_lines_count += 1  
-    
-                            # 严格从行首匹配 <|数字|> 格式  
-                            # Strictly match <|number|> format from the beginning of the line  
-                            match = re.match(r'^<\|(\d+)\|>(.*)', line)  
-                            if match:  
-                                try:  
-                                    current_index = int(match.group(1))  
-                                    if current_index in expected_indices:  
-                                        # --- 检查索引是否已经找到过 ---  
-                                        # --- Check if the index has already been found ---  
-                                        if current_index in found_indices:  
-                                            # 如果索引重复，则标记为无效格式并停止检查  
-                                            # If index is duplicated, mark as invalid format and stop checking  
-                                            self.logger.warning(  
-                                                f"[Attempt {attempt+1}/{max_attempts}] Duplicate index {current_index} detected. Line: '{line}'. Retrying..."  
-                                            )  
-                                            is_valid_format = False  
-                                            break # 停止检查当前响应 / Stop checking current response  
-                                        else:  
-                                            # 如果是第一次遇到这个有效索引，添加到 found_indices  
-                                            # If this is the first time encountering this valid index, add to found_indices  
-                                            found_indices.add(current_index)  
-                                    else:  
-                                        # 索引号超出预期范围  
-                                        # Index number exceeds expected range  
+                        # 在整个响应文本中查找所有索引标记（支持单行多索引）
+                        # Find all index markers in the entire response text (supports multiple indices in single line)
+                        index_pattern = re.compile(r'<\|(\d+)\|>')
+                        for match in index_pattern.finditer(response_text):
+                            try:
+                                current_index = int(match.group(1))
+                                if current_index in expected_indices:
+                                    # --- 检查索引是否已经找到过 ---  
+                                    # --- Check if the index has already been found ---  
+                                    if current_index in found_indices:  
+                                        # 如果索引重复，则标记为无效格式并停止检查  
+                                        # If index is duplicated, mark as invalid format and stop checking  
+                                        log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                                         self.logger.warning(  
-                                            f"[Attempt {attempt+1}/{max_attempts}] Invalid index {current_index} found (expected 1-{len(batch_queries)}). Line: '{line}'. Retrying..."  
+                                            f"[{log_attempt}] Duplicate index {current_index} detected. Retrying..."  
                                         )  
                                         is_valid_format = False  
-                                        break  
-                                except ValueError:  
-                                    # 基本不会发生  
-                                    # This should rarely happen  
+                                        break # 停止检查当前响应 / Stop checking current response  
+                                    else:  
+                                        # 如果是第一次遇到这个有效索引，添加到 found_indices  
+                                        # If this is the first time encountering this valid index, add to found_indices  
+                                        found_indices.add(current_index)  
+                                else:  
+                                    # 索引号超出预期范围  
+                                    # Index number exceeds expected range  
+                                    log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                                     self.logger.warning(  
-                                        f"[Attempt {attempt+1}/{max_attempts}] Could not parse index from prefix. Line: '{line}'. Retrying..."  
+                                        f"[{log_attempt}] Invalid index {current_index} found (expected 1-{len(batch_queries)}). Retrying..."  
                                     )  
                                     is_valid_format = False  
-                                    break  
-                            else:
-                                # 不再要求每行都有前缀，因为模型可能将一句话换行
-                                # No longer requiring each line to have a prefix, because the model may break a sentence into multiple lines.
-                                continue 
+                                    break
+                            except ValueError:  
+                                # 基本不会发生  
+                                # This should rarely happen  
+                                log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
+                                self.logger.warning(  
+                                    f"[{log_attempt}] Could not parse index from prefix. Retrying..."  
+                                )  
+                                is_valid_format = False  
+                                break 
 
                     # --- 在检查完所有行后：验证是否找到了足够的索引 ---  
                     # --- After checking all rows: verify if enough indices have been found ---
@@ -459,16 +476,18 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                         # 检查是否找到了所有预期的索引  
                         # Check if all expected indexes were found
                         if len(found_indices) != len(batch_queries):  
+                            log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                             self.logger.warning(  
-                                f"[Attempt {attempt+1}/{max_attempts}] Found indices count ({len(found_indices)}) does not match expected count ({len(batch_queries)}). Retrying..."  
+                                f"[{log_attempt}] Found indices count ({len(found_indices)}) does not match expected count ({len(batch_queries)}). Retrying..."  
                             )  
                             is_valid_format = False  
                         else:  
                             # 确保找到的索引集合与预期索引集合一致  
                             # Ensure the found index set matches the expected index set
                             if found_indices != expected_indices:  
+                                log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                                 self.logger.warning(  
-                                    f"[Attempt {attempt+1}/{max_attempts}] Found indices set {sorted(list(found_indices))} does not match expected set {sorted(list(expected_indices))}. Retrying..."  
+                                    f"[{log_attempt}] Found indices set {sorted(list(found_indices))} does not match expected set {sorted(list(expected_indices))}. Retrying..."  
                                 )  
                                 is_valid_format = False
                     
@@ -476,13 +495,16 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                 # If format check fails (including duplicate indices, invalid indices, missing indices, invalid prefix format), retry  
                 if not is_valid_format:  
                     #await asyncio.sleep(RETRY_BACKOFF_BASE + attempt * RETRY_BACKOFF_FACTOR) # 格式错误重试前等待并退避  
+                    attempt += 1
                     continue # 进入下一次重试 / Proceed to next retry  
                 
                 # 跳过经常性的模型幻觉字符
                 # Skip common hallucination characters in specific models
                 SUSPICIOUS_SYMBOLS = ["ହ", "ି", "ഹ"]  
                 if any(symbol in response_text for symbol in SUSPICIOUS_SYMBOLS):  
-                    self.logger.warn(f'[attempt {attempt+1}/{max_attempts}] Suspicious symbols detected, skipping the current translation attempt.')  
+                    log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
+                    self.logger.warn(f'[{log_attempt}] Suspicious symbols detected, skipping the current translation attempt.')  
+                    attempt += 1
                     continue              
                 
              
@@ -496,14 +518,16 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                         empty_translation_errors.append(i + 1)
                 
                 if empty_translation_errors:  
+                    log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                     self.logger.warning(  
-                        f"[Attempt {attempt+1}/{max_attempts}] Empty translation detected for non-empty sources at positions: {empty_translation_errors}. Retrying..."  
+                        f"[{log_attempt}] Empty translation detected for non-empty sources at positions: {empty_translation_errors}. Retrying..."  
                     )  
                     # 需要注意，此处也可换成break直接进入分割逻辑。原因是若出现空结果时，不断重试出现正确结果的效率相对较低，可能直到用尽重试错误依然无解。但是为了尽可能确保翻译质量，使用了continue，并相应地下调重试次数以抵消影响。  
                     # Note: This could be changed to break to directly enter the splitting logic. This is because when empty results occur,  
                     # repeatedly retrying for correct results is relatively inefficient and may still fail after all retries.  
                     # However, to ensure translation quality as much as possible, continue is used here, and the number of retries  
                     # is correspondingly reduced to offset the impact.  
+                    attempt += 1
                     continue
                 
                 # 检查特殊串行情况  
@@ -514,23 +538,27 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                     is_translation_simple = all(char in string.punctuation for char in translation)  
                     
                     if is_translation_simple and not is_source_simple:  
+                        log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                         self.logger.warning(  
-                            f"[Attempt {attempt+1}/{max_attempts}] Detected potential merged translation. "  
+                            f"[{log_attempt}] Detected potential merged translation. "  
                             f"Source: '{source}', Translation: '{translation}' (index {i+1}). Retrying..."  
                         )  
                         is_valid_translation = False  
                         break  
                         
                 if not is_valid_translation:  
+                    attempt += 1
                     continue  
                 
                 # 检查翻译结果数量是否匹配 - 修复 list index out of range 错误
                 # Check if the number of translations matches - fix list index out of range error
                 if len(new_translations) != len(batch_queries):
+                    log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                     self.logger.warning(
-                        f"[Attempt {attempt+1}/{max_attempts}] Translation count mismatch: "
+                        f"[{log_attempt}] Translation count mismatch: "
                         f"got {len(new_translations)} translations for {len(batch_queries)} queries. Retrying..."
                     )
+                    attempt += 1
                     continue
                 
                 # 一切正常，写入 partial_results  
@@ -540,18 +568,19 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
 
                 # 成功  
                 # Success  
+                log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                 self.logger.info(  
-                    f"Batch of size {len(batch_queries)} translated OK at attempt {attempt+1}/{max_attempts} (split_level={split_level})."  
+                    f"Batch of size {len(batch_queries)} translated OK at {log_attempt} (split_level={split_level})."  
                 )  
                 return True, partial_results  
 
             except Exception as e:  
+                log_attempt = f"{attempt+1}/{max_attempts}" if not is_infinite else f"Attempt {attempt+1}"
                 self.logger.warning(  
-                    f"Batch translate attempt {attempt+1}/{max_attempts} failed with error: {str(e)}"  
+                    f"Batch translate {log_attempt} failed with error: {str(e)}"  
                 )  
-                if attempt < max_attempts - 1:  
-                    await asyncio.sleep(1)  
-                else:
+                attempt += 1
+                if not is_infinite and attempt >= max_attempts:
                     self.logger.warning("Max attempts reached.")
                     # 尝试fallback模型
                     success, fallback_results = await self._try_fallback_model(to_lang, prompt, batch_queries)
@@ -560,9 +589,14 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
                             partial_results[i] = result
                         self.logger.info("Fallback model succeeded — skipping split logic.")
                         return True, partial_results
+                    # 退出循环
+                    break
+                else:
+                    await asyncio.sleep(1)
 
-        # 循环结束但仍未成功时，再次尝试fallback（如果之前没有因异常触发）
-        if not any(partial_results):
+        # 循环结束但仍未成功时（只在非无限重试模式下才会到达这里）
+        # 尝试fallback（如果之前没有因异常触发）
+        if not is_infinite and not any(partial_results):
             success, fallback_results = await self._try_fallback_model(to_lang, prompt, batch_queries)
             if success:
                 for i, result in enumerate(fallback_results):
@@ -647,8 +681,15 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
         timeout_attempt = 0
         ratelimit_attempt = 0
         server_error_attempt = 0
+        total_attempt = 0
+        
+        # 使用UI配置的attempts作为总重试次数的上限
+        # Use UI configured attempts as the upper limit for total retry count
+        is_infinite = self.attempts == -1
+        max_total_attempts = self.attempts if not is_infinite else -1
 
-        while True:
+        while is_infinite or total_attempt < max_total_attempts:
+            total_attempt += 1
             await self._ratelimit_sleep()
             started = time.time()
             req_task = asyncio.create_task(self._request_translation(to_lang, prompt))
@@ -691,6 +732,10 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
             except Exception as e:
                 self.logger.error(f"Unexpected error in _request_with_retry: {str(e)}")
                 raise
+        
+        # 如果退出循环但还没有返回，说明达到了最大重试次数
+        # If exited the loop without returning, it means max attempts reached
+        raise RuntimeError(f"OpenAI translation failed after {total_attempt} attempts (UI configured limit: {max_total_attempts})")
 
     async def _request_translation(self, to_lang: str, prompt: str) -> str:
         """
@@ -765,7 +810,7 @@ class OpenAITranslator(ConfigGPT, CommonTranslator):
 
         # 发起请求 / Initiate the request
         response = await self.client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=self.model,
             messages=messages,
             max_tokens=self._MAX_TOKENS // 2,
             temperature=self.temperature,

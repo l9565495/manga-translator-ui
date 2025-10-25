@@ -228,7 +228,7 @@ class ModelPaddleOCR(OfflineOCR):
 
     def _decode_ctc(self, pred: np.ndarray):
         """
-        Decode CTC prediction to text.
+        Decode CTC prediction to text with special character handling.
 
         Args:
             pred: [seq_len, num_classes]
@@ -240,20 +240,38 @@ class ModelPaddleOCR(OfflineOCR):
         indices = np.argmax(pred, axis=1)
         confidences = np.max(pred, axis=1)
 
-        # Remove blanks and duplicates
+        # Remove blanks and duplicates, handle special characters
         chars = []
         prev_idx = -1
 
         for idx in indices:
             if idx != 0 and idx != prev_idx:  # 0 is <blank>
                 if idx < len(self.char_dict):
-                    chars.append(self.char_dict[idx])
+                    ch = self.char_dict[idx]
+                    
+                    # Special character handling (similar to model_48px)
+                    if ch == '<S>':      # Start token
+                        continue
+                    if ch == '</S>':     # End token
+                        break
+                    if ch == '<SP>':     # Space token
+                        ch = ' '
+                    
+                    chars.append(ch)
             prev_idx = idx
 
         text = ''.join(chars)
         confidence = float(np.mean(confidences))
 
         return text, confidence
+
+    def _get_mode_color(self, pixels: np.ndarray, channel: int) -> int:
+        """计算某个通道的众数颜色值"""
+        channel_values = pixels[:, channel]
+        # 使用 bincount 找到出现次数最多的值
+        counts = np.bincount(channel_values.astype(np.int32), minlength=256)
+        mode_value = np.argmax(counts)
+        return int(mode_value)
 
     def _estimate_colors(self, region: np.ndarray, textline: Quadrilateral):
         """Estimate foreground/background colors using improved Otsu thresholding"""
@@ -282,10 +300,10 @@ class ModelPaddleOCR(OfflineOCR):
                 if np.any(fg_mask):
                     fg_pixels = region_rgb[fg_mask]
 
-                    # 改进：使用中位数代替平均值，减少抗锯齿像素的影响
-                    fg_r = int(np.median(fg_pixels[:, 0]))
-                    fg_g = int(np.median(fg_pixels[:, 1]))
-                    fg_b = int(np.median(fg_pixels[:, 2]))
+                    # 使用众数代替中位数，获取最常出现的颜色
+                    fg_r = self._get_mode_color(fg_pixels, 0)
+                    fg_g = self._get_mode_color(fg_pixels, 1)
+                    fg_b = self._get_mode_color(fg_pixels, 2)
 
                     # 颜色量化：如果接近黑色（RGB < 40），强制设为纯黑
                     if fg_r < 40 and fg_g < 40 and fg_b < 40:
@@ -303,10 +321,10 @@ class ModelPaddleOCR(OfflineOCR):
                 if np.any(bg_mask):
                     bg_pixels = region_rgb[bg_mask]
 
-                    # 改进：使用中位数代替平均值
-                    bg_r = int(np.median(bg_pixels[:, 0]))
-                    bg_g = int(np.median(bg_pixels[:, 1]))
-                    bg_b = int(np.median(bg_pixels[:, 2]))
+                    # 使用众数代替中位数
+                    bg_r = self._get_mode_color(bg_pixels, 0)
+                    bg_g = self._get_mode_color(bg_pixels, 1)
+                    bg_b = self._get_mode_color(bg_pixels, 2)
 
                     # 颜色量化：如果接近白色（RGB > 215），强制设为纯白
                     if bg_r > 215 and bg_g > 215 and bg_b > 215:

@@ -301,7 +301,8 @@ class MainView(QWidget):
             "正常翻译流程",
             "导出翻译",
             "导出原文",
-            "导入翻译并渲染"
+            "导入翻译并渲染",
+            "仅上色"
         ])
         self.workflow_mode_combo.currentIndexChanged.connect(self._on_workflow_mode_changed)
         left_layout.addWidget(self.workflow_mode_combo)
@@ -483,7 +484,9 @@ class MainView(QWidget):
             # 阻止信号触发，避免循环
             self.workflow_mode_combo.blockSignals(True)
 
-            if config.cli.load_text:
+            if config.cli.colorize_only:
+                self.workflow_mode_combo.setCurrentIndex(4)  # 仅上色
+            elif config.cli.load_text:
                 self.workflow_mode_combo.setCurrentIndex(3)  # 导入翻译并渲染
             elif config.cli.template:
                 self.workflow_mode_combo.setCurrentIndex(2)  # 导出原文
@@ -503,6 +506,7 @@ class MainView(QWidget):
         # 1: 导出翻译
         # 2: 导出原文
         # 3: 导入翻译并渲染
+        # 4: 仅上色
 
         config = self.config_service.get_config()
 
@@ -510,6 +514,7 @@ class MainView(QWidget):
         config.cli.load_text = False
         config.cli.template = False
         config.cli.generate_and_export = False
+        config.cli.colorize_only = False
 
         if index == 1:  # 导出翻译
             config.cli.generate_and_export = True
@@ -517,6 +522,8 @@ class MainView(QWidget):
             config.cli.template = True
         elif index == 3:  # 导入翻译并渲染
             config.cli.load_text = True
+        elif index == 4:  # 仅上色
+            config.cli.colorize_only = True
 
         # 保存配置
         self.config_service.set_config(config)
@@ -531,7 +538,9 @@ class MainView(QWidget):
 
         try:
             config = self.config_service.get_config()
-            if config.cli.load_text:
+            if config.cli.colorize_only:
+                self.start_button.setText("开始上色")
+            elif config.cli.load_text:
                 self.start_button.setText("导入翻译并渲染")
             elif config.cli.template:
                 self.start_button.setText("仅生成原文模板")

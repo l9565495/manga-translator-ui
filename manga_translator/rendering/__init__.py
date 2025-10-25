@@ -50,7 +50,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
     mode = config.render.layout_mode
 
     dst_points_list = []
-    for region in text_regions:
+    for region_idx, region in enumerate(text_regions):
         if region is None:
             dst_points_list.append(None)
             continue
@@ -275,6 +275,11 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     else: # Vertical
                         # Convert [BR] tags to \n for vertical text
                         text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', region.translation, flags=re.IGNORECASE)
+                        
+                        # Apply auto_add_horizontal_tags if enabled
+                        if config.render.auto_rotate_symbols:
+                            text_for_calc = text_render.auto_add_horizontal_tags(text_for_calc)
+                        
                         lines, heights = text_render.calc_vertical(target_font_size, text_for_calc, max_height=99999)
                         if heights:
                             spacing_x = int(target_font_size * (config.render.line_spacing or 0.2))
@@ -288,57 +293,36 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     dst_points = region.min_rect
 
                     if width_overflow > 0 or height_overflow > 0:
-                        # 单列/单行时，独立缩放宽度和高度
-                        if len(lines) == 1:
-                            width_scale_factor = 1.0
-                            height_scale_factor = 1.0
+                        # 独立缩放宽度和高度（单列/单行和多列/多行都使用相同逻辑）
+                        width_scale_factor = 1.0
+                        height_scale_factor = 1.0
 
-                            if width_overflow > 0:
-                                width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
-                                diff_ratio_w = width_scale_needed - 1.0
-                                box_expansion_ratio_w = diff_ratio_w / 2
-                                width_scale_factor = 1 + min(box_expansion_ratio_w, 1.0)
-
-                            if height_overflow > 0:
-                                height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
-                                diff_ratio_h = height_scale_needed - 1.0
-                                box_expansion_ratio_h = diff_ratio_h / 2
-                                height_scale_factor = 1 + min(box_expansion_ratio_h, 1.0)
-
-                            try:
-                                scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
-                                scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
-                                dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                            except Exception as e:
-                                logger.warning(f"Failed to apply independent scaling: {e}")
-
-                            # 字体也需要独立缩放
-                            scale_needed = max(required_width / bubble_width if bubble_width > 0 else 1.0,
-                                             required_height / bubble_height if bubble_height > 0 else 1.0)
-                            diff_ratio = scale_needed - 1.0
-                            font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                            font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
-                            target_font_size = int(target_font_size * font_scale_factor)
-                        else:
-                            # 多列/多行时，使用原来的统一缩放逻辑
+                        if width_overflow > 0:
                             width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
+                            diff_ratio_w = width_scale_needed - 1.0
+                            box_expansion_ratio_w = diff_ratio_w / 2
+                            width_scale_factor = 1 + min(box_expansion_ratio_w, 1.0)
+
+                        if height_overflow > 0:
                             height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
-                            scale_needed = max(width_scale_needed, height_scale_needed)
+                            diff_ratio_h = height_scale_needed - 1.0
+                            box_expansion_ratio_h = diff_ratio_h / 2
+                            height_scale_factor = 1 + min(box_expansion_ratio_h, 1.0)
 
-                            diff_ratio = scale_needed - 1.0
-                            box_expansion_ratio = diff_ratio / 2
-                            box_scale_factor = 1 + min(box_expansion_ratio, 1.0)
-                            font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                            font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
+                        try:
+                            scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
+                            scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
+                            dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                        except Exception as e:
+                            logger.warning(f"Failed to apply independent scaling: {e}")
 
-                            try:
-                                scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=box_scale_factor, yfact=box_scale_factor, origin='center')
-                                scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
-                                dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                            except Exception as e:
-                                logger.warning(f"Failed to apply dynamic scaling: {e}")
-
-                            target_font_size = int(target_font_size * font_scale_factor)
+                        # 字体缩放基于最大的溢出维度
+                        scale_needed = max(required_width / bubble_width if bubble_width > 0 else 1.0,
+                                         required_height / bubble_height if bubble_height > 0 else 1.0)
+                        diff_ratio = scale_needed - 1.0
+                        font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
+                        font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
+                        target_font_size = int(target_font_size * font_scale_factor)
                     else:
                         # No overflow, can enlarge font to fit better
                         if required_width > 0 and required_height > 0:
@@ -352,29 +336,6 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                             dst_points = rotate_polygons(region.center, unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
                         except Exception as e:
                             logger.warning(f"Failed to use base polygon: {e}")
-                    
-                    # --- DEBUG LOGGING ---
-                    final_fs = int(max(target_font_size, min_font_size))
-                    logger.info(f"--- FONT SIZE DEBUG (Final) ---")
-                    logger.info(f"  - Bubble (W, H)      : ({bubble_width:.1f}, {bubble_height:.1f})")
-                    logger.info(f"  - Initial Font Size  : {region.offset_applied_font_size}")
-                    logger.info(f"  - Calculated Font Size: {final_fs}")
-                    logger.info(f"  - Required (W, H)    : ({required_width:.1f}, {required_height:.1f})")
-                    logger.info(f"  - Overflow (W, H)    : ({width_overflow:.1f}, {height_overflow:.1f})")
-                    if width_overflow > 0 or height_overflow > 0:
-                        width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
-                        height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
-                        scale_needed = max(width_scale_needed, height_scale_needed)
-                        diff_ratio = scale_needed - 1.0
-                        box_expansion_ratio = diff_ratio / 2
-                        box_scale_factor = 1 + min(box_expansion_ratio, 1.0)
-                        font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                        font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
-                        logger.info(f"  - Scale needed       : {scale_needed:.3f}")
-                        logger.info(f"  - Diff ratio         : {diff_ratio:.3f}")
-                        logger.info(f"  - Box scale factor   : {box_scale_factor:.3f}")
-                        logger.info(f"  - Font scale factor  : {font_scale_factor:.3f}")
-                    # --- END DEBUG LOGGING ---
 
                 except Exception as e:
                     logger.error(f"Error in new smart_scaling algorithm: {e}")
@@ -398,7 +359,6 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         dst_points = np.array(scaled_poly.exterior.coords[:4]).reshape(-1, 4, 2)
                     except Exception as e:
                         logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
-
                 region.font_size = final_font_size
                 dst_points_list.append(dst_points)
                 continue
@@ -695,18 +655,16 @@ def render(
             w_ext = int((h * r_orig - w) / 2)
             if w_ext >= 0:
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                # Center horizontally when enabled
-                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
-                    box[0:h, w_ext:w_ext+w] = temp_box
-                else:
-                    box[0:h, 0:w] = temp_box
+                # Center horizontally (always active for vertical text)
+                box[0:h, w_ext:w_ext+w] = temp_box
             else:
                 box = temp_box.copy()
 
     src_points = np.array([[0, 0], [box.shape[1], 0], [box.shape[1], box.shape[0]], [0, box.shape[0]]]).astype(np.float32)
 
     M, _ = cv2.findHomography(src_points, dst_points, cv2.RANSAC, 5.0)
-    rgba_region = cv2.warpPerspective(box, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    # 使用INTER_LANCZOS4获得最高质量的插值,避免字体模糊
+    rgba_region = cv2.warpPerspective(box, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
     x, y, w, h = cv2.boundingRect(np.round(dst_points).astype(np.int64))
     canvas_region = rgba_region[y:y+h, x:x+w, :3]
     mask_region = rgba_region[y:y+h, x:x+w, 3:4].astype(np.float32) / 255.0

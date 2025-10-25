@@ -96,3 +96,15 @@ desktop_qt_ui/logs/
 # Ignore user-added images
 4535423.jpg
 profile.svg
+
+# Ignore model files
+models/
+
+# Ignore test files
+test_colorize_only_mode.py
+
+# Ignore temporary files
+123.jpg
+
+# Ignore .kiro directory
+.kiro/

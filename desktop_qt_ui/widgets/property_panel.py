@@ -186,7 +186,9 @@ class PropertyPanel(QWidget):
         ocr_trans_config_layout.addRow("目标语言:", self.target_language_combo)
         text_layout.addLayout(ocr_trans_config_layout)
         self.original_text_box = QTextEdit()
+        self.original_text_box.setUndoRedoEnabled(True)  # 确保撤销功能启用
         self.translated_text_box = QTextEdit()
+        self.translated_text_box.setUndoRedoEnabled(True)  # 确保撤销功能启用
         text_layout.addWidget(QLabel("原文:"))
         text_layout.addWidget(self.original_text_box)
         self.original_edit_status_label = QLabel("点击编辑原文")
@@ -256,12 +258,16 @@ class PropertyPanel(QWidget):
         self.font_size_input.editingFinished.connect(self._on_font_size_editing_finished)
         self.font_size_slider.valueChanged.connect(self._on_font_size_slider_changed)
         self.font_color_button.clicked.connect(self._on_font_color_clicked)
+        # 实时更新（textChanged）
         self.translated_text_box.textChanged.connect(self._on_translated_text_changed)
+        # self.translated_text_box.focusOutEvent = self._make_focus_out_handler(self.translated_text_box, self._on_translated_text_focus_out)
         self.alignment_combo.currentTextChanged.connect(self._on_alignment_changed)
         self.direction_combo.currentTextChanged.connect(self._on_direction_changed)
 
         # Text
+        # 实时更新（textChanged）
         self.original_text_box.textChanged.connect(self._on_original_text_changed)
+        # self.original_text_box.focusOutEvent = self._make_focus_out_handler(self.original_text_box, self._on_original_text_focus_out)
         self.ocr_button.clicked.connect(self.ocr_requested.emit)
         self.translate_button.clicked.connect(self.translation_requested.emit)
         self.insert_placeholder_button.clicked.connect(self._insert_placeholder)
@@ -425,6 +431,15 @@ class PropertyPanel(QWidget):
         region_data = self.model.get_region_by_index(index)
         if region_data:
             self._update_display(region_data, index)
+    
+    def force_refresh_from_model(self):
+        """强制刷新属性栏，忽略焦点状态（用于OCR/翻译完成后）"""
+        selected_indices = self.model.get_selection()
+        if selected_indices and len(selected_indices) == 1:
+            region_index = selected_indices[0]
+            region_data = self.model.get_region_by_index(region_index)
+            if region_data:
+                self._update_display(region_data, region_index, force=True)
 
     def on_regions_updated(self, regions):
         """Slot to refresh the panel if the currently selected region's data has changed."""
@@ -482,8 +497,14 @@ class PropertyPanel(QWidget):
             if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
                 child.blockSignals(False)
 
-    def _update_display(self, region_data, region_index):
-        """Populate all widgets with data from the selected region."""
+    def _update_display(self, region_data, region_index, force=False):
+        """Populate all widgets with data from the selected region.
+        
+        Args:
+            region_data: 区域数据字典
+            region_index: 区域索引
+            force: 是否强制更新文本框（忽略焦点状态），用于OCR/翻译完成后
+        """
         # Block signals on all widgets to prevent feedback loops
         for child in self.findChildren(QWidget):
             if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
@@ -502,10 +523,14 @@ class PropertyPanel(QWidget):
         self.angle_label.setText(f"{angle:.1f}°")
 
         # --- Update Text & Styles ---
-        self.original_text_box.setText(region_data.get("text", ""))
+        # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
+        if force or not self.original_text_box.hasFocus():
+            # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
+            original_text = region_data.get("text", "")
+            self.original_text_box.setText(original_text)
 
-        # 只有在文本框没有焦点时才更新,避免打断用户编辑
-        if not self.translated_text_box.hasFocus():
+        # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
+        if force or not self.translated_text_box.hasFocus():
             import re
 
             # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
@@ -563,7 +588,101 @@ class PropertyPanel(QWidget):
             if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
                 child.blockSignals(False)
 
+    def _make_focus_out_handler(self, text_edit, callback):
+        """创建一个焦点丢失事件处理器，保存原始的focusOutEvent"""
+        original_focus_out = text_edit.focusOutEvent
+        
+        def focus_out_wrapper(event):
+            # 先调用原始的focusOutEvent
+            original_focus_out(event)
+            # 然后调用我们的回调
+            callback()
+        
+        return focus_out_wrapper
+    
+    def force_save_text_edits(self):
+        """强制保存当前文本框的编辑内容（在失去焦点前）"""
+        if self.current_region_index == -1:
+            return
+        
+        # 保存原文编辑
+        current_original = self.original_text_box.toPlainText()
+        region_data = self.model.get_region_by_index(self.current_region_index)
+        if region_data:
+            # 比较当前编辑的文本与original_text（如果没有则与text比较）
+            stored_original = region_data.get("original_text") or region_data.get("text", "")
+            if stored_original != current_original:
+                self.original_text_modified.emit(self.current_region_index, current_original)
+        
+        # 保存译文编辑
+        self._save_translated_text()
+    
+    def _save_translated_text(self):
+        """保存译文编辑（执行与_on_translated_text_focus_out相同的逻辑）"""
+        if self.current_region_index == -1:
+            return
+        
+        import re
+
+        # 1. 将 ⇄ 替换回 <H> 标签
+        raw_text = self.translated_text_box.toPlainText()
+        # 将成对的 ⇄ 替换为 <H> 和 </H>
+        parts = raw_text.split('⇄')
+        text_with_tags = ''
+        for i, part in enumerate(parts):
+            text_with_tags += part
+            if i < len(parts) - 1:  # 不是最后一个部分
+                if i % 2 == 0:  # 偶数索引,添加开始标签
+                    text_with_tags += '<H>'
+                else:  # 奇数索引,添加结束标签
+                    text_with_tags += '</H>'
+
+        # 2. 将 ↵ 替换回 \n
+        text_with_newlines = text_with_tags.replace('↵', '\n')
+
+        # 3. 将 \n 转换回 AI 换行符 [BR]
+        text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
+        
+        # 检查是否有变化
+        region_data = self.model.get_region_by_index(self.current_region_index)
+        if region_data and region_data.get("translation", "") != text_with_br:
+            self.translated_text_modified.emit(self.current_region_index, text_with_br)
+    
+    def _on_original_text_focus_out(self):
+        """当原文文本框失去焦点时更新model"""
+        if self.current_region_index != -1:
+            self.original_text_modified.emit(self.current_region_index, self.original_text_box.toPlainText())
+    
+    def _on_translated_text_focus_out(self):
+        """当译文文本框失去焦点时更新model"""
+        if self.current_region_index != -1:
+            # 执行与_on_translated_text_changed相同的转换逻辑
+            import re
+
+            # 1. 将 ⇄ 替换回 <H> 标签
+            raw_text = self.translated_text_box.toPlainText()
+            # 将成对的 ⇄ 替换为 <H> 和 </H>
+            # 简单实现:奇数个 ⇄ 替换为 <H>,偶数个替换为 </H>
+            parts = raw_text.split('⇄')
+            text_with_tags = ''
+            for i, part in enumerate(parts):
+                text_with_tags += part
+                if i < len(parts) - 1:  # 不是最后一个部分
+                    if i % 2 == 0:  # 偶数索引,添加开始标签
+                        text_with_tags += '<H>'
+                    else:  # 奇数索引,添加结束标签
+                        text_with_tags += '</H>'
+
+            # 2. 将 ↵ 替换回 \n
+            text_with_newlines = text_with_tags.replace('↵', '\n')
+
+            # 3. 将 \n 转换回 AI 换行符 [BR]
+            text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
+
+            self.translated_text_modified.emit(self.current_region_index, text_with_br)
+    
     def _on_original_text_changed(self):
+        """保留这个方法以防需要，但现在不使用"""
         if self.current_region_index != -1:
             self.original_text_modified.emit(self.current_region_index, self.original_text_box.toPlainText())
     def _on_translated_text_changed(self):

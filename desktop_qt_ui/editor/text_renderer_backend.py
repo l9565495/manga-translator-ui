@@ -112,7 +112,7 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
         if h_temp == 0 or w_temp == 0:
             return None
         r_temp = w_temp / h_temp
-
+        
         middle_pts = (dst_points[:, [1, 2, 3, 0]] + dst_points) / 2
         norm_h = np.linalg.norm(middle_pts[:, 1] - middle_pts[:, 3], axis=1)
         norm_v = np.linalg.norm(middle_pts[:, 2] - middle_pts[:, 0], axis=1)
@@ -158,11 +158,8 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
                 w_ext = int((h_temp * r_orig - w_temp) / 2)
                 if w_ext >= 0:
                     box = np.zeros((h_temp, w_temp + w_ext * 2, 4), dtype=np.uint8)
-                    # Center horizontally when enabled
-                    if config_obj and config_obj.render.center_text_in_bubble and config_obj.render.disable_auto_wrap:
-                        box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
-                    else:
-                        box[0:h_temp, 0:w_temp] = rendered_surface
+                    # Center horizontally (always active for vertical text)
+                    box[0:h_temp, w_ext:w_ext+w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
 

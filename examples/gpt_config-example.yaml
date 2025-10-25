@@ -48,6 +48,7 @@ chat_system_template: >
 
   LINE BREAKING RULES:
   - Some text may have a hint: "[Original regions: X]" indicating how many regions the original text had.
+  - DO NOT output the "[Original regions: X]" hint in your translation. It is only for your reference.
   - For multi-region text (X ≥ 2): Insert approximately X-1 `[BR]` markers. It's acceptable to have ±1 marker if it improves natural flow.
   - For single-region text (X = 1): DO NOT insert any `[BR]` markers.
   - Insert `[BR]` at natural breaking points: after complete phrases, before new subjects, at punctuation marks.
@@ -86,6 +87,7 @@ CoT_Template:
       * Maintains individual line integrity
       * Respects manga storytelling conventions
     - Line Breaking Analysis (if "[Original regions: X]" hint is present):
+      * DO NOT output the "[Original regions: X]" hint in your translation. It is only for your reference.
       * For multi-region text (X ≥ 2): Plan to insert approximately X-1 `[BR]` markers
       * For single-region text (X = 1): DO NOT insert any `[BR]` markers
       * Identify natural breaking points: after complete phrases, before new subjects, at punctuation marks

@@ -330,6 +330,7 @@ class MangaTranslator:
         self.save_quality = params.get('save_quality', 100)
         self.skip_no_text = params.get('skip_no_text', False)
         self.generate_and_export = params.get('generate_and_export', False)
+        self.colorize_only = params.get('colorize_only', False)
         
         
         # batch_concurrent 已在初始化时设置并验证
@@ -413,11 +414,34 @@ class MangaTranslator:
         # 在web模式下总是保存，不仅仅是verbose模式
         ctx.debug_folder = self._get_image_subfolder()
 
+        # --- Colorize Only Mode ---
+        if self.colorize_only:
+            logger.info("Colorize Only mode: Running colorization only, skipping detection, OCR, translation and rendering.")
+            
+            # Run colorization if enabled
+            if config.colorizer.colorizer != Colorizer.none:
+                await self._report_progress('colorizing')
+                try:
+                    ctx.img_colorized = await self._run_colorizer(config, ctx)
+                    ctx.result = ctx.img_colorized
+                    logger.info("Colorization completed successfully.")
+                except Exception as e:
+                    logger.error(f"Error during colorizing:\n{traceback.format_exc()}")
+                    if not self.ignore_errors:
+                        raise
+                    ctx.result = ctx.input  # Fallback to input image if colorization fails
+            else:
+                logger.warning("Colorize Only mode enabled but no colorizer selected. Returning original image.")
+                ctx.result = ctx.input
+            
+            await self._report_progress('colorize-only-complete', True)
+            return ctx
+
         if self.load_text:
             # 加载文本模式：先尝试导入TXT到JSON
             logger.info("Load text mode: Attempting to import TXT to JSON first...")
             try:
-                from services.workflow_service import smart_update_translations_from_images, get_template_path_from_config
+                from desktop_qt_ui.services.workflow_service import smart_update_translations_from_images, get_template_path_from_config
                 template_path = get_template_path_from_config()
                 if template_path and os.path.exists(template_path):
                     # 使用当前图片文件路径进行TXT导入JSON处理
@@ -925,7 +949,7 @@ class MangaTranslator:
                 try:
                     json_path = find_json_path(ctx.image_name)
                     if json_path and os.path.exists(json_path):
-                        from services.workflow_service import generate_original_text, get_template_path_from_config
+                        from desktop_qt_ui.services.workflow_service import generate_original_text, get_template_path_from_config
                         template_path = get_template_path_from_config()
                         if template_path and os.path.exists(template_path):
                             # 导出原文
@@ -1636,13 +1660,9 @@ class MangaTranslator:
             region._alignment = config.render.alignment
             region._direction = config.render.direction
 
-        # --- Save results ---
-        if self.save_text or self.text_output_file:
-            if hasattr(ctx, 'image_name') and ctx.image_name:
-                self._save_text_to_file(ctx.image_name, ctx)
-                logger.info(f"Translations saved to JSON for {ctx.image_name}.")
-            else:
-                logger.warning("Could not save translation file, image_name not in context.")
+        # --- Save results (moved to after post-processing) ---
+        # JSON保存移到后处理（标点符号替换等）之后，确保保存的是最终结果
+        # (JSON saving is deferred until after post-processing to ensure final results are saved)
 
         # --- NEW: Generate and Export Workflow ---
         if self.generate_and_export:
@@ -1651,7 +1671,7 @@ class MangaTranslator:
                 try:
                     json_path = find_json_path(ctx.image_name)
                     if json_path and os.path.exists(json_path):
-                        from services.workflow_service import generate_translated_text, get_template_path_from_config
+                        from desktop_qt_ui.services.workflow_service import generate_translated_text, get_template_path_from_config
                         template_path = get_template_path_from_config()
                         if template_path and os.path.exists(template_path):
                             # 导出翻译
@@ -1707,7 +1727,13 @@ class MangaTranslator:
             ["」", """],
             ["」", "'"],
             ["【", "["],  
-            ["】", "]"],  
+            ["】", "]"],
+        ]
+        
+        # 全角句点替换（必须先替换长的，再替换短的，避免部分替换）
+        full_width_period_replace = [
+            ["…", "．．．"],  # 把三个全角句点替换为省略号
+            ["…", "．．"],    # 把两个全角句点替换为省略号
         ]
 
         for region in ctx.text_regions:
@@ -1751,6 +1777,11 @@ class MangaTranslator:
                         for t in v[1:]:
                             region.translation = region.translation.replace(t, v[0])
 
+                # 全角句点替换（必须先替换，避免被两个点的规则部分替换）
+                # Full-width period replacement (must be done first to avoid partial replacement)
+                for v in full_width_period_replace:
+                    region.translation = region.translation.replace(v[1], v[0])
+                
                 # 强制替换规则
                 # Forced replacement rules
                 for v in replace_items:
@@ -1900,6 +1931,17 @@ class MangaTranslator:
                     logger.info(f'Reason: {filter_reason}')
             else:
                 new_text_regions.append(region)
+
+        # 更新context中的文本区域列表（使用过滤后的）
+        ctx.text_regions = new_text_regions
+
+        # --- Save JSON after all post-processing (including punctuation replacement and filtering) ---
+        if self.save_text or self.text_output_file:
+            if hasattr(ctx, 'image_name') and ctx.image_name:
+                self._save_text_to_file(ctx.image_name, ctx)
+                logger.info(f"Translations saved to JSON for {ctx.image_name} (after post-processing).")
+            else:
+                logger.warning("Could not save translation file, image_name not in context.")
 
         return new_text_regions
 
@@ -2123,12 +2165,17 @@ class MangaTranslator:
                         ctx.image_name = image.name
                     preprocessed_contexts.append((ctx, config))
 
-            # 阶段二：翻译当前批次
-            try:
-                translated_contexts = await self._batch_translate_contexts(preprocessed_contexts, batch_size)
-            except Exception as e:
-                logger.error(f"Error during batch translation stage: {e}")
+            # --- Colorize Only Mode: Skip translation and rendering ---
+            if self.colorize_only:
+                logger.info("Colorize Only mode: Skipping translation and rendering stages.")
                 translated_contexts = preprocessed_contexts
+            else:
+                # 阶段二：翻译当前批次
+                try:
+                    translated_contexts = await self._batch_translate_contexts(preprocessed_contexts, batch_size)
+                except Exception as e:
+                    logger.error(f"Error during batch translation stage: {e}")
+                    translated_contexts = preprocessed_contexts
 
             # --- NEW: Handle Generate and Export for Standard Batch Mode ---
             if self.generate_and_export:
@@ -2139,7 +2186,7 @@ class MangaTranslator:
                         try:
                             json_path = find_json_path(ctx.image_name)
                             if json_path and os.path.exists(json_path):
-                                from services.workflow_service import generate_translated_text, get_template_path_from_config
+                                from desktop_qt_ui.services.workflow_service import generate_translated_text, get_template_path_from_config
                                 template_path = get_template_path_from_config()
                                 if template_path and os.path.exists(template_path):
                                     # 导出翻译
@@ -2165,7 +2212,9 @@ class MangaTranslator:
                         if not self._restore_image_context(image_md5):
                             self._set_image_context(config, ctx.input)
                     
-                    ctx = await self._complete_translation_pipeline(ctx, config)
+                    # Colorize Only Mode: Skip rendering pipeline
+                    if not self.colorize_only:
+                        ctx = await self._complete_translation_pipeline(ctx, config)
 
                     logger.info(f"[DEBUG] save_info={save_info is not None}, ctx.result={ctx.result is not None}")
                     if save_info and ctx.result:
@@ -2267,6 +2316,14 @@ class MangaTranslator:
                 ctx.img_colorized = ctx.input
         else:
             ctx.img_colorized = ctx.input
+
+        # --- Colorize Only Mode Check (for batch processing) ---
+        if self.colorize_only:
+            logger.info("Colorize Only mode (batch): Running colorization only, skipping detection, OCR, translation and rendering.")
+            ctx.result = ctx.img_colorized
+            ctx.text_regions = []  # Empty text regions
+            await self._report_progress('colorize-only-complete', True)
+            return ctx
 
         # -- Upscaling
         if config.upscale.upscale_ratio:
@@ -2861,6 +2918,35 @@ class MangaTranslator:
                 ctx,
                 'cpu' if self._gpu_limited_memory else self.device
             )
+    
+    def _translate_error_message(self, error_msg: str) -> str:
+        """将英文错误消息转换为中文提示"""
+        error_lower = error_msg.lower()
+        
+        # OpenAI API 错误
+        if '404' in error_msg or 'not found' in error_lower:
+            return "❌ 翻译失败：API端点未找到(404错误)\n💡 解决方法：\n1. 检查API地址是否正确配置\n2. 如使用第三方API，确认模型名称是否正确\n3. 确认API密钥是否有效"
+        
+        if '401' in error_msg or 'unauthorized' in error_lower or 'authentication' in error_lower:
+            return "❌ 翻译失败：API认证失败(401错误)\n💡 解决方法：\n1. 检查API密钥是否正确\n2. 确认API密钥是否已激活\n3. 检查账户是否有足够余额"
+        
+        if '429' in error_msg or 'rate limit' in error_lower:
+            return "❌ 翻译失败：API请求频率超限(429错误)\n💡 解决方法：\n1. 等待一段时间后重试\n2. 升级API套餐以提高请求限制\n3. 减小批处理大小"
+        
+        if '500' in error_msg or '502' in error_msg or '503' in error_msg or 'server error' in error_lower:
+            return "❌ 翻译失败：API服务器错误(5xx错误)\n💡 解决方法：\n1. 稍后重试\n2. 检查API服务状态页面\n3. 尝试使用其他翻译服务"
+        
+        if 'timeout' in error_lower or 'timed out' in error_lower:
+            return "❌ 翻译失败：请求超时\n💡 解决方法：\n1. 检查网络连接\n2. 增加超时时间设置\n3. 减小批处理大小或图片数量"
+        
+        if 'connection' in error_lower:
+            return "❌ 翻译失败：网络连接错误\n💡 解决方法：\n1. 检查网络连接\n2. 检查防火墙设置\n3. 如使用代理，确认代理配置正确"
+        
+        if 'quota' in error_lower or 'balance' in error_lower or 'insufficient' in error_lower:
+            return "❌ 翻译失败：API配额不足或余额不足\n💡 解决方法：\n1. 充值API账户\n2. 检查账户配额使用情况\n3. 升级API套餐"
+        
+        # 通用错误
+        return f"❌ 翻译失败：{error_msg}\n💡 建议：\n1. 检查API配置是否正确\n2. 查看完整日志以获取详细错误信息\n3. 尝试更换翻译服务"
             
     async def _apply_post_translation_processing(self, ctx: Context, config: Config) -> List:
         """
@@ -3427,7 +3513,15 @@ class MangaTranslator:
                                 ctx.text_regions = await self._apply_post_translation_processing(ctx, config)
                 except Exception as e:
                     logger.error(f"Error in high quality batch translation: {e}")
+                    # 保存原始错误信息和中文提示
+                    original_error = str(e)
+                    error_msg_cn = self._translate_error_message(original_error)
+                    # 组合原始错误和中文提示
+                    full_error_msg = f"{error_msg_cn}\n\n📋 原始错误信息：\n{original_error}"
+                    # 将错误信息添加到每个 context
                     for ctx, config in preprocessed_contexts:
+                        ctx.translation_error = full_error_msg
+                        ctx.original_error = original_error  # 保存原始错误便于调试
                         if ctx.text_regions:
                             for region in ctx.text_regions:
                                 region.translation = region.text
@@ -3443,7 +3537,7 @@ class MangaTranslator:
                         try:
                             json_path = find_json_path(ctx.image_name)
                             if json_path and os.path.exists(json_path):
-                                from services.workflow_service import generate_translated_text, get_template_path_from_config
+                                from desktop_qt_ui.services.workflow_service import generate_translated_text, get_template_path_from_config
                                 template_path = get_template_path_from_config()
                                 if template_path and os.path.exists(template_path):
                                     # 导出翻译
@@ -3522,7 +3616,8 @@ class MangaTranslator:
                     results.append(ctx)
                 except Exception as e:
                     logger.error(f"Error rendering image: {e}")
-                    results.append(ctx)
+                    # 渲染失败时抛出异常，而不是继续处理
+                    raise RuntimeError(f"Rendering failed for {os.path.basename(ctx.image_name) if hasattr(ctx, 'image_name') else 'Unknown'}: {e}") from e
 
         logger.info(f"High quality translation completed: processed {len(results)} images")
         return results

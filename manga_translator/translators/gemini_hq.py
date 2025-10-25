@@ -208,6 +208,11 @@ class GeminiHighQualityTranslator(CommonTranslator):
 
     def _build_user_prompt(self, batch_data: List[Dict], ctx: Any) -> str:
         """构建用户提示词"""
+        # 检查是否开启AI断句
+        enable_ai_break = False
+        if ctx and hasattr(ctx, 'config') and ctx.config and hasattr(ctx.config, 'render'):
+            enable_ai_break = getattr(ctx.config.render, 'disable_auto_wrap', False)
+
         prompt = "Please translate the following manga text regions. I'm providing multiple images with their text regions in reading order:\n\n"
         
         # 添加图片信息
@@ -223,13 +228,13 @@ class GeminiHighQualityTranslator(CommonTranslator):
         for img_idx, data in enumerate(batch_data):
             for region_idx, text in enumerate(data['original_texts']):
                 text_to_translate = text.replace('\n', ' ').replace('\ufffd', '')
-                # 获取对应的text_region来获取区域数
-                if data['text_regions'] and region_idx < len(data['text_regions']):
+                # 只有开启AI断句时才添加区域信息
+                if enable_ai_break and data['text_regions'] and region_idx < len(data['text_regions']):
                     region = data['text_regions'][region_idx]
                     region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                    prompt += f"{text_index}. [Original regions: {region_count}] {text_to_translate}\n"
                 else:
-                    region_count = 1
-                prompt += f"{text_index}. [Original regions: {region_count}] {text_to_translate}\n"
+                    prompt += f"{text_index}. {text_to_translate}\n"
                 text_index += 1
         
         prompt += "\nCRITICAL: Provide translations in the exact same order as the numbered input text regions. Your first line of output must be the translation for text region #1, your second line for #2, and so on. DO NOT CHANGE THE ORDER."
@@ -375,11 +380,26 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 return translations[:len(texts)]
 
             except Exception as e:
+                # 检查是否是400错误或多模态不支持问题
+                error_message = str(e)
+                is_bad_request = '400' in error_message or 'BadRequest' in error_message
+                is_multimodal_unsupported = any(keyword in error_message.lower() for keyword in [
+                    'image_url', 'multimodal', 'vision', 'expected `text`', 'unknown variant', 'does not support'
+                ])
+                
+                if is_bad_request and is_multimodal_unsupported:
+                    self.logger.error(f"❌ 模型 {self.model} 不支持多模态输入（图片+文本）")
+                    self.logger.error(f"💡 解决方案：")
+                    self.logger.error(f"   1. 使用支持多模态的Gemini模型（如 gemini-1.5-flash, gemini-1.5-pro）")
+                    self.logger.error(f"   2. 或者切换到普通翻译模式（不使用 _hq 高质量翻译器）")
+                    self.logger.error(f"   3. 检查第三方API是否支持图片输入")
+                    raise Exception(f"模型不支持多模态输入: {self.model}") from e
+                    
                 attempt += 1
                 log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
                 self.logger.warning(f"Gemini高质量翻译出错 ({log_attempt}): {e}")
 
-                if "finish_reason: 2" in str(e) or "finish_reason is 2" in str(e):
+                if "finish_reason: 2" in error_message or "finish_reason is 2" in error_message:
                     self.logger.warning("检测到Gemini安全设置拦截。正在重试...")
                 
                 if not is_infinite and attempt >= max_retries:
@@ -407,7 +427,10 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 self.logger.info(f"高质量翻译模式：正在打包 {len(batch_data)} 张图片并发送...")
                 custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
                 line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
-                return await self._translate_batch_high_quality(queries, batch_data, from_lang, to_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, ctx=ctx)
+                translations = await self._translate_batch_high_quality(queries, batch_data, from_lang, to_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, ctx=ctx)
+                # 应用文本后处理（与普通翻译器保持一致）
+                translations = [self._clean_translation_output(q, r, to_lang) for q, r in zip(queries, translations)]
+                return translations
         
         # 普通单文本翻译（后备方案）
         if not self.client:

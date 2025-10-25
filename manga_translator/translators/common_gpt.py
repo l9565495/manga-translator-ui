@@ -173,6 +173,11 @@ class CommonGPTTranslator(ConfigGPT, CommonTranslator):
         chunk_queries = []  # List [ List [ <queries> ] ]
         current_length = 0
 
+        # 检查是否开启AI断句
+        enable_ai_break = False
+        if ctx and hasattr(ctx, 'config') and ctx.config and hasattr(ctx.config, 'render'):
+            enable_ai_break = getattr(ctx.config.render, 'disable_auto_wrap', False)
+
         def _list2prompt(queryList=List[str], idx_offset=0):
             prompt = ""
             if self.include_template:
@@ -182,7 +187,8 @@ class CommonGPTTranslator(ConfigGPT, CommonTranslator):
             # Add line breaks and original region count info (for AI line breaking)
             for id_num, query in enumerate(queryList, start=1):
                 region_count_prefix = ""
-                if ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
+                # 只有开启AI断句时才添加区域信息
+                if enable_ai_break and ctx and hasattr(ctx, 'text_regions') and ctx.text_regions:
                     # 计算当前query对应的region索引（在整个queries列表中的索引）
                     region_idx = idx_offset + id_num - 1  # enumerate从1开始，但列表索引从0开始
                     self.logger.debug(f"[AI断句调试] region_idx={region_idx}, total_regions={len(ctx.text_regions)}")
@@ -194,7 +200,9 @@ class CommonGPTTranslator(ConfigGPT, CommonTranslator):
                     else:
                         self.logger.warning(f"[AI断句调试] region_idx={region_idx} 超出范围 (total={len(ctx.text_regions)})")
                 else:
-                    if not ctx:
+                    if not enable_ai_break:
+                        self.logger.debug(f"[AI断句调试] AI断句未开启")
+                    elif not ctx:
                         self.logger.debug(f"[AI断句调试] ctx is None")
                     elif not hasattr(ctx, 'text_regions'):
                         self.logger.debug(f"[AI断句调试] ctx没有text_regions属性")

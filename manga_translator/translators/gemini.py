@@ -218,7 +218,10 @@ class GeminiTranslator(CommonGPTTranslator):
                 self.logger.error('Maximum split attempts reached.')  
                 return False
 
-        await translate_batch(queries, list(range(len(queries))))  
+        success = await translate_batch(queries, list(range(len(queries))))
+        if not success:
+            self.logger.error("Gemini translation failed after all retries and split attempts")
+            raise RuntimeError("Gemini translation failed after all retries and split attempts")
         return translations
 
     def formatLog(self, vals: dict) -> str:

@@ -246,6 +246,10 @@ class TranslatorConfig(BaseModel):
     selective_translation: Optional[str] = None
     """Select a translator based on detected language in image. Note the first translation service acts as default if the language isn\'t defined. Example: --translator-chain "google:JPN;sugoi:ENG".'"""
     
+    # 重试配置
+    attempts: int = -1
+    """Retry attempts on encountered error. -1 means infinite times."""
+    
     # 译后检查配置项
     enable_post_translation_check: bool = False
     """Enable post-translation validation check"""

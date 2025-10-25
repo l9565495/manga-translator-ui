@@ -105,7 +105,7 @@ CJK_H2V = {
     # "、": "︑",    
     "-": "︲",    
     "−": "︲",
-    "・": "·",          
+    "・": "·",
 }
 
 CJK_V2H = {
@@ -116,7 +116,11 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())  
 
 DEFAULT_FONT = os.path.join(BASE_PATH, 'fonts', 'Arial-Unicode-Regular.ttf')
-FONT = freetype.Face(Path(DEFAULT_FONT).open('rb'))  
+try:
+    FONT = freetype.Face(Path(DEFAULT_FONT).open('rb'))
+except Exception as e:
+    logger.error(f"Failed to initialize default font: {e}")
+    FONT = None  
 
 def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     """direction: 0 - horizontal, 1 - vertical"""
@@ -138,8 +142,9 @@ def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     return cdpt, 0
 
 def compact_special_symbols(text: str) -> str:
+    # 替换半角省略号
     text = text.replace('...', '…')  
-    text = text.replace('..', '…')      
+    text = text.replace('..', '…')
     # Remove half-width and full-width spaces after each punctuation mark
     pattern = r'([^WSws])[ 　]+'  
     text = re.sub(pattern, r'\1', text) 
@@ -335,6 +340,67 @@ def get_char_border(cdpt: str, font_size: int, direction: int):
         slot_border = face.glyph
         return slot_border.get_glyph()
 
+def calc_horizontal_block_height(font_size: int, content: str) -> int:
+    """
+    预先计算横排块在竖排文本中的实际渲染高度
+    用于准确计算竖排文本的总高度，特别是在智能缩放模式下
+    """
+    if not content:
+        return font_size
+    
+    # 应用与 put_text_vertical 中相同的字体缩放逻辑
+    h_font_size = font_size
+    if len(content) == 4:
+        h_font_size = int(h_font_size * 0.75)
+    
+    # 创建临时画布来渲染横排内容
+    h_height = h_font_size * 2
+    h_width = get_string_width(h_font_size, content) + h_font_size
+    
+    temp_canvas = np.zeros((h_height, h_width), dtype=np.uint8)
+    pen_h = [h_font_size // 2, h_font_size]
+    
+    # 渲染每个字符
+    for char_h in content:
+        if char_h == '！': 
+            char_h = '!'
+        elif char_h == '？': 
+            char_h = '?'
+        try:
+            offset_x = get_char_offset_x(h_font_size, char_h)
+            cdpt, _ = CJK_Compatibility_Forms_translate(char_h, 0)
+            slot = get_char_glyph(cdpt, h_font_size, 0)
+            bitmap = slot.bitmap
+            
+            if bitmap.rows * bitmap.width > 0 and len(bitmap.buffer) == bitmap.rows * bitmap.width:
+                bitmap_char = np.array(bitmap.buffer, dtype=np.uint8).reshape((bitmap.rows, bitmap.width))
+                char_place_x = pen_h[0] + slot.bitmap_left
+                char_place_y = pen_h[1] - slot.bitmap_top
+                
+                paste_y_start = max(0, char_place_y)
+                paste_x_start = max(0, char_place_x)
+                paste_y_end = min(temp_canvas.shape[0], char_place_y + bitmap.rows)
+                paste_x_end = min(temp_canvas.shape[1], char_place_x + bitmap.width)
+                
+                if paste_y_start < paste_y_end and paste_x_start < paste_x_end:
+                    temp_canvas[paste_y_start:paste_y_end, paste_x_start:paste_x_end] = np.maximum(
+                        temp_canvas[paste_y_start:paste_y_end, paste_x_start:paste_x_end],
+                        bitmap_char[:(paste_y_end-paste_y_start), :(paste_x_end-paste_x_start)]
+                    )
+            
+            pen_h[0] += offset_x
+        except Exception:
+            # 如果渲染失败，返回默认值
+            pass
+    
+    # 裁剪空白并返回实际高度
+    if np.any(temp_canvas):
+        _, _, _, h_crop = cv2.boundingRect(temp_canvas)
+        return h_crop
+    
+    # 如果没有内容，返回默认高度
+    return font_size
+
 def calc_vertical(font_size: int, text: str, max_height: int, config=None):
     """
     Line breaking logic for vertical text.
@@ -369,8 +435,9 @@ def calc_vertical(font_size: int, text: str, max_height: int, config=None):
                 content = part[3:-4]
                 if not content:
                     continue
-                # Treat the block as a single character with font_size height for layout purposes
-                block_height = font_size
+                # 使用实际渲染高度而不是固定的 font_size
+                # 这对于智能缩放模式下准确计算文本框拉伸比例至关重要
+                block_height = calc_horizontal_block_height(font_size, content)
 
                 if current_line_height + block_height > max_height and current_line_text:
                     line_text_list.append(current_line_text)
@@ -508,6 +575,8 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
         font_size = min(font_size, config.render.max_font_size)
 
     text = compact_special_symbols(text)
+    # 在竖排文本中，将省略号替换为单个竖排省略号符号（两个小点竖排）
+    text = text.replace('…', '︙')
     if not text:
         return
 
@@ -601,7 +670,9 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
                 target_border_roi = canvas_border[paste_y:paste_y+rh, paste_x:paste_x+rw]
                 canvas_border[paste_y:paste_y+rh, paste_x:paste_x+rw] = np.maximum(target_border_roi, horizontal_block_border)
 
-                pen_line[1] += font_size
+                # 使用实际渲染高度而不是固定的 font_size
+                # 这确保了渲染输出与 calc_vertical 的高度计算一致
+                pen_line[1] += rh
                 # --- END HORIZONTAL BLOCK RENDER ---
 
             else: # It's a vertical part
@@ -624,6 +695,10 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     return result
 
 def select_hyphenator(lang: str):
+    # 处理空字符串或None的情况，使用英文作为默认值
+    if not lang or not lang.strip():
+        lang = 'en_US'
+    
     lang = standardize_tag(lang)
     if lang not in HYPHENATOR_LANGUAGES:
         for avail_lang in reversed(HYPHENATOR_LANGUAGES):
@@ -1165,8 +1240,11 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     return result
 
 def test():
-    canvas = put_text_horizontal(64, 1.0, '因为不同‼ [这"真的是普]通的》肉！那个“姑娘”的恶作剧！是吗？咲夜⁉', 400, (0, 0, 0), (255, 128, 128))
+    canvas = put_text_horizontal(64, 1.0, '因为不同‼ [这"真的是普]通的》肉！那个"姑娘"的恶作剧！是吗？咲夜⁉', 400, (0, 0, 0), (255, 128, 128))
     imwrite_unicode('text_render_combined.png', canvas)
+
+# Initialize font selection on module load
+update_font_selection()
 
 if __name__ == '__main__':
     test()

@@ -432,15 +432,17 @@ class MangaTranslatorLocal(MangaTranslator):
                             if ctx.text_regions:
                                 self._save_text_to_file(file_path, ctx)
                     else:
-                        # 处理没有结果的情况 - 改进逻辑以区分不同情况
+                        # 处理翻译失败的情况 - 抛出异常终止进程
                         has_original_text = ctx and hasattr(ctx, 'text_regions') and ctx.text_regions
                         
                         if not ctx:
-                            logger.warning(f'Translation failed: {file_path} (context is None)')
-                            save_reason = "no_context"
+                            error_msg = f'Translation failed: {file_path} (context is None)'
+                            logger.error(error_msg)
+                            raise RuntimeError(error_msg)
                         elif not hasattr(ctx, 'result'):
-                            logger.warning(f'Translation failed: {file_path} (no result attribute)')
-                            save_reason = "no_result_attr"
+                            error_msg = f'Translation failed: {file_path} (no result attribute)'
+                            logger.error(error_msg)
+                            raise RuntimeError(error_msg)
                         elif ctx.result is None:
                             if has_original_text:
                                 # 有原文但没有翻译结果，需要判断是否因为过滤导致
@@ -453,55 +455,23 @@ class MangaTranslatorLocal(MangaTranslator):
                                     for region in ctx.text_regions
                                 ) if ctx.text_regions else False
                                 
-                                if filtered_by_processing:
-                                    # logger.warning(f'Translation filtered out by post-processing: {file_path}')
-                                    save_reason = "filtered_translation"
+                                if not filtered_by_processing:
+                                    # 有原文但翻译失败，不是因为过滤
+                                    error_msg = f'Translation failed: {file_path} (result is None but has text_regions)'
+                                    logger.error(error_msg)
+                                    raise RuntimeError(error_msg)
                                 else:
-                                    # logger.warning(f'Translation failed with original text present: {file_path} (result is None but has text_regions)')
-                                    save_reason = "translation_failed_with_text"
+                                    # 所有内容都被过滤掉了，这种情况继续处理
+                                    logger.info(f'All text filtered out by post-processing: {file_path}')
                             else:
-                                # logger.warning(f'Translation failed: {file_path} (result is None, no original text)')
-                                save_reason = "no_original_text"
+                                # 没有原文，翻译失败
+                                error_msg = f'Translation failed: {file_path} (result is None, no original text)'
+                                logger.error(error_msg)
+                                raise RuntimeError(error_msg)
                         else:
-                            logger.warning(f'Translation failed: {file_path} (unexpected condition)')
-                            save_reason = "unexpected"
-                            
-                        # 决定是否保存图片
-                        should_save = True
-                        if save_reason == "translation_failed_with_text":
-                            # 有原文但翻译失败且不是因为过滤导致，不保存图片以便重试
-                            should_save = False
-                            # logger.info(f'Skipping save for retry: {file_path} (translation failed but has original text)')
-                        
-                        # 如果不跳过无文本图片，且决定保存，则保存原图
-                        if should_save and not self.skip_no_text:
-                            logger.info(f'Saving original image ({save_reason}): {file_path}')
-                            try:
-                                # 确保目标目录存在
-                                os.makedirs(os.path.dirname(output_dest), exist_ok=True)
-                                
-                                # 保存原图到目标位置
-                                if self.save_quality and self.save_quality < 100:
-                                    # 如果设置了压缩质量，转换为RGB并压缩保存
-                                    img_copy = img.convert('RGB') if img.mode != 'RGB' else img.copy()
-                                    img_copy.save(output_dest, quality=self.save_quality, format='JPEG')
-                                else:
-                                    # 保持原始格式和质量，但要处理JPEG的RGBA问题
-                                    _, ext = os.path.splitext(output_dest)
-                                    if ext.lower() in ['.jpg', '.jpeg'] and img.mode == 'RGBA':
-                                        img.convert('RGB').save(output_dest)
-                                    else:
-                                        img.save(output_dest)
-                                
-                                logger.info(f'Original image saved: "{output_dest}"')
-                                translated_count += 1  # 即使是原图也计入处理数量
-                            except Exception as save_error:
-                                logger.error(f'Failed to save original image: {file_path}, error: {save_error}')
-                        else:
-                            if not should_save:
-                                logger.debug(f'Skipped saving for retry: {file_path}')
-                            elif self.skip_no_text:
-                                logger.debug(f'Skipped saving due to --skip-no-text: {file_path}')
+                            error_msg = f'Translation failed: {file_path} (unexpected condition)'
+                            logger.error(error_msg)
+                            raise RuntimeError(error_msg)
                 # 成功处理批次，重置连续错误计数
                 logger.debug(f'Batch {batch_num} processed successfully')
                         

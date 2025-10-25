@@ -764,7 +764,6 @@ class MainAppLogic(QObject):
                 self.stop_task()
             if self.translation_service:
                 pass
-            self.logger.info("应用正常关闭")
         except Exception as e:
             self.logger.error(f"应用关闭异常: {e}")
     # endregion
@@ -831,6 +830,7 @@ class TranslationWorker(QObject):
             translator_params.update(self.config_dict)
             translator_params['is_ui_mode'] = True
             
+            
             font_filename = self.config_dict.get('render', {}).get('font_path')
             if font_filename:
                 font_full_path = os.path.join(self.root_dir, 'fonts', font_filename)
@@ -864,6 +864,11 @@ class TranslationWorker(QObject):
                     translator_config_data['high_quality_prompt_path'] = full_prompt_path
                 else:
                     self.log_received.emit(f"--- WARNING: High quality prompt file not found at {full_prompt_path}")
+            
+            # 将 CLI 配置中的 attempts 复制到 translator 配置中
+            cli_attempts = self.config_dict.get('cli', {}).get('attempts', -1)
+            translator_config_data['attempts'] = cli_attempts
+            self.log_received.emit(f"--- Setting translator attempts to: {cli_attempts} (from UI config)")
 
             config = Config(
                 render=RenderConfig(**render_config_data),
@@ -904,7 +909,10 @@ class TranslationWorker(QObject):
             workflow_mode = "正常翻译流程"
             workflow_tip = ""
             cli_config = self.config_dict.get('cli', {})
-            if cli_config.get('generate_and_export', False):
+            if cli_config.get('colorize_only', False):
+                workflow_mode = "仅上色"
+                workflow_tip = "💡 提示：仅对图片进行上色处理，不进行检测、OCR、翻译和渲染"
+            elif cli_config.get('generate_and_export', False):
                 workflow_mode = "导出翻译"
                 workflow_tip = "💡 提示：导出翻译后，可在 manga_translator_work/translations/ 目录查看 图片名_translated.txt 文件"
             elif cli_config.get('template', False):
@@ -939,15 +947,31 @@ class TranslationWorker(QObject):
 
                 # The backend now handles saving for batch jobs. We just need to collect the paths/status.
                 success_count = 0
+                failed_count = 0
                 for ctx in contexts:
                     if not self._is_running: raise asyncio.CancelledError("Task stopped by user.")
                     if ctx:
-                        results.append({'success': True, 'original_path': ctx.image_name, 'image_data': None})
-                        success_count += 1
+                        # 检查是否有翻译错误
+                        if hasattr(ctx, 'translation_error') and ctx.translation_error:
+                            results.append({'success': False, 'original_path': ctx.image_name, 'error': ctx.translation_error})
+                            failed_count += 1
+                            # 输出详细的错误信息（包含原始错误）
+                            self.log_received.emit(f"\n⚠️ 图片 {os.path.basename(ctx.image_name)} 翻译失败：")
+                            self.log_received.emit(ctx.translation_error)
+                        elif ctx.result:
+                            results.append({'success': True, 'original_path': ctx.image_name, 'image_data': None})
+                            success_count += 1
+                        else:
+                            results.append({'success': False, 'original_path': ctx.image_name, 'error': '翻译结果为空'})
+                            failed_count += 1
                     else:
-                        results.append({'success': False, 'original_path': 'Unknown', 'error': 'Batch translation returned no context'})
+                        results.append({'succes000000000000000000000000000000000000000000s': False, 'original_path': 'Unknown', 'error': 'Batch translation returned no context'})
+                        failed_count += 1
 
-                self.log_received.emit(f"✅ 批量翻译完成：成功 {success_count}/{total_images} 张")
+                if failed_count > 0:
+                    self.log_received.emit(f"\n⚠️ 批量翻译完成：成功 {success_count}/{total_images} 张，失败 {failed_count}/{total_images} 张")
+                else:
+                    self.log_received.emit(f"✅ 批量翻译完成：成功 {success_count}/{total_images} 张")
                 self.log_received.emit(f"💾 文件已保存到：{self.output_folder}")
 
             else:

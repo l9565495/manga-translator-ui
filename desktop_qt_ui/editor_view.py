@@ -1,7 +1,7 @@
 
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -28,6 +28,9 @@ class EditorView(QWidget):
     """
     编辑器主视图，包含文件列表、画布和属性面板。
     """
+    # --- 定义信号 ---
+    back_to_main_requested = pyqtSignal()
+    
     def __init__(self, app_logic: Any, model: EditorModel, controller: EditorController, logic: EditorLogic, parent=None):
         super().__init__(parent)
         self.app_logic = app_logic
@@ -94,6 +97,10 @@ class EditorView(QWidget):
         self.delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self)
         self.delete_shortcut.activated.connect(self._handle_delete_shortcut)
 
+    def force_save_property_panel_edits(self):
+        """强制保存property panel中的文本编辑"""
+        self.property_panel.force_save_text_edits()
+    
     def _handle_undo_shortcut(self):
         # Find the currently focused widget
         """处理撤销快捷键"""
@@ -237,6 +244,7 @@ class EditorView(QWidget):
         self.logic.file_list_changed.connect(self.update_file_list)
 
         # --- Toolbar (Top) to Controller/View ---
+        self.toolbar.back_requested.connect(self.back_to_main_requested)
         self.toolbar.export_requested.connect(self.controller.export_image)
         self.toolbar.edit_file_requested.connect(self.controller.edit_source_file)
         self.toolbar.undo_requested.connect(self.controller.undo)

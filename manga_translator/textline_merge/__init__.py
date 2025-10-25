@@ -296,9 +296,22 @@ async def dispatch(textlines: List[Quadrilateral], width: int, height: int, conf
         total_logprobs /= sum([txtln.area for txtln in unique_txtlns])
 
         font_size = int(min([txtln.font_size for txtln in unique_txtlns]))
+        
+        # 计算平均角度
         angle = np.rad2deg(np.mean([txtln.angle for txtln in unique_txtlns])) - 90
-        if abs(angle) < 3:
+        
+        # 检查是否有任何原始文本框接近 90 度（即调整后接近 0 度）
+        # 如果有，说明有正常的垂直/水平文本框，整个合并后的文本框角度应该归零
+        original_angles_deg = [np.rad2deg(txtln.angle) for txtln in unique_txtlns]
+        has_near_90_degree = any(abs(orig_angle - 90.0) <= 1.0 for orig_angle in original_angles_deg)
+        
+        if has_near_90_degree:
+            # 如果有接近 90 度的原始文本框，归零
             angle = 0
+        elif abs(angle) < 3:
+            # 否则，使用原来的小角度归零逻辑
+            angle = 0
+        
         lines = [txtln.pts for txtln in unique_txtlns]
         texts = [txtln.text for txtln in unique_txtlns]
         region = TextBlock(lines, texts, font_size=font_size, angle=angle, prob=np.exp(total_logprobs),
