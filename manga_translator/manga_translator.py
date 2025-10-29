@@ -3831,7 +3831,16 @@ class MangaTranslator:
                 try:
                     sample_config = preprocessed_contexts[0][1] if preprocessed_contexts else None
                     if sample_config:
-                        enhanced_ctx = preprocessed_contexts[0][0] if preprocessed_contexts else Context()
+                        # ✅ 创建新的Context用于enhanced_ctx，避免污染第一张图片的context
+                        enhanced_ctx = Context()
+                        # 复制第一张图片的必要属性
+                        if preprocessed_contexts:
+                            first_ctx = preprocessed_contexts[0][0]
+                            if hasattr(first_ctx, 'input'):
+                                enhanced_ctx.input = first_ctx.input
+                            if hasattr(first_ctx, 'img_rgb'):
+                                enhanced_ctx.img_rgb = first_ctx.img_rgb
+                        
                         enhanced_ctx.high_quality_batch_data = batch_data
                         enhanced_ctx.high_quality_batch_size = len(preprocessed_contexts)
 
