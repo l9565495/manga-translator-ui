@@ -40,7 +40,7 @@ REM 菜单
 :menu
 echo.
 echo 请选择操作:
-echo [1] 更新代码
+echo [1] 更新代码 (强制同步)
 echo [2] 更新/安装依赖
 echo [3] 完整更新 (代码+依赖)
 echo [4] 退出
@@ -58,27 +58,24 @@ goto menu
 :update_code
 echo.
 echo ========================================
-echo 更新代码
+echo 更新代码 (强制同步)
 echo ========================================
 echo.
 
-echo 检查本地修改...
-%GIT% diff --quiet
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [警告] 检测到本地文件已修改
-    echo git pull 会覆盖本地修改的文件
-    echo 新添加的文件不会被删除
-    echo.
-    set /p continue="是否继续更新? (y/n): "
-    if /i not "!continue!"=="y" (
-        echo 取消更新
-        goto menu
-    )
+echo [警告] 将强制同步到远程分支,本地修改将被覆盖
+set /p confirm="是否继续? (y/n): "
+if /i not "!confirm!"=="y" (
+    echo 取消更新
+    goto menu
 )
 
-echo 正在拉取最新代码...
-%GIT% pull
+echo.
+echo 获取远程更新...
+%GIT% fetch origin
+
+echo.
+echo 正在强制同步到远程分支...
+%GIT% reset --hard origin/main
 
 if %ERRORLEVEL% == 0 (
     echo [OK] 代码更新完成
@@ -112,22 +109,22 @@ echo 完整更新 (代码+依赖)
 echo ========================================
 echo.
 
-echo [1/2] 更新代码...
-%GIT% diff --quiet
-if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [警告] 检测到本地文件已修改
-    echo git pull 会覆盖本地修改的文件
-    echo 新添加的文件不会被删除
-    echo.
-    set /p continue="是否继续更新? (y/n): "
-    if /i not "!continue!"=="y" (
-        echo 取消更新
-        goto menu
-    )
+echo [1/2] 更新代码 (强制同步)...
+echo [警告] 将强制同步到远程分支,本地修改将被覆盖
+set /p confirm="是否继续? (y/n): "
+if /i not "!confirm!"=="y" (
+    echo 取消更新
+    goto menu
 )
 
-%GIT% pull
+echo.
+echo 获取远程更新...
+%GIT% fetch origin
+
+echo.
+echo 正在强制同步到远程分支...
+%GIT% reset --hard origin/main
+
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] 代码更新失败
     pause
