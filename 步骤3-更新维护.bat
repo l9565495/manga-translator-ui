@@ -9,10 +9,18 @@ echo Manga Translator UI - Update Tool
 echo ========================================
 echo.
 
-REM 检查虚拟环境
-if not exist "venv\Scripts\activate.bat" (
-    echo [ERROR] 虚拟环境不存在
-    echo 请先运行 步骤1-首次安装.bat
+REM 检测虚拟环境有效性
+set VENV_VALID=0
+if exist "venv\Scripts\python.exe" (
+    venv\Scripts\python.exe -c "import sys; sys.exit(0)" >nul 2>&1
+    if !ERRORLEVEL! == 0 (
+        set VENV_VALID=1
+    )
+)
+
+if !VENV_VALID! == 0 (
+    echo [ERROR] 虚拟环境不存在或已损坏
+    echo 请先运行 步骤1-首次安装.bat 创建虚拟环境
     pause
     exit /b 1
 )
