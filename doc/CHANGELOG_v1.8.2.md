@@ -6,7 +6,7 @@
 
 - ✨ **AMD 显卡加速支持**
   - 支持 AMD ROCm PyTorch
-  - 支持 RX 5000/6000/7000 系列（RDNA 1/2/3架构）
+  - 支持 RX 5000/6000/7000/9000 系列（RDNA 1/2/3/4架构）
   - 自动识别AMD显卡型号和 gfx 版本
   - 新增 `requirements_amd.txt` 依赖文件
   - ⚠️ AMD GPU 仅支持安装脚本方式，不支持打包版本

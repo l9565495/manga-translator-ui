@@ -344,9 +344,9 @@ def detect_amd_gfx_version(gpu_name):
             'name': 'CDNA 3 (MI300 系列)'
         },
         
-        # RDNA 4 (未来)
+        # RDNA 4 架构 (RX 9000 系列)
         'gfx120X-all': {
-            'keywords': ['RX 9', '9900', '9800', '9700'],
+            'keywords': ['RX 9', '9070 XT', '9070', '9060 XT', '9060', '9050'],
             'name': 'RDNA 4 (RX 9000 系列)'
         },
     }
@@ -627,7 +627,7 @@ def prepare_environment(args):
                     print('  - gfx110X-all:  RX 7000 系列 (RDNA 3)')
                     print('  - gfx1150:      RX 7900 XTX/XT (Navi 31)')
                     print('  - gfx1151:      RX 7800/7700/7600 (Navi 32/33)')
-                    print('  - gfx120X-all:  RX 9000 系列 (RDNA 4, 未来)')
+                    print('  - gfx120X-all:  RX 9070 XT/9070/9060 XT (RDNA 4)')
                     print('  - gfx90X-dcgpu: Vega / Radeon VII')
                     print('  - gfx94X-dcgpu: MI200 系列')
                     print('  - gfx950-dcgpu: MI300 系列')
