@@ -225,7 +225,11 @@ class EditorController(QObject):
         self.async_service.cancel_all_tasks()
         self.logger.info("Cancelled all background tasks")
 
-        # 清空模型数据
+        # 使用ResourceManager卸载当前资源
+        self.resource_manager.unload_image()
+        self.logger.info("Unloaded image from ResourceManager")
+
+        # 清空模型数据（向后兼容，View仍然监听Model）
         self.model.set_regions([])
         self.model.set_raw_mask(None)
         self.model.set_refined_mask(None)
@@ -235,7 +239,7 @@ class EditorController(QObject):
         # 清空历史记录
         self.history_service.clear()
 
-        # 清空缓存
+        # 清空缓存 - TODO: 迁移到ResourceManager
         self._last_inpainted_image = None
         self._last_processed_mask = None
 
@@ -313,7 +317,9 @@ class EditorController(QObject):
         self._clear_editor_state()
 
         try:
-            image = Image.open(image_path)
+            # 使用ResourceManager加载图片
+            image_resource = self.resource_manager.load_image(image_path)
+            image = image_resource.image
 
             # 检查是否是翻译后的图片（通过translation_map.json）
             is_translated_image = self._is_translated_image(image_path)
@@ -327,6 +333,7 @@ class EditorController(QObject):
                 # 翻译后的图片本身就是最终结果，所以原图alpha应该是1.0（完全显示）
                 self.model.set_original_image_alpha(1.0)  # 完全不透明，显示翻译后的图片
 
+                # 同步Model状态（View仍然监听Model的信号）
                 self.model.set_image(image)
                 self.model.set_regions([])  # 不加载regions
                 self.model.set_raw_mask(None)
@@ -353,10 +360,15 @@ class EditorController(QObject):
             # 原图alpha = 0.0 -> 原图完全透明（不可见）-> 显示inpainted
             self.model.set_original_image_alpha(0.0) # 完全透明，显示inpainted图片
 
+            # 同步Model状态（View仍然监听Model的信号）
             self.model.set_image(image)
             self.model.set_regions(regions)
 
+            # 使用ResourceManager管理蒙版
             if raw_mask is not None:
+                from .core.types import MaskType
+                self.resource_manager.set_mask(MaskType.RAW, raw_mask)
+                # 同步到Model（向后兼容）
                 self.model.set_raw_mask(raw_mask)
                 self.logger.info(f"Raw mask loaded with shape: {raw_mask.shape}")
 
