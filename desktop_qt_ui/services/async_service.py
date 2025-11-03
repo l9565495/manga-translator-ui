@@ -8,7 +8,8 @@ import asyncio
 import logging
 from typing import Coroutine, Optional
 
-from ..editor.core import AsyncJobManager, JobPriority
+# 使用绝对导入避免相对导入问题
+from desktop_qt_ui.editor.core import AsyncJobManager, JobPriority
 
 
 class AsyncService:

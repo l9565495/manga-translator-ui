@@ -99,7 +99,7 @@ class EditorController(QObject):
         Returns:
             Optional[np.ndarray]: 蒙版数据，如果不存在返回None
         """
-        from .core.types import MaskType
+        from desktop_qt_ui.editor.core.types import MaskType
         
         mask_type_enum = MaskType.RAW if mask_type == "raw" else MaskType.REFINED
         mask_resource = self.resource_manager.get_mask(mask_type_enum)
@@ -366,7 +366,7 @@ class EditorController(QObject):
 
             # 使用ResourceManager管理蒙版
             if raw_mask is not None:
-                from .core.types import MaskType
+                from desktop_qt_ui.editor.core.types import MaskType
                 self.resource_manager.set_mask(MaskType.RAW, raw_mask)
                 # 同步到Model（向后兼容）
                 self.model.set_raw_mask(raw_mask)
