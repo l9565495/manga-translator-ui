@@ -115,23 +115,25 @@ echo.
 echo 正在安装 Miniconda...
 echo.
 echo 安装选项:
-echo   - 安装位置: %USERPROFILE%\miniconda3
-echo   - 添加到PATH: 是
-echo   - 仅为当前用户安装
+echo   - 安装位置: %CD%\Miniconda3
+echo   - Python版本: 3.12
+echo   - 仅为当前项目使用
 echo.
-echo 请在安装程序中点击"Next"完成安装
-echo 安装窗口将自动打开...
-timeout /t 3 >nul
+echo 正在静默安装...
+timeout /t 2 >nul
 
         REM 静默安装Miniconda
         start /wait Miniconda3-latest.exe /InstallationType=JustMe /AddToPath=1 /RegisterPython=0 /S /D=%CD%\Miniconda3
 
         if %ERRORLEVEL% neq 0 (
+            echo.
             echo [ERROR] Miniconda 安装失败
+            echo.
             pause
             exit /b 1
         )
 
+        echo.
         echo [OK] Miniconda 安装完成
         echo.
 
@@ -139,7 +141,11 @@ timeout /t 3 >nul
         if exist "Miniconda3-latest.exe" (
             echo 正在清理安装包...
             del /f /q "Miniconda3-latest.exe" >nul 2>&1
+            if %ERRORLEVEL% == 0 (
+                echo [OK] 安装包已清理
+            )
         )
+        echo.
 
         REM 初始化conda环境
         echo 正在初始化 conda 环境...
@@ -148,6 +154,7 @@ timeout /t 3 >nul
 
         echo.
         echo [OK] Miniconda 已安装并配置完成
+        echo 安装位置: %CD%\Miniconda3
         echo.
         echo 请关闭当前命令窗口,重新运行此脚本
         echo (需要重新加载环境变量)
