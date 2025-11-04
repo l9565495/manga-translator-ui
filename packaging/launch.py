@@ -145,22 +145,28 @@ def detect_gpu():
     def check_nvidia_cuda_version():
         """检查 NVIDIA CUDA 驱动版本"""
         try:
-            # 尝试运行 nvidia-smi 获取 CUDA 版本
+            # 尝试运行 nvidia-smi 获取驱动版本
             cmd = 'nvidia-smi --query-gpu=driver_version --format=csv,noheader'
             output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
             driver_version = output.strip().split('\n')[0].strip()
             
-            # 尝试获取 CUDA 版本
-            cmd_cuda = 'nvidia-smi --query-gpu=cuda_version --format=csv,noheader'
-            cuda_output = subprocess.check_output(cmd_cuda, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
-            cuda_version = cuda_output.strip().split('\n')[0].strip()
-            
-            # 解析 CUDA 主版本号
+            # 尝试从nvidia-smi直接输出获取CUDA版本
+            # nvidia-smi输出的第一行通常包含CUDA版本信息
             try:
-                cuda_major = int(cuda_version.split('.')[0])
-                return cuda_major, cuda_version, driver_version
+                cmd_full = 'nvidia-smi'
+                full_output = subprocess.check_output(cmd_full, shell=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
+                # 解析 "CUDA Version: X.Y" 格式
+                import re
+                cuda_match = re.search(r'CUDA Version:\s*(\d+\.\d+)', full_output)
+                if cuda_match:
+                    cuda_version = cuda_match.group(1)
+                    cuda_major = int(cuda_version.split('.')[0])
+                    return cuda_major, cuda_version, driver_version
             except:
-                return None, cuda_version, driver_version
+                pass
+            
+            # 如果无法获取CUDA版本，返回驱动版本
+            return None, None, driver_version
         except Exception:
             return None, None, None
     
