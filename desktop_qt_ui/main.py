@@ -25,8 +25,8 @@ warnings.filterwarnings('ignore', module='xformers')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from PyQt6.QtWidgets import QApplication
-from main_window import MainWindow
-from services import init_services
+from .main_window import MainWindow
+from .services import init_services
 
 def print_memory_snapshot():
     """打印内存快照（前100行）"""
