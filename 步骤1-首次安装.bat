@@ -39,26 +39,27 @@ if errorlevel 1 (
 )
 
 REM 先检查系统是否已有conda（全局安装）
-where conda >nul 2>&1
-if %ERRORLEVEL% == 0 (
-    set CONDA_INSTALLED=1
-    echo [OK] 检测到系统已安装 Conda
-    for /f "delims=" %%i in ('where conda') do echo 位置: %%i
-    conda --version
-    goto :check_git
-)
+where conda >nul 2>&1 && goto :found_system_conda
+goto :check_local_conda
 
+:found_system_conda
+echo [OK] 检测到系统已安装 Conda
+for /f "delims=" %%i in ('where conda') do echo 位置: %%i
+call conda --version
+goto :check_git
+
+:check_local_conda
 REM 检查本地Miniconda
-if exist "%MINICONDA_ROOT%\Scripts\conda.exe" (
-    set CONDA_INSTALLED=1
-    echo [OK] 检测到本地 Miniconda 已安装
-    echo 位置: %MINICONDA_ROOT%
-    call "%MINICONDA_ROOT%\Scripts\conda.exe" --version
-    goto :check_git
-)
+if exist "%MINICONDA_ROOT%\Scripts\conda.exe" goto :found_local_conda
+goto :install_conda
 
-REM 如果已检测到Conda，跳过安装步骤
-if "!CONDA_INSTALLED!"=="1" goto :check_git
+:found_local_conda
+echo [OK] 检测到本地 Miniconda 已安装
+echo 位置: %MINICONDA_ROOT%
+call "%MINICONDA_ROOT%\Scripts\conda.exe" --version
+goto :check_git
+
+:install_conda
 
 REM 提示：需要安装本地Miniconda
 echo [INFO] 未检测到本地 Miniconda
