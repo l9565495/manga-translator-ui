@@ -31,20 +31,14 @@ set ALT_INSTALL_PATH=
 REM 检测路径是否包含非ASCII字符（中文等）
 REM 使用PowerShell进行更可靠的检测
 set "TEMP_CHECK_PATH=%CD%"
-echo [DEBUG] 当前路径: %TEMP_CHECK_PATH%
-echo [DEBUG] 正在检测路径中的非ASCII字符...
 powershell -Command "if ('%TEMP_CHECK_PATH%' -match '[^\x00-\x7F]') { exit 1 } else { exit 0 }" >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     REM 路径包含中文，使用磁盘根目录
-    echo [DEBUG] 检测到非ASCII字符，将使用备用路径
     set MINICONDA_ROOT=%~d0\Miniconda3
     set PATH_HAS_CHINESE=1
-) else (
-    echo [DEBUG] 路径检测通过，使用项目目录
 )
 
 REM 先检查系统是否已有conda（全局安装）
-echo [DEBUG] 检查系统conda...
 where conda >nul 2>&1
 if %ERRORLEVEL% == 0 (
     set CONDA_INSTALLED=1
@@ -58,7 +52,6 @@ if %ERRORLEVEL% == 0 (
     goto :check_git
 )
 
-echo [DEBUG] 系统未安装conda，检查本地Miniconda: %MINICONDA_ROOT%
 REM 检查本地Miniconda
 if exist "%MINICONDA_ROOT%\Scripts\conda.exe" (
     set CONDA_INSTALLED=1
@@ -67,8 +60,6 @@ if exist "%MINICONDA_ROOT%\Scripts\conda.exe" (
     call "%MINICONDA_ROOT%\Scripts\conda.exe" --version
     goto :check_git
 )
-
-echo [DEBUG] 未检测到Miniconda，准备安装
 
 REM 提示：需要安装本地Miniconda
 echo [INFO] 未检测到本地 Miniconda
@@ -95,9 +86,6 @@ if %PATH_HAS_CHINESE% == 1 (
 )
 
 echo 将安装 Miniconda 到: %MINICONDA_ROOT%
-echo.
-echo [DEBUG] MINICONDA_ROOT=%MINICONDA_ROOT%
-echo [DEBUG] PATH_HAS_CHINESE=%PATH_HAS_CHINESE%
 echo.
         echo Miniconda 特点:
         echo   - 体积小 (约50MB)
