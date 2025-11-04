@@ -34,51 +34,11 @@ if exist "%MINICONDA_ROOT%\Scripts\conda.exe" (
     goto :check_git
 )
 
-REM 检查系统是否有conda
-where conda >nul 2>&1
-if %ERRORLEVEL% == 0 (
-    echo [INFO] 检测到系统已安装 Conda
-    conda --version
-    echo.
-    echo 建议使用本地 Miniconda 以确保环境一致性
-    echo.
-    echo 是否安装本地 Miniconda?
-    echo [1] 是 - 安装到项目目录 (推荐, Python 3.12)
-    echo [2] 否 - 使用系统 Conda
-    echo.
-    set /p use_local="请选择 (1/2, 默认1): "
-    
-    if "!use_local!"=="2" (
-        echo [OK] 使用系统 Conda
-        set CONDA_INSTALLED=1
-        goto :check_git
-    )
-)
-
-REM 检查系统Python
-where python >nul 2>&1
-if %ERRORLEVEL% == 0 (
-    for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PY_VER=%%i
-    echo [INFO] 检测到系统 Python: !PY_VER!
-    echo.
-    echo 本项目推荐使用 Python 3.12 (Miniconda)
-    echo.
-    echo 是否安装本地 Miniconda?
-    echo [1] 是 - 安装到项目目录 (推荐, Python 3.12)
-    echo [2] 否 - 使用系统 Python
-    echo.
-    set /p use_local_py="请选择 (1/2, 默认1): "
-    
-    if "!use_local_py!"=="2" (
-        echo [WARNING] 使用系统 Python，可能不兼容
-        echo 如遇到问题，建议使用 Miniconda
-        goto :check_git
-    )
-)
-
+REM 提示：需要安装本地Miniconda
 echo [INFO] 未检测到本地 Miniconda
 echo.
-echo 推荐安装 Miniconda (轻量级Python环境管理)
+echo 本项目需要 Python 3.12 环境
+echo 将安装 Miniconda 到项目目录
 echo.
         echo Miniconda 特点:
         echo   - 体积小 (约50MB)
