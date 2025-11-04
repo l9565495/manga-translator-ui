@@ -204,8 +204,11 @@ class DefaultDetector(OfflineDetector):
 
         textlines = [Quadrilateral(pts.astype(int), '', score) for pts, score in zip(polys, filtered_scores)]
         
-        # 应用面积过滤
-        textlines = list(filter(lambda q: q.area > 16, textlines))
+        # 应用面积过滤：固定阈值 + 相对图片总像素的比例阈值
+        img_h, img_w = image.shape[:2]
+        img_total_pixels = img_h * img_w
+        min_area_ratio = 0.0002  # 0.02%的比例阈值
+        textlines = list(filter(lambda q: q.area > 16 and q.area / img_total_pixels > min_area_ratio, textlines))
         
         # 使用mask生成raw_mask（用于inpainting修复）
         mask_resized = cv2.resize(mask, (mask.shape[1] * 2, mask.shape[0] * 2), interpolation=cv2.INTER_LINEAR)

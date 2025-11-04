@@ -102,9 +102,10 @@ def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quad
     1. 如果YOLO框与主检测器框重叠
     2. 且YOLO框完全包含主检测器框
     3. 且YOLO框面积 >= 主检测器框面积 * 2
-    4. 则删除主检测器框，使用YOLO框替代
-    5. 其他情况：如果重叠率 >= overlap_threshold，删除重叠的YOLO框，保留主检测器框
-    6. 不重叠或重叠率 < overlap_threshold 的YOLO框直接添加
+    4. 且YOLO框与其他未替换的主检测器框的重叠率 < overlap_threshold
+    5. 则删除被包含的主检测器框，使用YOLO框替代
+    6. 其他情况：如果重叠率 >= overlap_threshold，删除重叠的YOLO框，保留主检测器框
+    7. 不重叠或重叠率 < overlap_threshold 的YOLO框直接添加
     
     Args:
         yolo_boxes: YOLO OBB检测器的检测框
@@ -137,7 +138,8 @@ def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quad
         
         # 检查这个YOLO框是否满足任何替换条件
         can_replace = False
-        max_overlap_ratio = 0.0  # 记录最大重叠率
+        max_overlap_ratio_with_others = 0.0  # 与其他未替换主框的最大重叠率
+        replaced_main_indices = set()  # 被这个YOLO框替换的主框索引
         
         for main_idx, main_box in enumerate(main_boxes):
             # 计算主检测器框的AABB和面积
@@ -159,7 +161,6 @@ def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quad
                 
                 # 计算重叠率（相对于较小框的比例）
                 overlap_ratio = inter_area / min(yolo_area, main_area) if min(yolo_area, main_area) > 0 else 0
-                max_overlap_ratio = max(max_overlap_ratio, overlap_ratio)
                 
                 # 检查YOLO框是否完全包含主检测器框
                 contains = (yolo_min_x <= main_min_x and yolo_max_x >= main_max_x and
@@ -169,18 +170,30 @@ def merge_detection_boxes(yolo_boxes: List[Quadrilateral], main_boxes: List[Quad
                 area_ratio = yolo_area / main_area if main_area > 0 else 0
                 
                 if contains and area_ratio >= 2.0:
-                    # 满足替换条件：删除主检测器框，使用YOLO框
-                    main_boxes_to_remove.add(main_idx)
+                    # 满足替换条件：标记主检测器框为待删除，记录索引
+                    replaced_main_indices.add(main_idx)
                     can_replace = True
+                else:
+                    # 不满足替换条件，记录与其他主框的重叠率
+                    max_overlap_ratio_with_others = max(max_overlap_ratio_with_others, overlap_ratio)
         
         # 决定这个YOLO框的命运
         if can_replace:
-            # 至少替换了一个主检测器框，保留这个YOLO框
-            yolo_boxes_to_add_set.add(yolo_idx)
-        elif max_overlap_ratio >= overlap_threshold:
-            # 有重叠且重叠率 >= 阈值，删除这个YOLO框
-            yolo_boxes_to_remove.add(yolo_idx)
-        # else: 没有重叠或重叠率 < 阈值，会在后面作为新框添加
+            # 满足了替换条件，但还需要检查与其他未替换主框的重叠率
+            if max_overlap_ratio_with_others >= overlap_threshold:
+                # 与其他主框重叠率过高，删除这个YOLO框，不进行替换
+                yolo_boxes_to_remove.add(yolo_idx)
+            else:
+                # 可以安全替换：删除被替换的主框，添加YOLO框
+                for main_idx in replaced_main_indices:
+                    main_boxes_to_remove.add(main_idx)
+                yolo_boxes_to_add_set.add(yolo_idx)
+        else:
+            # 不满足替换条件，按原有逻辑处理
+            if max_overlap_ratio_with_others >= overlap_threshold:
+                # 有重叠且重叠率 >= 阈值，删除这个YOLO框
+                yolo_boxes_to_remove.add(yolo_idx)
+            # else: 没有重叠或重叠率 < 阈值，会在后面作为新框添加
     
     # 构建最终结果
     result = []

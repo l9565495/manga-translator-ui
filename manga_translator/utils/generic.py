@@ -797,91 +797,45 @@ def quadrilateral_can_merge_region(a: Quadrilateral, b: Quadrilateral, ratio = 1
     p2 = Polygon(b.pts)
     dist = p1.distance(p2)
 
-    if debug:
-        print(f"\n[MERGE_DEBUG] 检查合并:")
-        print(f"  框A: 中心({a.centroid[0]:.0f},{a.centroid[1]:.0f}) 字体{a.font_size:.0f} 角度{np.rad2deg(a.angle):.1f}°")
-        print(f"  框B: 中心({b.centroid[0]:.0f},{b.centroid[1]:.0f}) 字体{b.font_size:.0f} 角度{np.rad2deg(b.angle):.1f}°")
-        print(f"  多边形距离: {dist:.1f} 阈值: {discard_connection_gap * char_size:.1f}")
-
     if dist > discard_connection_gap * char_size:
-        if debug:
-            print(f"  ❌ 距离过远")
         return False
     if max(a.font_size, b.font_size) / char_size > font_size_ratio_tol:
-        if debug:
-            print(f"  ❌ 字体大小差异过大: {max(a.font_size, b.font_size) / char_size:.2f} > {font_size_ratio_tol}")
         return False
     if a.aspect_ratio > aspect_ratio_tol and b.aspect_ratio < 1. / aspect_ratio_tol:
-        if debug:
-            print(f"  ❌ 宽高比不匹配 (A宽B窄)")
         return False
     if b.aspect_ratio > aspect_ratio_tol and a.aspect_ratio < 1. / aspect_ratio_tol:
-        if debug:
-            print(f"  ❌ 宽高比不匹配 (B宽A窄)")
         return False
     a_aa = a.is_approximate_axis_aligned
     b_aa = b.is_approximate_axis_aligned
     if a_aa and b_aa:
-        if debug:
-            print(f"  两框都轴对齐")
         if dist < char_size * char_gap_tolerance:
             if abs(x1 + w1 // 2 - (x2 + w2 // 2)) < char_gap_tolerance2:
-                if debug:
-                    print(f"  ✅ 中心对齐")
                 return True
             if w1 > h1 * ratio and h2 > w2 * ratio:
-                if debug:
-                    print(f"  ❌ 都是横向但不对齐")
                 return False
             if w2 > h2 * ratio and h1 > w1 * ratio:
-                if debug:
-                    print(f"  ❌ 都是横向但不对齐")
                 return False
             if w1 > h1 * ratio or w2 > h2 * ratio : # h
                 result = abs(x1 - x2) < char_size * char_gap_tolerance2 or abs(x1 + w1 - (x2 + w2)) < char_size * char_gap_tolerance2
-                if debug:
-                    print(f"  {'✅' if result else '❌'} 横向对齐检查")
                 return result
             elif h1 > w1 * ratio or h2 > w2 * ratio : # v
                 result = abs(y1 - y2) < char_size * char_gap_tolerance2 or abs(y1 + h1 - (y2 + h2)) < char_size * char_gap_tolerance2
-                if debug:
-                    print(f"  {'✅' if result else '❌'} 纵向对齐检查")
                 return result
-            if debug:
-                print(f"  ❌ 未通过对齐检查")
             return False
         else:
-            if debug:
-                print(f"  ❌ 距离过远 (轴对齐)")
             return False
     if True:#not a_aa and not b_aa:
-        if debug:
-            print(f"  非轴对齐检查")
         if abs(a.angle - b.angle) < 15 * np.pi / 180:
             fs_a = a.font_size
             fs_b = b.font_size
             fs = min(fs_a, fs_b)
             poly_dist = a.poly_distance(b)
-            if debug:
-                print(f"  角度差: {np.rad2deg(abs(a.angle - b.angle)):.1f}° < 15°")
-                print(f"  多边形距离: {poly_dist:.1f} 阈值: {fs * char_gap_tolerance2:.1f}")
             if poly_dist > fs * char_gap_tolerance2:
-                if debug:
-                    print(f"  ❌ 多边形距离过远")
                 return False
             font_diff = abs(fs_a - fs_b) / fs
-            if debug:
-                print(f"  字体差异: {font_diff:.3f} 阈值: 0.25")
             if font_diff > 0.25:
-                if debug:
-                    print(f"  ❌ 字体差异过大")
                 return False
-            if debug:
-                print(f"  ✅ 可以合并")
             return True
-        else:
-            if debug:
-                print(f"  ❌ 角度差异过大: {np.rad2deg(abs(a.angle - b.angle)):.1f}° >= 15°")
     return False
 
 def quadrilateral_can_merge_region_coarse(a: Quadrilateral, b: Quadrilateral, discard_connection_gap = 2, font_size_ratio_tol = 0.7) -> bool:

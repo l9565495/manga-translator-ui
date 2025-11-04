@@ -21,8 +21,6 @@ def split_text_region(
 
     # case 1
     if len(connected_region_indices) == 1:
-        if debug:
-            print(f"    [SPLIT] 单个框 {connected_region_indices[0]}, 不分割")
         return [set(connected_region_indices)]
 
     # case 2
@@ -34,33 +32,18 @@ def split_text_region(
         dist = bboxes[connected_region_indices[0]].distance(bboxes[connected_region_indices[1]])
         angle_diff = abs(bboxes[connected_region_indices[0]].angle - bboxes[connected_region_indices[1]].angle)
 
-        if debug:
-            print(f"    [SPLIT] 两个框 {connected_region_indices}")
-            print(f"      距离: {dist:.1f} 阈值: {(1 + gamma) * fs:.1f}")
-            print(f"      角度差: {np.rad2deg(angle_diff):.1f}° 阈值: {np.rad2deg(0.2 * np.pi):.1f}°")
-            print(f"      assigned_direction: {bboxes[connected_region_indices[0]].assigned_direction}, {bboxes[connected_region_indices[1]].assigned_direction}")
-
         if dist < (1 + gamma) * fs and angle_diff < 0.2 * np.pi:
-            if debug:
-                print(f"      ✅ 不分割")
             return [set(connected_region_indices)]
         else:
-            if debug:
-                print(f"      ❌ 分割成两个区域")
             return [set([connected_region_indices[0]]), set([connected_region_indices[1]])]
 
     # case 3
-    if debug:
-        print(f"    [SPLIT] 多个框 {connected_region_indices}, 使用最小生成树分析")
-
     G = nx.Graph()
     for idx in connected_region_indices:
         G.add_node(idx)
     for (u, v) in itertools.combinations(connected_region_indices, 2):
         dist = bboxes[u].distance(bboxes[v])
         G.add_edge(u, v, weight=dist)
-        if debug:
-            print(f"      框{u}-框{v} 距离: {dist:.1f}")
 
     # Get distances from neighbouring bboxes
     edges = nx.algorithms.tree.minimum_spanning_edges(G, algorithm='kruskal', data=True)
@@ -75,26 +58,12 @@ def split_text_region(
     max_poly_distance = Polygon(b1.pts).distance(Polygon(b2.pts))
     max_centroid_alignment = min(abs(b1.centroid[0] - b2.centroid[0]), abs(b1.centroid[1] - b2.centroid[1]))
 
-    if debug:
-        print(f"      最远边: 框{edges[0][0]}-框{edges[0][1]} 距离{distances_sorted[0]:.1f}")
-        print(f"      平均字体: {fontsize:.1f}")
-        print(f"      距离统计: mean={distances_mean:.1f} std={distances_std:.1f}")
-        print(f"      std阈值: {std_threshold:.1f}")
-        print(f"      条件A1: {distances_sorted[0]:.1f} <= {distances_mean + distances_std * sigma:.1f}? {distances_sorted[0] <= distances_mean + distances_std * sigma}")
-        print(f"      条件A2: {distances_sorted[0]:.1f} <= {fontsize * (1 + gamma):.1f}? {distances_sorted[0] <= fontsize * (1 + gamma)}")
-        print(f"      条件B1: {distances_std:.1f} < {std_threshold:.1f}? {distances_std < std_threshold}")
-        print(f"      条件B2: poly_dist={max_poly_distance:.1f}==0 AND align={max_centroid_alignment:.1f}<5? {max_poly_distance == 0 and max_centroid_alignment < 5}")
-
     if (distances_sorted[0] <= distances_mean + distances_std * sigma \
             or distances_sorted[0] <= fontsize * (1 + gamma)) \
             and (distances_std < std_threshold \
             or max_poly_distance == 0 and max_centroid_alignment < 5):
-        if debug:
-            print(f"      ✅ 不分割")
         return [set(connected_region_indices)]
     else:
-        if debug:
-            print(f"      ❌ 移除最远边并递归分割")
         # (split_u, split_v, _) = edges[0]
         # print(f'split between "{bboxes[split_u].pts}", "{bboxes[split_v].pts}"')
         G = nx.Graph()
@@ -150,11 +119,6 @@ def merge_bboxes_text_region(bboxes: List[Quadrilateral], width, height, debug=F
     #             v += 1
     #     u += 1
 
-    if debug:
-        print(f"\n[MERGE_DEBUG] 开始合并 {len(bboxes)} 个文本框")
-        for i, box in enumerate(bboxes):
-            print(f"  框{i}: 中心({box.centroid[0]:.0f},{box.centroid[1]:.0f}) 字体{box.font_size:.0f}")
-
     # step 1: divide into multiple text region candidates
     G = nx.Graph()
     for i, box in enumerate(bboxes):
@@ -173,9 +137,6 @@ def merge_bboxes_text_region(bboxes: List[Quadrilateral], width, height, debug=F
             G.add_edge(u, v, distance=poly_dist)
             edge_distances[(u, v)] = poly_dist
             edge_count += 1
-
-    if debug:
-        print(f"\n[MERGE_DEBUG] 建立了 {edge_count} 条连接边")
 
     # step 1.5: 边缘距离比例检测 - 断开距离差异过大的连接
     if edge_ratio_threshold > 0 and len(bboxes) > 2:
@@ -202,29 +163,19 @@ def merge_bboxes_text_region(bboxes: List[Quadrilateral], width, height, debug=F
                             edge_to_remove = (min(node, neighbor), max(node, neighbor))
                             if edge_to_remove not in edges_to_remove:
                                 edges_to_remove.append(edge_to_remove)
-                                if debug:
-                                    print(f"  [EDGE_RATIO] 框{node}的邻居距离比例: {min_dist:.1f} vs {dist:.1f} = {ratio:.2f} > {edge_ratio_threshold:.2f}, 断开框{node}-框{neighbor}")
 
         # 移除边
         for edge in edges_to_remove:
             if G.has_edge(edge[0], edge[1]):
                 G.remove_edge(edge[0], edge[1])
-                if debug:
-                    print(f"  [EDGE_RATIO] 移除边: 框{edge[0]}-框{edge[1]}")
 
     # step 2: postprocess - further split each region
     region_indices: List[Set[int]] = []
     connected_components = list(nx.algorithms.components.connected_components(G))
-    if debug:
-        print(f"\n[MERGE_DEBUG] 找到 {len(connected_components)} 个连通分量")
-        for i, comp in enumerate(connected_components):
-            print(f"  分量{i}: 包含框 {sorted(comp)}")
 
     for node_set in connected_components:
          split_result = split_text_region(bboxes, node_set, width, height, debug=debug)
          region_indices.extend(split_result)
-         if debug:
-             print(f"  分割后: {len(split_result)} 个区域")
 
     # step 3: return regions
     for node_set in region_indices:
