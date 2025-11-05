@@ -140,24 +140,12 @@ if /i not "!confirm!"=="y" (
 
 echo.
 echo 正在强制同步到远程分支...
-echo 获取远程更新...
-%GIT% fetch origin
-
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] 获取远程更新失败
-    echo 请检查网络连接或Git配置
-    pause
-    goto menu
-)
-
-echo 重置到远程分支...
 %GIT% reset --hard origin/main
 
 if %ERRORLEVEL% == 0 (
     echo [OK] 代码更新完成
 ) else (
     echo [ERROR] 代码更新失败
-    echo 请核任意键继续...
 )
 pause
 goto menu
