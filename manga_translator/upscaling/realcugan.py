@@ -75,14 +75,8 @@ class RealCUGANUpscaler(OfflineUpscaler):
     }
     
     # Model download mapping (all models hosted on GitHub Releases)
-    _MODEL_MAPPING = {
-        model_name: {
-            'url': f'https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.8.0/{model_file}',
-            'hash': _MODEL_HASHES.get(model_file)
-        }
-        for model_name, model_info in _VALID_MODELS.items()
-        for model_file in [model_info['file']]
-    }
+    # Note: This is populated in __init__ to only include the selected model
+    _MODEL_MAPPING = {}
     
     def __init__(self, *args, model_name: str = '4x-denoise3x', tile_size: int = 400, **kwargs):
         """
@@ -103,6 +97,15 @@ class RealCUGANUpscaler(OfflineUpscaler):
         self.scale = self._VALID_MODELS[model_name]['scale']
         self.model_file = self._VALID_MODELS[model_name]['file']
         self.model = None
+        
+        # Only add the selected model to _MODEL_MAPPING for downloading
+        self._MODEL_MAPPING = {
+            model_name: {
+                'url': f'https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.8.0/{self.model_file}',
+                'hash': _MODEL_HASHES.get(self.model_file),
+                'file': self.model_file
+            }
+        }
         
         super().__init__(*args, **kwargs)
         
@@ -139,7 +142,15 @@ class RealCUGANUpscaler(OfflineUpscaler):
         logger.info(f'Loading Real-CUGAN model from {model_path}')
         
         try:
-            import models.RealCUGAN.upcunet_v3 as upcunet_v3
+            # Import from project root models directory
+            import sys
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent.parent
+            models_path = project_root / 'models'
+            if str(models_path) not in sys.path:
+                sys.path.insert(0, str(models_path))
+            
+            from RealCUGAN import upcunet_v3
             
             # Create model based on scale
             if self.scale == 2:
