@@ -54,82 +54,59 @@ if %ERRORLEVEL% neq 0 goto :check_local_conda
 :found_system_conda
 echo [OK] 检测到系统已安装 Conda
 echo.
-echo [DEBUG] ========== 开始检测Conda路径 ==========
 
 REM 方法1: 从CONDA_EXE环境变量获取（最可靠）
 if defined CONDA_EXE (
-    echo [DEBUG] 方法1: 从CONDA_EXE环境变量获取...
-    echo [DEBUG] CONDA_EXE = %CONDA_EXE%
     REM CONDA_EXE通常指向 D:\Miniconda3\Scripts\conda.exe
     REM 需要向上两级获取根目录
     for %%p in ("%CONDA_EXE%\..\..") do set "MINICONDA_ROOT=%%~fp"
-    echo [DEBUG] 从CONDA_EXE解析出: !MINICONDA_ROOT!
 )
 
 REM 方法2: 从CONDA_PREFIX环境变量获取
 if "!MINICONDA_ROOT!"=="" (
     if defined CONDA_PREFIX (
-        echo [DEBUG] 方法2: 从CONDA_PREFIX环境变量获取...
-        echo [DEBUG] CONDA_PREFIX = %CONDA_PREFIX%
         set "MINICONDA_ROOT=%CONDA_PREFIX%"
-        echo [DEBUG] 使用CONDA_PREFIX: !MINICONDA_ROOT!
     )
 )
 
 REM 方法3: 使用 conda info --base（可能失败）
 if "!MINICONDA_ROOT!"=="" (
-    echo [DEBUG] 方法3: 尝试 conda info --base...
     for /f "delims=" %%i in ('conda info --base 2^>nul') do (
         REM 检查返回值是否是有效路径
         set "TEMP_PATH=%%i"
         if exist "!TEMP_PATH!\Scripts\conda.exe" (
             set "MINICONDA_ROOT=%%i"
-            echo [DEBUG] conda info --base 返回有效路径: !MINICONDA_ROOT!
-        ) else (
-            echo [DEBUG] conda info --base 返回无效内容: %%i
         )
     )
 )
 
 REM 方法4: 从 where conda 解析路径
 if "!MINICONDA_ROOT!"=="" (
-    echo [DEBUG] 方法4: 尝试从 where conda 解析路径...
     for /f "delims=" %%i in ('where conda 2^>nul') do (
-        echo [DEBUG] 找到conda: %%i
         REM 只取第一个找到的conda.exe（Scripts目录下的）
         if "!MINICONDA_ROOT!"=="" (
             if "%%~xi"==".exe" (
                 for %%p in ("%%~dpi..") do set "MINICONDA_ROOT=%%~fp"
-                echo [DEBUG] 解析出的路径: !MINICONDA_ROOT!
             ) else if "%%~xi"==".bat" (
                 REM 如果是.bat文件，向上两级
                 for %%p in ("%%~dpi..\..") do set "MINICONDA_ROOT=%%~fp"
-                echo [DEBUG] 从bat解析出的路径: !MINICONDA_ROOT!
             )
         )
     )
 )
 
 REM 显示conda信息（添加错误处理避免闪退）
-echo [DEBUG] ========== 最终检测结果 ==========
 if not "!MINICONDA_ROOT!"=="" (
-    echo [DEBUG] MINICONDA_ROOT = !MINICONDA_ROOT!
     echo 位置: !MINICONDA_ROOT!
-    echo [DEBUG] 尝试获取conda版本...
     call conda --version 2>nul
     if !ERRORLEVEL! neq 0 (
-        echo [WARNING] 无法获取conda版本信息 (错误码: !ERRORLEVEL!)
-    ) else (
-        echo [DEBUG] conda版本获取成功
+        echo [WARNING] 无法获取conda版本信息
     )
 ) else (
     echo [WARNING] 无法确定conda安装路径
-    echo [DEBUG] 尝试使用系统conda（不设置MINICONDA_ROOT）
-    echo [DEBUG] 后续将使用系统conda命令
+    echo 将使用系统conda命令
 )
 
-echo [DEBUG] ========== Conda路径检测完成 ==========
-echo [DEBUG] 即将跳转到 :check_git
 echo.
 pause
 
@@ -306,19 +283,15 @@ REM ===== 步骤2: 检查/下载Git =====
 echo.
 echo [2/5] 检查 Git...
 echo ========================================
-echo [DEBUG] 开始检查Git...
-echo [DEBUG] 当前MINICONDA_ROOT = !MINICONDA_ROOT!
 
 git --version >nul 2>&1
 if %ERRORLEVEL% == 0 (
     set GIT=git
     echo [OK] 找到系统Git
-    echo [DEBUG] 跳转到 :clone_repo
     goto :clone_repo
 )
 
 echo [INFO] 未找到 Git
-echo [DEBUG] 准备提示用户下载Git...
 echo.
 echo Git是代码拉取必需的,请选择:
 echo [1] 下载便携版 Git (推荐, 约50MB)
@@ -391,9 +364,6 @@ REM ===== 步骤3: 克隆/更新仓库 =====
 echo.
 echo [3/5] 检查代码仓库...
 echo ========================================
-echo [DEBUG] 进入 :clone_repo 部分
-echo [DEBUG] 当前目录: %SCRIPT_DIR%
-echo [DEBUG] 当前GIT变量: %GIT%
 echo.
 
 REM 检查是否从压缩包解压（有代码但没有.git）
@@ -605,18 +575,10 @@ echo.
 
 echo.
 echo [DEBUG] 检查克隆结果...
-echo [DEBUG] 临时目录: %TEMP_DIR%
-echo [DEBUG] 完整路径: %SCRIPT_DIR%\%TEMP_DIR%
 if exist "%TEMP_DIR%" (
-    echo [DEBUG] 临时目录存在
     if exist "%TEMP_DIR%\.git" (
-        echo [DEBUG] .git 目录存在 - 克隆成功!
         goto :copy_files
-    ) else (
-        echo [DEBUG] .git 目录不存在 - 克隆失败!
     )
-) else (
-    echo [DEBUG] 临时目录不存在 - 克隆失败!
 )
 
 REM 如果到这里说明克隆失败
@@ -637,17 +599,13 @@ exit /b 1
 :copy_files
 
 echo.
-echo [DEBUG] 开始复制文件...
-echo [DEBUG] 临时目录: %TEMP_DIR%
-echo [DEBUG] 当前目录: %SCRIPT_DIR%
-echo.
+echo 正在复制文件...
 
 echo 正在复制目录...
 for /d %%i in ("%TEMP_DIR%\*") do (
     if /i not "%%~nxi"=="PortableGit" (
-        echo [DEBUG] 复制目录: %%~nxi
         xcopy "%%i" "%SCRIPT_DIR%\%%~nxi\" /E /H /Y /I /Q
-        if !ERRORLEVEL! neq 0 echo [ERROR] 复制目录失败: %%~nxi (错误码: !ERRORLEVEL!)
+        if !ERRORLEVEL! neq 0 echo [ERROR] 复制目录失败: %%~nxi
     )
 )
 
@@ -655,38 +613,28 @@ echo.
 echo 正在复制文件...
 for %%i in ("%TEMP_DIR%\*") do (
     if /i not "%%~nxi"=="步骤1-首次安装.bat" (
-        echo [DEBUG] 复制文件: %%~nxi
-        copy /Y "%%i" "%SCRIPT_DIR%\"
-        if !ERRORLEVEL! neq 0 echo [ERROR] 复制文件失败: %%~nxi (错误码: !ERRORLEVEL!)
+        copy /Y "%%i" "%SCRIPT_DIR%\" >nul
+        if !ERRORLEVEL! neq 0 echo [ERROR] 复制文件失败: %%~nxi
     )
 )
 
 echo.
 echo 正在复制隐藏文件...
 if exist "%TEMP_DIR%\.git\" (
-    echo [DEBUG] 复制 .git 目录...
     xcopy "%TEMP_DIR%\.git" ".git\" /E /H /Y /I /Q
-    if !ERRORLEVEL! neq 0 echo [ERROR] 复制.git失败 (错误码: !ERRORLEVEL!)
-) else (
-    echo [DEBUG] .git 目录不存在
+    if !ERRORLEVEL! neq 0 echo [ERROR] 复制.git失败
 )
 
 if exist "%TEMP_DIR%\.gitignore" (
-    echo [DEBUG] 复制 .gitignore 文件...
-    copy /Y "%TEMP_DIR%\.gitignore" .
-    if !ERRORLEVEL! neq 0 echo [ERROR] 复制.gitignore失败 (错误码: !ERRORLEVEL!)
-) else (
-    echo [DEBUG] .gitignore 文件不存在
+    copy /Y "%TEMP_DIR%\.gitignore" . >nul
+    if !ERRORLEVEL! neq 0 echo [ERROR] 复制.gitignore失败
 )
 
 echo.
-echo [DEBUG] 复制完成，准备清理临时目录...
 echo 正在清理临时目录...
 rmdir /s /q "%TEMP_DIR%"
 if !ERRORLEVEL! neq 0 (
-    echo [ERROR] 清理临时目录失败 (错误码: !ERRORLEVEL!)
-) else (
-    echo [DEBUG] 临时目录已清理
+    echo [ERROR] 清理临时目录失败
 )
 
 echo.
@@ -698,9 +646,6 @@ REM ===== 步骤4: 创建Conda环境并安装依赖 =====
 echo.
 echo [4/5] 创建Python环境并安装依赖...
 echo ========================================
-echo [DEBUG] 进入 :create_venv 部分
-echo [DEBUG] MINICONDA_ROOT = !MINICONDA_ROOT!
-echo [DEBUG] SCRIPT_DIR = %SCRIPT_DIR%
 echo.
 
 REM 使用命名环境（避免中文路径问题）
@@ -727,7 +672,6 @@ if %ERRORLEVEL% == 0 (
         echo [OK] 环境已删除
     ) else (
         echo [OK] 使用现有环境
-        echo [DEBUG] 跳过环境创建，直接激活
         goto :activate_env
     )
 )
@@ -759,8 +703,6 @@ echo [OK] Conda环境创建完成
 :activate_env
 echo.
 echo 正在激活环境...
-echo [DEBUG] CONDA_ENV_NAME = %CONDA_ENV_NAME%
-echo [DEBUG] MINICONDA_ROOT = !MINICONDA_ROOT!
 
 REM 激活命名环境
 call conda activate "%CONDA_ENV_NAME%" 2>nul
@@ -777,7 +719,6 @@ pause
 exit /b 1
 
 :env_activated
-echo [DEBUG] 环境激活成功
 
 echo 正在升级 pip...
 python -m pip install --upgrade pip >nul 2>&1
