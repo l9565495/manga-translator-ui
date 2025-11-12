@@ -458,6 +458,9 @@ def prepare_environment(args):
     print()
     
     # 根据GPU类型选择requirements文件
+    use_amd_pytorch = False  # 初始化AMD PyTorch标志
+    amd_gfx_version = None    # 初始化gfx版本
+    
     if args.requirements != 'auto':
         # 用户手动指定,尊重用户选择
         requirements_file = args.requirements
@@ -509,11 +512,8 @@ def prepare_environment(args):
                 print('[INFO] 如需安装 AMD PyTorch，请运行 步骤1-首次安装.bat')
                 use_amd_pytorch = False
         else:
-            use_amd_pytorch = False
+            pass  # 不是AMD，use_amd_pytorch已在开头初始化为False
     else:
-        use_amd_pytorch = False  # 是否使用 AMD ROCm PyTorch
-        amd_gfx_version = None
-        
         # 自动选择
         if gpu_type == "NVIDIA":
             print('=' * 50)
@@ -805,13 +805,13 @@ def prepare_environment(args):
             print('  1. 检查您的 gfx 版本是否正确')
             print('  2. 检查网络连接')
             print('  3. 如果仍有问题,请使用 CPU 版本重新安装')
-            # 安装失败，退出
-            return
+            # 安装失败，返回失败状态
+            return False, None
 
     # 检查并安装其他依赖
     if not os.path.exists(requirements_file):
         print(f'警告: 未找到 {requirements_file}')
-        return
+        return False, None
 
     print(f'\n正在检查依赖: {requirements_file}')
     if not check_req_file(requirements_file) or need_reinstall:

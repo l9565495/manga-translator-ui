@@ -2,6 +2,9 @@
 chcp 936 >nul
 setlocal EnableDelayedExpansion
 
+REM 设置 PYTHONUTF8=1 避免conda编码错误
+set "PYTHONUTF8=1"
+
 REM 修复管理员模式下%CD%变成system32的问题
 REM 使用脚本所在目录作为工作目录
 cd /d "%~dp0"
@@ -50,38 +53,85 @@ if %ERRORLEVEL% neq 0 goto :check_local_conda
 
 :found_system_conda
 echo [OK] 检测到系统已安装 Conda
+echo.
+echo [DEBUG] ========== 开始检测Conda路径 ==========
 
-REM 直接使用 conda info --base 获取准确的根目录（最可靠的方法）
-for /f "delims=" %%i in ('conda info --base 2^>nul') do set "MINICONDA_ROOT=%%i"
+REM 方法1: 从CONDA_EXE环境变量获取（最可靠）
+if defined CONDA_EXE (
+    echo [DEBUG] 方法1: 从CONDA_EXE环境变量获取...
+    echo [DEBUG] CONDA_EXE = %CONDA_EXE%
+    REM CONDA_EXE通常指向 D:\Miniconda3\Scripts\conda.exe
+    REM 需要向上两级获取根目录
+    for %%p in ("%CONDA_EXE%\..\..") do set "MINICONDA_ROOT=%%~fp"
+    echo [DEBUG] 从CONDA_EXE解析出: !MINICONDA_ROOT!
+)
 
-REM 如果 conda info --base 失败，尝试从 where 命令解析路径
+REM 方法2: 从CONDA_PREFIX环境变量获取
 if "!MINICONDA_ROOT!"=="" (
+    if defined CONDA_PREFIX (
+        echo [DEBUG] 方法2: 从CONDA_PREFIX环境变量获取...
+        echo [DEBUG] CONDA_PREFIX = %CONDA_PREFIX%
+        set "MINICONDA_ROOT=%CONDA_PREFIX%"
+        echo [DEBUG] 使用CONDA_PREFIX: !MINICONDA_ROOT!
+    )
+)
+
+REM 方法3: 使用 conda info --base（可能失败）
+if "!MINICONDA_ROOT!"=="" (
+    echo [DEBUG] 方法3: 尝试 conda info --base...
+    for /f "delims=" %%i in ('conda info --base 2^>nul') do (
+        REM 检查返回值是否是有效路径
+        set "TEMP_PATH=%%i"
+        if exist "!TEMP_PATH!\Scripts\conda.exe" (
+            set "MINICONDA_ROOT=%%i"
+            echo [DEBUG] conda info --base 返回有效路径: !MINICONDA_ROOT!
+        ) else (
+            echo [DEBUG] conda info --base 返回无效内容: %%i
+        )
+    )
+)
+
+REM 方法4: 从 where conda 解析路径
+if "!MINICONDA_ROOT!"=="" (
+    echo [DEBUG] 方法4: 尝试从 where conda 解析路径...
     for /f "delims=" %%i in ('where conda 2^>nul') do (
+        echo [DEBUG] 找到conda: %%i
         REM 只取第一个找到的conda.exe（Scripts目录下的）
         if "!MINICONDA_ROOT!"=="" (
             if "%%~xi"==".exe" (
                 for %%p in ("%%~dpi..") do set "MINICONDA_ROOT=%%~fp"
+                echo [DEBUG] 解析出的路径: !MINICONDA_ROOT!
+            ) else if "%%~xi"==".bat" (
+                REM 如果是.bat文件，向上两级
+                for %%p in ("%%~dpi..\..") do set "MINICONDA_ROOT=%%~fp"
+                echo [DEBUG] 从bat解析出的路径: !MINICONDA_ROOT!
             )
         )
     )
 )
 
 REM 显示conda信息（添加错误处理避免闪退）
+echo [DEBUG] ========== 最终检测结果 ==========
 if not "!MINICONDA_ROOT!"=="" (
+    echo [DEBUG] MINICONDA_ROOT = !MINICONDA_ROOT!
     echo 位置: !MINICONDA_ROOT!
+    echo [DEBUG] 尝试获取conda版本...
     call conda --version 2>nul
     if !ERRORLEVEL! neq 0 (
-        echo [WARNING] 无法获取conda版本信息
+        echo [WARNING] 无法获取conda版本信息 (错误码: !ERRORLEVEL!)
+    ) else (
+        echo [DEBUG] conda版本获取成功
     )
 ) else (
-    echo [WARNING] 无法确定conda安装路径，将尝试继续...
-    REM 如果无法获取路径，设置一个默认值避免后续出错
-    for /f "delims=" %%i in ('where conda 2^>nul') do (
-        set "MINICONDA_ROOT=%%~dpi.."
-        goto :found_conda_path
-    )
-    :found_conda_path
+    echo [WARNING] 无法确定conda安装路径
+    echo [DEBUG] 尝试使用系统conda（不设置MINICONDA_ROOT）
+    echo [DEBUG] 后续将使用系统conda命令
 )
+
+echo [DEBUG] ========== Conda路径检测完成 ==========
+echo [DEBUG] 即将跳转到 :check_git
+echo.
+pause
 
 goto :check_git
 
@@ -256,15 +306,19 @@ REM ===== 步骤2: 检查/下载Git =====
 echo.
 echo [2/5] 检查 Git...
 echo ========================================
+echo [DEBUG] 开始检查Git...
+echo [DEBUG] 当前MINICONDA_ROOT = !MINICONDA_ROOT!
 
 git --version >nul 2>&1
 if %ERRORLEVEL% == 0 (
     set GIT=git
     echo [OK] 找到系统Git
+    echo [DEBUG] 跳转到 :clone_repo
     goto :clone_repo
 )
 
 echo [INFO] 未找到 Git
+echo [DEBUG] 准备提示用户下载Git...
 echo.
 echo Git是代码拉取必需的,请选择:
 echo [1] 下载便携版 Git (推荐, 约50MB)
@@ -337,6 +391,9 @@ REM ===== 步骤3: 克隆/更新仓库 =====
 echo.
 echo [3/5] 检查代码仓库...
 echo ========================================
+echo [DEBUG] 进入 :clone_repo 部分
+echo [DEBUG] 当前目录: %SCRIPT_DIR%
+echo [DEBUG] 当前GIT变量: %GIT%
 echo.
 
 REM 检查是否从压缩包解压（有代码但没有.git）
@@ -641,15 +698,22 @@ REM ===== 步骤4: 创建Conda环境并安装依赖 =====
 echo.
 echo [4/5] 创建Python环境并安装依赖...
 echo ========================================
+echo [DEBUG] 进入 :create_venv 部分
+echo [DEBUG] MINICONDA_ROOT = !MINICONDA_ROOT!
+echo [DEBUG] SCRIPT_DIR = %SCRIPT_DIR%
 echo.
 
-REM 使用项目本地环境（不占用C盘空间）
-set CONDA_ENV_PATH=%SCRIPT_DIR%\conda_env
+REM 使用命名环境（避免中文路径问题）
+set CONDA_ENV_NAME=manga-env
 set CONDA_ENV_EXISTS=0
 
-if exist "%CONDA_ENV_PATH%\python.exe" (
+REM 检查环境是否存在 - 使用 conda info --envs 避免编码错误
+call conda info --envs 2>nul | findstr /C:"%CONDA_ENV_NAME%" >nul 2>&1
+if %ERRORLEVEL% == 0 (
     set CONDA_ENV_EXISTS=1
-    echo [OK] 检测到现有环境: conda_env
+    echo [OK] 检测到现有conda环境: %CONDA_ENV_NAME%
+) else (
+    echo [INFO] 未检测到环境: %CONDA_ENV_NAME%
 )
 
 if %CONDA_ENV_EXISTS% == 1 (
@@ -663,26 +727,34 @@ if %CONDA_ENV_EXISTS% == 1 (
     if "!recreate_env!"=="2" (
         echo 正在删除现有环境...
         call conda deactivate >nul 2>&1
-        rmdir /s /q "%CONDA_ENV_PATH%"
+        call conda env remove -n "%CONDA_ENV_NAME%" -y >nul 2>&1
         set CONDA_ENV_EXISTS=0
         echo [OK] 环境已删除
     ) else (
         echo [OK] 使用现有环境
+        echo [DEBUG] 跳过环境创建，直接激活
+        goto :activate_env
     )
 )
 
 if %CONDA_ENV_EXISTS% == 0 (
+    :create_env_directly
     echo.
     echo 正在创建Conda环境...
-    echo 位置: %CONDA_ENV_PATH%
+    echo 环境名称: %CONDA_ENV_NAME%
     echo Python版本: 3.12
     echo.
+    
+    REM 清理可能存在的旧环境注册信息
+    echo 清理conda环境列表...
+    call conda env remove -n "%CONDA_ENV_NAME%" -y >nul 2>&1
     
     REM 接受Conda服务条款（避免交互式提示）
     call conda config --set channel_priority flexible >nul 2>&1
     call conda tos accept >nul 2>&1
     
-    call conda create --prefix "%CONDA_ENV_PATH%" python=3.12 -y
+    REM 创建命名环境
+    call conda create -n "%CONDA_ENV_NAME%" python=3.12 -y
     if !ERRORLEVEL! neq 0 (
         echo [ERROR] Conda环境创建失败
         pause
@@ -691,29 +763,49 @@ if %CONDA_ENV_EXISTS% == 0 (
     echo [OK] Conda环境创建完成
 )
 
+:activate_env
 echo.
 echo 正在激活环境...
-REM 使用直接路径激活，避免conda activate的路径问题
-if exist "%MINICONDA_ROOT%\Scripts\activate.bat" (
-    call "%MINICONDA_ROOT%\Scripts\activate.bat" "%CONDA_ENV_PATH%" 2>nul
-    if !ERRORLEVEL! neq 0 (
-        REM 尝试使用conda activate作为备用
-        call conda activate "%CONDA_ENV_PATH%" 2>nul
-    )
-) else (
-    call conda activate "%CONDA_ENV_PATH%" 2>nul
+echo [DEBUG] CONDA_ENV_NAME = %CONDA_ENV_NAME%
+echo [DEBUG] MINICONDA_ROOT = !MINICONDA_ROOT!
+
+REM 优先尝试激活命名环境
+call conda activate "%CONDA_ENV_NAME%" 2>nul
+if !ERRORLEVEL! == 0 (
+    echo [OK] 已激活命名环境: %CONDA_ENV_NAME%
+    goto :env_activated
 )
 
-if !ERRORLEVEL! neq 0 (
-    echo [ERROR] 环境激活失败
-    echo.
-    echo 可能原因:
-    echo   - 路径包含特殊字符
-    echo   - Conda未正确安装
-    echo.
-    pause
-    exit /b 1
+REM 如果命名环境不存在，尝试激活路径环境（兼容旧版本）
+set CONDA_ENV_PATH=%SCRIPT_DIR%\conda_env
+if exist "%CONDA_ENV_PATH%\python.exe" (
+    echo [DEBUG] 检测到旧版本路径环境，尝试激活...
+    REM 使用直接PATH方式激活路径环境
+    set "PATH=%CONDA_ENV_PATH%;%CONDA_ENV_PATH%\Library\mingw-w64\bin;%CONDA_ENV_PATH%\Library\usr\bin;%CONDA_ENV_PATH%\Library\bin;%CONDA_ENV_PATH%\Scripts;%CONDA_ENV_PATH%\bin;%PATH%"
+    set "CONDA_PREFIX=%CONDA_ENV_PATH%"
+    set "CONDA_DEFAULT_ENV=%CONDA_ENV_PATH%"
+    
+    REM 验证
+    "%CONDA_ENV_PATH%\python.exe" --version >nul 2>&1
+    if !ERRORLEVEL! == 0 (
+        echo [OK] 已激活路径环境（旧版本）
+        goto :env_activated
+    )
 )
+
+REM 两种环境都不存在或激活失败
+echo [ERROR] 无法激活环境
+echo.
+echo 尝试了以下方式:
+echo 1. 命名环境: %CONDA_ENV_NAME%
+echo 2. 路径环境: %CONDA_ENV_PATH%
+echo.
+echo 请重新运行此脚本创建环境
+pause
+exit /b 1
+
+:env_activated
+echo [DEBUG] 环境激活成功
 
 echo 正在升级 pip...
 python -m pip install --upgrade pip >nul 2>&1

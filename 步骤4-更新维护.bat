@@ -2,6 +2,9 @@
 chcp 936 >nul
 setlocal EnableDelayedExpansion
 
+REM 设置 PYTHONUTF8=1 避免conda编码错误
+set "PYTHONUTF8=1"
+
 echo.
 echo ========================================
 echo 漫画翻译器 - 更新维护工具
@@ -15,7 +18,8 @@ cd /d "%~dp0"
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
-REM 检查conda环境（项目本地环境）
+REM 检查conda环境（兼容命名环境和路径环境）
+set CONDA_ENV_NAME=manga-env
 set CONDA_ENV_PATH=%SCRIPT_DIR%\conda_env
 set MINICONDA_ROOT=%SCRIPT_DIR%\Miniconda3
 
