@@ -878,10 +878,13 @@ def safe_update_large_json_from_text(
                 parser_regex_str += "(.+?)"  # 原文必须至少有一个字符
                 group_order.append("original")
             elif part == "<translated>":
-                parser_regex_str += "(.*?)"  # 译文可以为空
+                parser_regex_str += "(.*)"  # 译文可以为空，匹配到结尾
                 group_order.append("translated")
             else:
                 parser_regex_str += re.escape(part)
+        
+        # 添加结尾匹配，确保匹配到字符串末尾
+        parser_regex_str += "$"
 
         logger.info(f"[DEBUG] Item template: {repr(item_template)}")
         logger.info(f"[DEBUG] Parser regex: {repr(parser_regex_str)}")
@@ -894,6 +897,9 @@ def safe_update_large_json_from_text(
                 logger.info(f"[DEBUG] Item {idx}: 跳过空条目")
                 continue
 
+            if idx < 3:  # 打印前3个item的完整内容
+                logger.info(f"[DEBUG] Item {idx} 原始内容: {repr(item)}")
+            
             match = parser_regex.search(item)
             if match:
                 try:
@@ -905,7 +911,8 @@ def safe_update_large_json_from_text(
                     translations[result['original']] = result['translated']
                     matched_count += 1
                     if matched_count <= 3:  # 只打印前3个
-                        logger.info(f"[DEBUG] Item {idx} 匹配成功: original={repr(result['original'][:30])}, translated={repr(result['translated'][:30])}")
+                        logger.info(f"[DEBUG] Item {idx} 匹配成功: original={repr(result['original'])}, translated={repr(result['translated'])}")
+                        logger.info(f"[DEBUG] Item {idx} 匹配的groups: {match.groups()}")
                 except (IndexError, KeyError) as e:
                     logger.info(f"[DEBUG] Item {idx} 解析失败: {item[:100]}... Error: {e}")
                     continue  # 跳过解析失败的条目
