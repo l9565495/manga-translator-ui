@@ -1431,7 +1431,12 @@ class TranslationWorker(QObject):
         loop = None
         try:
             import asyncio
+            import sys
             self.log_received.emit("--- [1] THREAD: process() method entered, starting asyncio task.")
+
+            # 在Windows上的工作线程中，需要使用SelectorEventLoop而不是ProactorEventLoop
+            if sys.platform == 'win32':
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
             # 创建事件循环并保存任务引用
             loop = asyncio.new_event_loop()

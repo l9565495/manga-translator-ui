@@ -41,6 +41,11 @@ class AsyncJobManager:
         
         def run_loop():
             """在线程中运行事件循环"""
+            import sys
+            # 在Windows上的工作线程中，需要使用SelectorEventLoop而不是ProactorEventLoop
+            if sys.platform == 'win32':
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
             self._running = True

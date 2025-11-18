@@ -518,6 +518,11 @@ class ExportService:
                 progress_callback("执行后端渲染...")
 
             # 执行翻译（实际是渲染）
+            import sys
+            # 在Windows上的工作线程中，需要使用SelectorEventLoop而不是ProactorEventLoop
+            if sys.platform == 'win32':
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 

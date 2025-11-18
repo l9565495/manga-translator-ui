@@ -24,10 +24,15 @@ class MangaTranslatorWS(MangaTranslator):
     async def listen(self, translation_params: dict = None):
         from threading import Thread
         import io
+        import sys
         import aioshutil
         from aiofiles import os
         import websockets
         from ..server import ws_pb2
+
+        # 在Windows上的工作线程中，需要使用SelectorEventLoop而不是ProactorEventLoop
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
         self._server_loop = asyncio.new_event_loop()
         self.task_lock = PriorityLock()
@@ -208,6 +213,11 @@ class MangaTranslatorWS(MangaTranslator):
                             bg_task.cancel()
 
         def server_thread(future, main_loop, server_loop):
+            import sys
+            # 在Windows上的工作线程中，需要使用SelectorEventLoop而不是ProactorEventLoop
+            if sys.platform == 'win32':
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            
             asyncio.set_event_loop(server_loop)
             try:
                 server_loop.run_until_complete(async_server_thread(main_loop))
