@@ -591,9 +591,27 @@ class MainAppLogic(QObject):
             # QMessageBox.critical(None, "配置错误", f"无法加载最新配置: {e}")
             # return
 
-        if self.thread is not None and self.thread.isRunning():
+        # 检查是否有任务在运行（基于状态而不是线程）
+        if self.state_manager.is_translating():
             self.logger.warning("一个任务已经在运行中。")
             return
+        
+        # 如果有旧线程还在运行，等待它结束（不使用 terminate）
+        if self.thread is not None and self.thread.isRunning():
+            self.logger.warning("检测到旧线程还在运行，等待其结束...")
+            # 通知 worker 停止
+            if self.worker:
+                try:
+                    self.worker.stop()
+                except:
+                    pass
+            # 请求线程退出
+            self.thread.quit()
+            # 等待最多500ms
+            if not self.thread.wait(500):
+                self.logger.warning("旧线程500ms内未停止，放弃等待并继续")
+            self.thread = None
+            self.worker = None
 
         # 检查文件列表是否为空
         files_to_process = self._resolve_input_files()
@@ -649,7 +667,6 @@ class MainAppLogic(QObject):
 
     def on_task_finished(self, results):
         """处理任务完成信号，并根据需要保存批量任务的结果"""
-        print("--- MainAppLogic: Slot on_task_finished triggered.")
         saved_files = []
         # The `results` list will only contain items from a batch job now.
         # Sequential jobs handle saving in `on_file_completed`.
@@ -727,47 +744,38 @@ class MainAppLogic(QObject):
             saved_files = self.saved_files_list.copy()
         
         try:
-            print("--- DEBUG: on_task_finished step 1: Setting translating state to False.")
             self.state_manager.set_translating(False)
-            print("--- DEBUG: on_task_finished step 2: Setting status message.")
             self.state_manager.set_status_message(f"任务完成，成功处理 {self.saved_files_count} 个文件。")
-            print("--- DEBUG: on_task_finished step 3: Emitting task_completed signal.")
             self.task_completed.emit(saved_files)
-            print("--- DEBUG: on_task_finished step 4: Signal emitted successfully.")
         except Exception as e:
             self.logger.error(f"完成任务状态更新或信号发射时发生致命错误: {e}", exc_info=True)
         finally:
-            print("--- DEBUG: on_task_finished step 5: Entering finally block.")
             if self.thread and self.thread.isRunning():
                 self.thread.quit()
-                self.thread.wait(5000)  # 等待线程结束，最多等待5秒
+                self.thread.wait(5000)
                 if self.thread.isRunning():
                     self.logger.warning("Thread did not finish within timeout, terminating...")
                     self.thread.terminate()
                     self.thread.wait()
             self.thread = None
             self.worker = None
-            print("--- MainAppLogic: Slot on_task_finished finished.")
 
     def on_task_error(self, error_message):
-        print("--- MainAppLogic: Slot on_task_error triggered.")
         self.logger.error(f"翻译任务发生错误: {error_message}")
+        
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message(f"任务失败: {error_message}")
         
-        # 正确停止线程
         if self.thread and self.thread.isRunning():
-            self.logger.info("Waiting for error cleanup thread to finish...")
             self.thread.quit()
-            self.thread.wait(5000)  # 等待最多5秒
+            self.thread.wait(2000)
             if self.thread.isRunning():
                 self.logger.warning("Thread did not finish within timeout, terminating...")
                 self.thread.terminate()
-                self.thread.wait()
+                self.thread.wait(500)
         
         self.thread = None
         self.worker = None
-        print("--- MainAppLogic: Slot on_task_error finished.")
 
     def on_task_progress(self, current, total, message):
         self.logger.info(f"[进度] {current}/{total}: {message}")
@@ -776,62 +784,42 @@ class MainAppLogic(QObject):
         self.state_manager.set_status_message(f"[{current}/{total}] {message}")
 
     def stop_task(self) -> bool:
+        """停止翻译任务（优雅停止，不使用 terminate）"""
         if self.thread and self.thread.isRunning():
             self.logger.info("正在请求停止翻译线程...")
 
-            # 立即更新UI状态：设置为非翻译状态，显示"停止中"
+            # 立即更新UI状态：设置为非翻译状态
             self.state_manager.set_translating(False)
-            self.state_manager.set_status_message("正在停止翻译...")
+            self.state_manager.set_status_message("正在停止...")
 
-            # 1. 先通知 worker 停止
+            # 1. 通知 worker 停止（设置标志）
             if self.worker:
-                self.worker.stop()
-
-            # 2. 请求线程退出
-            self.thread.quit()
-
-            # 保存线程引用，避免在等待过程中被清空
-            thread_ref = self.thread
-            worker_ref = self.worker
-
-            # 在后台等待线程停止，不阻塞UI
-            from PyQt6.QtCore import QTimer
-            timeout_counter = [0]  # 使用列表以便在闭包中修改
-
-            def wait_for_thread():
                 try:
-                    if thread_ref and not thread_ref.wait(100):  # 等待100ms
-                        timeout_counter[0] += 100
+                    self.worker.stop()
+                except:
+                    pass
 
-                        # 如果超过5秒还没停止，强制终止
-                        if timeout_counter[0] >= 5000:
-                            self.logger.warning("线程5秒内未停止，强制终止...")
-                            try:
-                                thread_ref.terminate()
-                                thread_ref.wait(1000)  # 等待1秒
-                                self.logger.info("翻译线程已被强制终止。")
-                                self.state_manager.set_status_message("任务已强制停止")
-                            except Exception as e:
-                                self.logger.error(f"强制终止线程失败: {e}")
-                                self.state_manager.set_status_message("停止失败")
-                        else:
-                            # 继续等待
-                            QTimer.singleShot(100, wait_for_thread)
-                    else:
-                        # 线程已停止
-                        self.logger.info("翻译线程已成功停止。")
-                        self.state_manager.set_status_message("任务已停止")
-                except RuntimeError:
-                    # 线程对象已被删除，认为已停止
-                    self.logger.info("翻译线程已停止（对象已删除）。")
-                    self.state_manager.set_status_message("任务已停止")
+            # 2. 请求线程退出事件循环
+            self.thread.quit()
+            
+            # 3. 连接 finished 信号以清理资源
+            def on_thread_finished():
+                self.logger.info("翻译线程已正常停止")
+                self.state_manager.set_status_message("任务已停止")
+                self.thread = None
+                self.worker = None
+            
+            try:
+                self.thread.finished.disconnect()
+            except:
+                pass
+            self.thread.finished.connect(on_thread_finished)
 
-            # 启动非阻塞等待
-            QTimer.singleShot(0, wait_for_thread)
-
-            # 立即返回，不等待线程停止
             return True
+        
         self.logger.warning("请求停止任务，但没有正在运行的线程。")
+        self.state_manager.set_translating(False)
+        return False
         return False
     # endregion
 
@@ -865,9 +853,30 @@ class MainAppLogic(QObject):
             return False
     
     def shutdown(self):
+        """应用关闭时的清理"""
         try:
             if self.state_manager.is_translating():
-                self.stop_task()
+                self.logger.info("应用关闭中，停止翻译任务...")
+                
+                # 通知 worker 停止
+                if self.worker:
+                    try:
+                        self.worker.stop()
+                    except:
+                        pass
+                
+                # 请求线程退出并等待（最多1秒）
+                if self.thread and self.thread.isRunning():
+                    self.thread.quit()
+                    if not self.thread.wait(1000):
+                        self.logger.warning("线程1秒内未停止，放弃等待")
+                    else:
+                        self.logger.info("翻译线程已停止")
+                
+                self.thread = None
+                self.worker = None
+                self.state_manager.set_translating(False)
+            
             if self.translation_service:
                 pass
         except Exception as e:
@@ -1314,9 +1323,16 @@ class TranslationWorker(QObject):
                 for file_path in self.files:
                     if not self._is_running: raise asyncio.CancelledError("Task stopped by user.")
                     self.progress.emit(len(images_with_configs), len(self.files), f"Loading for batch: {os.path.basename(file_path)}")
-                    image = Image.open(file_path)
-                    image.name = file_path
-                    images_with_configs.append((image, config))
+                    try:
+                        # 使用二进制模式读取以避免Windows路径编码问题
+                        with open(file_path, 'rb') as f:
+                            image = Image.open(f)
+                            image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
+                        image.name = file_path
+                        images_with_configs.append((image, config))
+                    except Exception as e:
+                        self.log_received.emit(f"⚠️ 无法加载图片 {os.path.basename(file_path)}: {e}")
+                        self.logger.error(f"Error loading image {file_path}: {e}")
 
                 self.log_received.emit(f"🚀 开始翻译...")
                 contexts = await translator.translate_batch(images_with_configs, save_info=save_info)
@@ -1375,7 +1391,10 @@ class TranslationWorker(QObject):
                     self.log_received.emit(f"🔄 [{current_num}/{total_files}] 正在处理：{os.path.basename(file_path)}")
 
                     try:
-                        image = Image.open(file_path)
+                        # 使用二进制模式读取以避免Windows路径编码问题
+                        with open(file_path, 'rb') as f:
+                            image = Image.open(f)
+                            image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
                         image.name = file_path
 
                         ctx = await translator.translate(image, config, image_name=image.name)

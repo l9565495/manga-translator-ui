@@ -1,14 +1,17 @@
 <div align="center">
 
-<img src="doc/images/主页.png" width="600" alt="主页">
+<img src="doc/images/主页.png" width="500" alt="主页">
 
-[![DeepWiki文档](https://img.shields.io/badge/DeepWiki-在线文档-blue?style=for-the-badge)](https://deepwiki.com/hgmzhn/manga-translator-ui)
+[![DeepWiki文档](https://img.shields.io/badge/DeepWiki-在线文档-blue)](https://deepwiki.com/hgmzhn/manga-translator-ui)
+[![基于](https://img.shields.io/badge/基于-manga--image--translator-green)](https://github.com/zyddnys/manga-image-translator)
+[![模型](https://img.shields.io/badge/模型-Real--CUGAN-orange)](https://github.com/bilibili/ailab)
+[![模型](https://img.shields.io/badge/模型-YSG-orange)](https://github.com/lhj5426/YSG)
+[![OCR](https://img.shields.io/badge/OCR-PaddleOCR-blue)](https://github.com/PaddlePaddle/PaddleOCR)
+[![许可证](https://img.shields.io/badge/许可证-GPL--3.0-red)](LICENSE)
 
 </div>
 
-一键翻译漫画图片中的文字，支持日语、中文、英语等多种语言，提供完整的可视化编辑功能。
-
-基于 [zyddnys/manga-image-translator](https://github.com/zyddnys/manga-image-translator) 核心引擎开发。
+一键翻译漫画图片中的文字，支持日漫、韩漫、美漫，黑白漫和彩漫均可识别。自动检测、翻译、嵌字，支持日语、中文、英语等多种语言，内置可视化编辑器可调整文本框。
 
 ---
 
@@ -27,13 +30,33 @@
 
 ---
 
+## 📸 效果展示
+
+<div align="center">
+
+<table>
+<tr>
+<td align="center"><b>翻译前</b></td>
+<td align="center"><b>翻译后</b></td>
+</tr>
+<tr>
+<td><img src="doc/images/0012.png" width="400" alt="翻译前"></td>
+<td><img src="doc/images/110012.png" width="400" alt="翻译后"></td>
+</tr>
+</table>
+
+</div>
+
+---
+
 ## 🚀 快速开始
 
 ### 📥 安装方式
 
-#### 方式一：使用安装脚本（⭐ 推荐，自动安装 Miniconda）
+#### 方式一：使用安装脚本（⭐ 推荐，支持更新）
 
-> ⚠️ **无需预装 Python**：脚本会自动下载安装 Miniconda（轻量级Python环境管理）
+> ⚠️ **无需预装 Python**：脚本会自动安装 Miniconda（轻量级 Python 环境）  
+> 💡 **一键更新**：已安装用户运行 `步骤4-更新维护.bat` 即可更新到最新版本
 
 1. **下载安装脚本**：
    - [点击下载 步骤1-首次安装.bat](https://github.com/hgmzhn/manga-translator-ui/raw/main/步骤1-首次安装.bat)

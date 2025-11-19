@@ -19,6 +19,9 @@ from PyQt6.QtWidgets import (
 class FileItemWidget(QWidget):
     """自定义列表项，用于显示缩略图、文件名和移除按钮"""
     remove_requested = pyqtSignal(str)
+    
+    # 类级别的缩略图缓存
+    _thumbnail_cache: Dict[str, QPixmap] = {}
 
     def __init__(self, file_path, is_folder=False, parent=None):
         super().__init__(parent)
@@ -72,6 +75,12 @@ class FileItemWidget(QWidget):
             return 0
 
     def _load_thumbnail(self):
+        """加载缩略图，使用缓存机制"""
+        # 检查缓存
+        if self.file_path in FileItemWidget._thumbnail_cache:
+            self.thumbnail_label.setPixmap(FileItemWidget._thumbnail_cache[self.file_path])
+            return
+        
         try:
             img = Image.open(self.file_path)
             img.thumbnail((40, 40))
@@ -87,6 +96,9 @@ class FileItemWidget(QWidget):
 
             pixmap = QPixmap.fromImage(q_img)
             self.thumbnail_label.setPixmap(pixmap)
+            
+            # 缓存缩略图
+            FileItemWidget._thumbnail_cache[self.file_path] = pixmap
         except Exception as e:
             self.thumbnail_label.setText("ERR")
             print(f"Error loading thumbnail for {self.file_path}: {e}")
@@ -96,6 +108,17 @@ class FileItemWidget(QWidget):
 
     def get_path(self):
         return self.file_path
+    
+    @classmethod
+    def clear_thumbnail_cache(cls):
+        """清空缩略图缓存"""
+        cls._thumbnail_cache.clear()
+    
+    @classmethod
+    def remove_from_cache(cls, file_path: str):
+        """从缓存中移除指定文件的缩略图"""
+        if file_path in cls._thumbnail_cache:
+            del cls._thumbnail_cache[file_path]
 
 
 class FileListView(QTreeWidget):
@@ -133,15 +156,58 @@ class FileListView(QTreeWidget):
 
     def add_files(self, file_paths: List[str]):
         """添加多个文件/文件夹到列表"""
+        # 按文件夹分组
+        folder_groups: Dict[str, List[str]] = {}
+        standalone_files: List[str] = []
+        
         for path in file_paths:
             norm_path = os.path.normpath(path)
             
             if os.path.isdir(norm_path):
-                # 添加文件夹
-                self._add_folder(norm_path)
+                # 如果传入的是文件夹路径，扫描其中的图片
+                try:
+                    image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+                    files = [
+                        os.path.join(norm_path, f)
+                        for f in os.listdir(norm_path)
+                        if os.path.splitext(f)[1].lower() in image_extensions
+                    ]
+                    if files:
+                        folder_groups[norm_path] = sorted(files)
+                except Exception as e:
+                    print(f"Error loading files from folder {norm_path}: {e}")
             else:
-                # 添加单个文件
-                self._add_single_file(norm_path)
+                # 检查文件是否已存在
+                file_dir = os.path.dirname(norm_path)
+                
+                # 如果文件的父目录已经在分组中，添加到该分组
+                if file_dir in folder_groups:
+                    if norm_path not in folder_groups[file_dir]:
+                        folder_groups[file_dir].append(norm_path)
+                else:
+                    # 检查是否有其他文件来自同一目录
+                    found_group = False
+                    for existing_file in file_paths:
+                        if existing_file != path and os.path.dirname(os.path.normpath(existing_file)) == file_dir:
+                            # 找到同目录的文件，创建分组
+                            if file_dir not in folder_groups:
+                                folder_groups[file_dir] = []
+                            if norm_path not in folder_groups[file_dir]:
+                                folder_groups[file_dir].append(norm_path)
+                            found_group = True
+                            break
+                    
+                    if not found_group:
+                        # 独立文件
+                        standalone_files.append(norm_path)
+        
+        # 添加文件夹分组
+        for folder_path, files in folder_groups.items():
+            self._add_folder_group(folder_path, files)
+        
+        # 添加独立文件
+        for file_path in standalone_files:
+            self._add_single_file(file_path)
 
     def _add_folder(self, folder_path: str):
         """添加文件夹及其包含的所有图片文件"""
@@ -175,6 +241,39 @@ class FileListView(QTreeWidget):
                 self._add_file_to_folder(file_path, folder_item)
         except Exception as e:
             print(f"Error loading files from folder {folder_path}: {e}")
+    
+    def _add_folder_group(self, folder_path: str, files: List[str]):
+        """添加文件夹分组（使用提供的文件列表）"""
+        if folder_path in self.folder_nodes:
+            # 文件夹已存在，添加新文件
+            folder_item = self.folder_nodes[folder_path]
+            existing_files = set()
+            for i in range(folder_item.childCount()):
+                child = folder_item.child(i)
+                existing_files.add(child.data(0, Qt.ItemDataRole.UserRole))
+            
+            for file_path in files:
+                if file_path not in existing_files:
+                    self._add_file_to_folder(file_path, folder_item)
+            return
+        
+        # 创建文件夹节点
+        folder_item = QTreeWidgetItem(self)
+        folder_item.setData(0, Qt.ItemDataRole.UserRole, folder_path)
+        
+        # 创建文件夹项的自定义控件
+        folder_widget = FileItemWidget(folder_path, is_folder=True)
+        folder_widget.remove_requested.connect(self.file_remove_requested.emit)
+        
+        self.addTopLevelItem(folder_item)
+        self.setItemWidget(folder_item, 0, folder_widget)
+        
+        # 保存文件夹节点
+        self.folder_nodes[folder_path] = folder_item
+        
+        # 添加文件列表
+        for file_path in sorted(files):
+            self._add_file_to_folder(file_path, folder_item)
 
     def _add_file_to_folder(self, file_path: str, parent_item: QTreeWidgetItem):
         """将文件添加到文件夹节点下"""
@@ -226,22 +325,40 @@ class FileListView(QTreeWidget):
                     item = self.topLevelItem(i)
                     if item.data(0, Qt.ItemDataRole.UserRole) == norm_path:
                         self.takeTopLevelItem(i)
-                        return True
+                        return True, None
                     # 递归搜索子项
-                    if find_and_remove(item):
-                        return True
+                    result, parent = find_and_remove(item)
+                    if result:
+                        return True, parent
             else:
                 # 搜索子项
                 for i in range(parent_item.childCount()):
                     child = parent_item.child(i)
                     if child.data(0, Qt.ItemDataRole.UserRole) == norm_path:
                         parent_item.removeChild(child)
-                        return True
-            return False
+                        # 检查父文件夹是否还有子项
+                        if parent_item.childCount() == 0:
+                            # 文件夹为空，移除文件夹节点
+                            folder_path = parent_item.data(0, Qt.ItemDataRole.UserRole)
+                            if folder_path in self.folder_nodes:
+                                del self.folder_nodes[folder_path]
+                            index = self.indexOfTopLevelItem(parent_item)
+                            if index >= 0:
+                                self.takeTopLevelItem(index)
+                        return True, parent_item
+            return False, None
         
         find_and_remove()
 
-    def clear(self):
-        """清空所有项"""
+    def clear(self, clear_cache: bool = False):
+        """
+        清空所有项
+        
+        Args:
+            clear_cache: 是否同时清空缩略图缓存（默认 False，保留缓存以便重用）
+        """
         super().clear()
         self.folder_nodes.clear()
+        
+        if clear_cache:
+            FileItemWidget.clear_thumbnail_cache()

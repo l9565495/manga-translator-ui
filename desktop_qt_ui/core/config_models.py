@@ -126,6 +126,7 @@ class AppSection(BaseModel):
     last_open_dir: str = '.'
     last_output_path: str = ""
     favorite_folders: Optional[List[str]] = None
+    theme: str = "light"  # 主题：light, dark, gray
 
 class AppSettings(BaseModel):
     app: AppSection = Field(default_factory=AppSection)

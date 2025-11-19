@@ -185,12 +185,14 @@ jobs:
         cp -r fonts dist/manga-translator-cpu/_internal/
         cp -r models_cpu dist/manga-translator-cpu/_internal/models
         cp -r dict dist/manga-translator-cpu/_internal/
+        cp -r doc dist/manga-translator-cpu/_internal/
         cp packaging/VERSION dist/manga-translator-cpu/_internal/
         
         cp -r examples dist/manga-translator-gpu/_internal/
         cp -r fonts dist/manga-translator-gpu/_internal/
         cp -r models_gpu dist/manga-translator-gpu/_internal/models
         cp -r dict dist/manga-translator-gpu/_internal/
+        cp -r doc dist/manga-translator-gpu/_internal/
         cp packaging/VERSION dist/manga-translator-gpu/_internal/
 
     - name: Create Release Archives using 7-Zip with Splitting

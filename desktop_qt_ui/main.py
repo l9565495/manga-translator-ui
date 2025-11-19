@@ -56,8 +56,41 @@ def main():
     )
 
     # --- 环境设置 ---
+    # Windows特殊处理：必须在创建QApplication之前设置AppUserModelID
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            # 设置AppUserModelID，让Windows识别这是独立应用
+            myappid = 'manga.translator.ui.1.0'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception as e:
+            pass
+    
     # 1. 创建 QApplication 实例
     app = QApplication(sys.argv)
+    app.setApplicationName("Manga Translator")
+    app.setOrganizationName("Manga Translator")
+    
+    # 设置应用程序图标（用于任务栏）
+    from PyQt6.QtGui import QIcon
+    
+    # 确定图标路径
+    if getattr(sys, 'frozen', False):
+        # 打包环境：图标在 _internal 目录下
+        # sys.executable 是 app.exe 的路径，_internal 在同级目录
+        exe_dir = os.path.dirname(sys.executable)
+        icon_path = os.path.join(exe_dir, '_internal', 'doc', 'images', 'icon.ico')
+    else:
+        # 开发环境
+        icon_path = os.path.join(os.path.dirname(__file__), '..', 'doc', 'images', 'icon.ico')
+    
+    icon_path = os.path.abspath(icon_path)
+    app_icon = None
+    
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        if not app_icon.isNull():
+            app.setWindowIcon(app_icon)
 
     # 2. 初始化所有服务
     # 设置正确的根目录：打包后指向_internal，开发时指向项目根目录
@@ -74,7 +107,17 @@ def main():
 
     # 3. 创建并显示主窗口
     main_window = MainWindow()
+    
+    # 确保主窗口也设置了图标
+    if app_icon and not app_icon.isNull():
+        main_window.setWindowIcon(app_icon)
+    
     main_window.show()
+    
+    # Windows特殊处理：显示后再次设置图标，强制刷新任务栏
+    if sys.platform == 'win32' and app_icon and not app_icon.isNull():
+        main_window.setWindowIcon(app_icon)
+        app.processEvents()  # 强制处理事件，刷新任务栏图标
 
     # 4. 启动事件循环
     sys.exit(app.exec())

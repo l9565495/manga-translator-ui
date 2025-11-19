@@ -201,15 +201,15 @@ class MainView(QWidget):
                 except ValueError:
                     self.setting_changed.emit(full_key, None)
     
-    def _on_tile_size_input_changed(self, text, full_key):
-        """处理 tile_size 输入框的变化"""
+    def _on_numeric_input_changed(self, text, full_key, value_type):
+        """统一处理数值类型输入框的变化（支持 int 和 float）"""
         if not text or not text.strip():
             # 空值 = 使用默认值 (None)
             self.setting_changed.emit(full_key, None)
         else:
             try:
-                tile_size = int(text)
-                self.setting_changed.emit(full_key, tile_size)
+                value = value_type(text)
+                self.setting_changed.emit(full_key, value)
             except ValueError:
                 # 无效输入 = 使用默认值
                 self.setting_changed.emit(full_key, None)
@@ -265,7 +265,8 @@ class MainView(QWidget):
 
             # 跳过这些选项，因为已经用下拉框替代或不需要在UI中显示
             # realcugan_model 将通过 upscale_ratio 动态下拉框处理
-            if full_key in ["cli.load_text", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "upscale.realcugan_model"]:
+            # batch_concurrent 并发处理已隐藏
+            if full_key in ["cli.load_text", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "upscale.realcugan_model", "cli.batch_concurrent"]:
                 continue
 
             label_text = key
@@ -377,15 +378,23 @@ class MainView(QWidget):
                 
                 widget.currentTextChanged.connect(lambda text, k=full_key: self._on_upscale_ratio_changed(text, k))
             
-            # 特殊处理：tile_size 输入框（即使值为 None 也显示）
-            elif full_key == "upscale.tile_size":
-                widget = QLineEdit(str(value) if value is not None else "")
-                widget.setPlaceholderText("默认: 400")
-                widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_tile_size_input_changed(w.text(), k))
-
             elif isinstance(value, (int, float)):
                 widget = QLineEdit(str(value))
-                widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_setting_changed(w.text(), k, None))
+                widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int))
+
+            elif value is None and key in ['tile_size', 'line_spacing', 'font_size']:
+                # 处理值为 None 的数值类型参数（Optional[int] 或 Optional[float]）
+                widget = QLineEdit("")
+                # 根据参数名设置提示文本
+                if key == 'tile_size':
+                    widget.setPlaceholderText("默认: 400")
+                    widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, int))
+                elif key == 'line_spacing':
+                    widget.setPlaceholderText("横排默认: 0.01, 竖排默认: 0.2")
+                    widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float))
+                elif key == 'font_size':
+                    widget.setPlaceholderText("自动")
+                    widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, int))
 
             elif (isinstance(value, str) or value is None) and (options or display_map):
                 widget = QComboBox()
@@ -622,21 +631,24 @@ class MainView(QWidget):
         """Handles the change of the translation state to update the start/stop button."""
         if is_translating:
             self.start_button.setText("停止翻译")
-            # A simple stylesheet for a red button
             self.start_button.setStyleSheet("background-color: #C53929; color: white;")
             try:
                 self.start_button.clicked.disconnect()
             except TypeError:
-                pass  # Slot was not connected
+                pass
             self.start_button.clicked.connect(self.controller.stop_task)
         else:
-            self.start_button.setStyleSheet("")  # Revert to default style
+            self.start_button.setStyleSheet("")
+            self.start_button.style().unpolish(self.start_button)
+            self.start_button.style().polish(self.start_button)
+            self.start_button.update()
+            
             try:
                 self.start_button.clicked.disconnect()
             except TypeError:
                 pass
             self.start_button.clicked.connect(self.controller.start_backend_task)
-            self.update_start_button_text() # Update text to reflect current settings
+            self.update_start_button_text()
 
     def _sync_workflow_mode_from_config(self):
         """从配置同步下拉框的选择"""

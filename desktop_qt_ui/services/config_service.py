@@ -206,8 +206,9 @@ class ConfigService(QObject):
                         config_dict['app'] = {}
                     config_dict['app']['last_open_dir'] = '.'
                     config_dict['app']['last_output_path'] = ''
-                    # 模板配置不保存favorite_folders
-                    config_dict['app'].pop('favorite_folders', None)
+                    # 模板配置中这两个字段保持固定值
+                    config_dict['app']['favorite_folders'] = None
+                    config_dict['app']['theme'] = 'light'
                     
                     if 'cli' in config_dict:
                         config_dict['cli']['verbose'] = False
