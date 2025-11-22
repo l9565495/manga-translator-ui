@@ -79,6 +79,10 @@ async def register_instance(instance: ExecutorInstance, req: Request, req_nonce:
     executor_instances.register(instance)
 
 def transform_to_image(ctx):
+    # 检查 ctx.result 是否存在
+    if ctx.result is None:
+        raise HTTPException(500, detail="Translation failed: no result image generated")
+    
     # 检查是否使用占位符（在web模式下final.png保存后会设置此标记）
     if hasattr(ctx, 'use_placeholder') and ctx.use_placeholder:
         # ctx.result已经是1x1占位符图片，快速传输

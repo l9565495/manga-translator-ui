@@ -288,6 +288,13 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                     "message": f"检测到 {text_region_count} 个文本区域"
                 }, ensure_ascii=False).encode('utf-8'))
             
+            # 检查是否有结果
+            if not has_result:
+                error_msg = "翻译失败：未生成结果图片（可能未检测到文本或翻译过程出错）"
+                print(f"[STREAMING ERROR] {error_msg}")
+                yield pack_message(2, json.dumps({"error": error_msg, "stage": "no_result"}, ensure_ascii=False).encode('utf-8'))
+                return
+            
             # 转换结果并发送
             try:
                 print("[STREAMING] 转换结果")
