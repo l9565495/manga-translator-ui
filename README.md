@@ -146,12 +146,6 @@ python -m manga_translator local -i ./manga_folder/ -o ./output/
 # Web API 服务器模式
 python -m manga_translator web --host 127.0.0.1 --port 8000
 
-# WebSocket 模式（实时通信服务）
-python -m manga_translator ws --host 127.0.0.1 --port 5003
-
-# Shared/API 模式
-python -m manga_translator shared --host 127.0.0.1 --port 5003
-
 # 查看所有参数
 python -m manga_translator --help
 ```
