@@ -134,23 +134,23 @@
 
 快速开始：
 ```bash
-# CLI 模式（推荐，使用 UI 层逻辑）
-python -m manga_translator cli -i manga.jpg
+# Local 模式（推荐，命令行翻译）
+python -m manga_translator local -i manga.jpg
 
-# 或简写（默认 CLI 模式）
+# 或简写（默认 Local 模式）
 python -m manga_translator -i manga.jpg
 
 # 翻译整个文件夹
-python -m manga_translator -i ./manga_folder/ -o ./output/
+python -m manga_translator local -i ./manga_folder/ -o ./output/
 
 # Web API 服务器模式
 python -m manga_translator web --host 127.0.0.1 --port 8000
 
-# Local 模式（旧版批量翻译）
-python -m manga_translator local -i manga.jpg --use-gpu
-
 # WebSocket 模式（实时通信服务）
 python -m manga_translator ws --host 127.0.0.1 --port 5003
+
+# Shared/API 模式
+python -m manga_translator shared --host 127.0.0.1 --port 5003
 
 # 查看所有参数
 python -m manga_translator --help
