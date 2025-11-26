@@ -141,6 +141,7 @@ class FileListView(QTreeWidget):
     """显示文件列表的自定义控件（支持文件夹分组）"""
     file_remove_requested = pyqtSignal(str)
     file_selected = pyqtSignal(str)
+    files_dropped = pyqtSignal(list)  # 新增：拖放文件信号
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -151,11 +152,39 @@ class FileListView(QTreeWidget):
         self.setIndentation(20)  # 设置缩进
         self.setAnimated(True)  # 启用展开/折叠动画
         
+        # 启用拖放
+        self.setAcceptDrops(True)
+        self.setDragEnabled(False)  # 禁用拖出，只允许拖入
+        
         # 存储文件夹到树节点的映射
         self.folder_nodes: Dict[str, QTreeWidgetItem] = {}
         
         # 连接选择信号
         self.itemSelectionChanged.connect(self._on_selection_changed)
+
+    def paintEvent(self, event):
+        """重写绘制事件，在列表为空时显示提示"""
+        super().paintEvent(event)
+        
+        # 只在列表为空时显示提示
+        if self.topLevelItemCount() == 0:
+            from PyQt6.QtGui import QPainter, QColor, QFont
+            from PyQt6.QtCore import Qt, QRect
+            
+            painter = QPainter(self.viewport())
+            painter.setPen(QColor(150, 150, 150))  # 灰色
+            
+            # 设置字体
+            font = QFont()
+            font.setPointSize(10)
+            painter.setFont(font)
+            
+            # 绘制提示文本
+            rect = self.viewport().rect()
+            text = "拖拽文件或文件夹到此处\n或点击上方按钮添加"
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+            
+            painter.end()
 
     def _on_selection_changed(self):
         """处理选择变化"""
@@ -224,6 +253,9 @@ class FileListView(QTreeWidget):
         # 添加独立文件
         for file_path in standalone_files:
             self._add_single_file(file_path)
+        
+        # 触发重绘以隐藏占位提示
+        self.viewport().update()
 
     def _add_folder(self, folder_path: str):
         """添加文件夹及其包含的所有图片文件"""
@@ -378,3 +410,38 @@ class FileListView(QTreeWidget):
         
         if clear_cache:
             FileItemWidget.clear_thumbnail_cache()
+        
+        # 触发重绘以显示占位提示
+        self.viewport().update()
+
+    # 拖放事件处理
+    def dragEnterEvent(self, event):
+        """拖入事件：检查是否包含文件"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        """拖动移动事件"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        """放下事件：处理拖入的文件和文件夹"""
+        if event.mimeData().hasUrls():
+            paths = []
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                if path:
+                    paths.append(path)
+            
+            if paths:
+                # 发射信号，让业务逻辑层处理
+                self.files_dropped.emit(paths)
+            
+            event.acceptProposedAction()
+        else:
+            event.ignore()

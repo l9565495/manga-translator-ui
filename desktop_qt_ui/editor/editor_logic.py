@@ -88,6 +88,29 @@ class EditorLogic(QObject):
         except OSError as e:
             print(f"Error reading folder {folder_path}: {e}")
 
+    @pyqtSlot(list)
+    def add_files_from_paths(self, paths: List[str]):
+        """
+        从拖放的路径列表中添加文件和文件夹
+        
+        Args:
+            paths: 拖放的文件或文件夹路径列表
+        """
+        files_to_add = []
+        for path in paths:
+            if os.path.isfile(path):
+                # 验证是否是图片文件
+                image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+                if os.path.splitext(path)[1].lower() in image_extensions:
+                    files_to_add.append(path)
+            elif os.path.isdir(path):
+                # 添加文件夹中的所有图片
+                self.add_folder(path)
+        
+        # 添加单独的文件
+        if files_to_add:
+            self.add_files(files_to_add)
+
     @pyqtSlot(str)
     def remove_file(self, file_path: str, emit_signal: bool = False):
         """

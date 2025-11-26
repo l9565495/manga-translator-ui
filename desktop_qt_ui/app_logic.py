@@ -396,7 +396,7 @@ class MainAppLogic(QObject):
                     "detection_size": "检测大小", "text_threshold": "文本阈值", "det_rotate": "旋转图像进行检测",
                     "det_auto_rotate": "旋转图像以优先检测垂直文本行", "det_invert": "反转图像颜色进行检测",
                     "det_gamma_correct": "应用伽马校正进行检测", "use_yolo_obb": "启用YOLO辅助检测", "yolo_obb_conf": "YOLO置信度阈值", "yolo_obb_iou": "YOLO交叉比(IoU)", "yolo_obb_overlap_threshold": "YOLO辅助检测重叠率删除阈值", "box_threshold": "边界框生成阈值", "unclip_ratio": "Unclip比例", "min_box_area_ratio": "最小检测框面积占比",
-                    "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度",
+                    "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度", "inpainting_split_ratio": "极端长宽比切割阈值",
                     "renderer": "渲染器", "alignment": "对齐方式", "disable_font_border": "禁用字体边框",
                     "disable_auto_wrap": "AI断句", "font_size_offset": "字体大小偏移量", "font_size_minimum": "最小字体大小",
                     "max_font_size": "最大字体大小", "font_scale_ratio": "字体缩放比例",

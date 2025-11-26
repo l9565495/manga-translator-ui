@@ -47,7 +47,8 @@
   "inpainter": {
     "inpainter": "lama_large",
     "inpainting_size": 2048,
-    "inpainting_precision": "fp32"
+    "inpainting_precision": "fp32",
+    "inpainting_split_ratio": 3.0
   },
   "render": {
     "renderer": "default",
@@ -67,7 +68,7 @@
     "font_size": null,
     "auto_rotate_symbols": false,
     "rtl": true,
-    "layout_mode": "default",
+    "layout_mode": "smart_scaling",
     "max_font_size": 0,
     "font_scale_ratio": 1.0,
     "center_text_in_bubble": false,
@@ -98,7 +99,7 @@
     "format": "不指定",
     "overwrite": true,
     "skip_no_text": false,
-    "save_text": true,
+    "save_text": false,
     "load_text": false,
     "template": false,
     "save_quality": 100,

@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSplitter,
@@ -263,6 +264,7 @@ class EditorView(QWidget):
         self.clear_list_button.clicked.connect(self.logic.clear_list)
         self.file_list.file_remove_requested.connect(self._on_file_remove_requested)
         self.file_list.file_selected.connect(self.logic.load_image_into_editor)
+        self.file_list.files_dropped.connect(self.logic.add_files_from_paths)  # 拖放文件支持
         self.logic.file_list_changed.connect(self.update_file_list)
 
         # --- Toolbar (Top) to Controller/View ---

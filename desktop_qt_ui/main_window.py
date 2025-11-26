@@ -182,6 +182,7 @@ class MainWindow(QMainWindow):
 
         # --- View to Coordinator Connections ---
         self.main_view.file_list.file_selected.connect(self.on_file_selected_from_main_list)
+        self.main_view.file_list.files_dropped.connect(self.app_logic.add_files)  # 拖放文件支持
         # self.main_view.enter_editor_button.clicked.connect(self.enter_editor_mode) # Example for a dedicated button
 
         # --- Editor related connections ---
