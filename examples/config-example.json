@@ -42,7 +42,7 @@
     "yolo_obb_conf": 0.4,
     "yolo_obb_iou": 0.6,
     "yolo_obb_overlap_threshold": 0.1,
-    "min_box_area_ratio": 0.0008
+    "min_box_area_ratio": 0.0
   },
   "inpainter": {
     "inpainter": "lama_large",
@@ -60,7 +60,6 @@
     "direction": "auto",
     "uppercase": false,
     "lowercase": false,
-    "gimp_font": "Arial-Unicode-Regular.ttf",
     "font_path": "Arial-Unicode-Regular.ttf",
     "no_hyphenation": false,
     "font_color": null,
@@ -91,7 +90,7 @@
   },
   "cli": {
     "verbose": false,
-    "attempts": -1,
+    "attempts": 2,
     "ignore_errors": false,
     "use_gpu": true,
     "use_gpu_limited": false,
@@ -99,7 +98,7 @@
     "format": "不指定",
     "overwrite": true,
     "skip_no_text": false,
-    "save_text": false,
+    "save_text": true,
     "load_text": false,
     "template": false,
     "save_quality": 100,

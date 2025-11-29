@@ -94,7 +94,22 @@ def run_pip(args, desc=None):
         return
     
     index_url_line = f' --index-url {index_url}' if index_url != '' else ''
-    return run(f'"{python}" -m pip {args} --prefer-binary{index_url_line} --disable-pip-version-check --no-warn-script-location',
+    
+    # ✅ 添加 --trusted-host 参数以解决SSL证书问题
+    # 需要为主索引和PyTorch官方源都添加trusted-host
+    trusted_host_line = ''
+    if index_url:
+        import urllib.parse
+        # 主索引（清华源等）
+        parsed = urllib.parse.urlparse(index_url)
+        if parsed.hostname:
+            trusted_host_line += f' --trusted-host {parsed.hostname}'
+        
+        # PyTorch官方源（如果在requirements中使用了--extra-index-url）
+        # 添加常用的PyTorch源
+        trusted_host_line += ' --trusted-host download.pytorch.org'
+    
+    return run(f'"{python}" -m pip {args} --prefer-binary{index_url_line}{trusted_host_line} --disable-pip-version-check --no-warn-script-location',
                desc=f"正在安装 {desc}", errdesc=f"无法安装 {desc}", live=True)
 
 

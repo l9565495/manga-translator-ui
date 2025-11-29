@@ -213,19 +213,20 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         if os.path.isdir(input_path):
             input_folders.add(os.path.normpath(os.path.abspath(input_path)))
     
-    print(f"\n📁 加载图片...")
+    print(f"\n📁 准备图片列表...")
+    # ✅ 只保存文件路径，不加载图片数据
+    file_paths_with_configs = []
     for file_path in all_files:
-        # 加载图片
+        # 只验证文件可读性，不加载图片数据
         try:
-            with open(file_path, 'rb') as f:
-                image = Image.open(f)
-                image.load()  # 立即加载图片数据
-            image.name = file_path
-            images_with_configs.append((image, manga_config))
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                file_paths_with_configs.append((file_path, manga_config))
+            else:
+                print(f"❌ 文件不存在: {os.path.basename(file_path)}")
         except Exception as e:
-            print(f"❌ 无法加载: {os.path.basename(file_path)} - {e}")
+            print(f"❌ 无法访问: {os.path.basename(file_path)} - {e}")
     
-    if not images_with_configs:
+    if not file_paths_with_configs:
         print("没有需要翻译的图片")
         return
     
@@ -247,7 +248,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         print(f"✅ 创建输出目录: {final_output_dir}")
     
     batch_size = cli_config.get('batch_size', 3)
-    total_images = len(images_with_configs)
+    total_images = len(file_paths_with_configs)
     total_batches = (total_images + batch_size - 1) // batch_size if batch_size > 0 else 1
     
     print(f"\n📊 批量处理模式：共 {total_images} 张图片，分 {total_batches} 个批次处理")
@@ -263,7 +264,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
             print(f"      - {folder}")
     print()
     
-    # 批量翻译（像 UI 一样，一次性调用）
+    # ✅ 按批次加载和处理图片，避免一次性加载所有图片到内存
     try:
         print(f"🚀 开始翻译...")
         print(f"📋 传递给翻译器的 save_info:")
@@ -272,13 +273,61 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         print(f"   overwrite: {save_info['overwrite']}")
         print(f"   input_folders: {save_info['input_folders']}")
         print()
-        print(f"⏳ 开始批量翻译（这可能需要几分钟，请耐心等待）...")
+        print(f"⏳ 开始批量翻译（按批次加载图片以节省内存）...")
         logger.info(f"开始批量翻译，save_info={save_info}")
         
         import sys
         sys.stdout.flush()  # 强制刷新输出
         
-        contexts = await translator.translate_batch(images_with_configs, save_info=save_info)
+        # ✅ 按批次加载和处理图片
+        all_contexts = []
+        for batch_num in range(total_batches):
+            batch_start = batch_num * batch_size
+            batch_end = min(batch_start + batch_size, total_images)
+            current_batch_paths = file_paths_with_configs[batch_start:batch_end]
+            
+            print(f"\n📦 处理批次 {batch_num + 1}/{total_batches} (图片 {batch_start + 1}-{batch_end})...")
+            
+            # 加载当前批次的图片
+            images_with_configs = []
+            for file_path, config in current_batch_paths:
+                try:
+                    with open(file_path, 'rb') as f:
+                        image = Image.open(f)
+                        image.load()  # 加载图片数据
+                    image.name = file_path
+                    images_with_configs.append((image, config))
+                except Exception as e:
+                    logger.error(f"Failed to load image {file_path}: {e}")
+                    print(f"❌ 无法加载: {os.path.basename(file_path)} - {e}")
+                    # 创建一个错误上下文
+                    from manga_translator.utils import Context
+                    error_ctx = Context()
+                    error_ctx.image_name = file_path
+                    error_ctx.translation_error = str(e)
+                    all_contexts.append(error_ctx)
+            
+            if images_with_configs:
+                # 处理当前批次（translate_batch内部会进一步分批）
+                batch_contexts = await translator.translate_batch(images_with_configs, save_info=save_info)
+                all_contexts.extend(batch_contexts)
+                
+                # ✅ 批次处理完成后，立即清理图片对象
+                for image, _ in images_with_configs:
+                    if hasattr(image, 'close'):
+                        try:
+                            image.close()
+                        except:
+                            pass
+                images_with_configs.clear()
+                
+                # 强制垃圾回收
+                import gc
+                gc.collect()
+                
+                print(f"✅ 批次 {batch_num + 1} 完成，已清理内存")
+        
+        contexts = all_contexts
         
         # 统计结果（像 UI 一样）
         success_count = 0

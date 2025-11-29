@@ -2394,6 +2394,39 @@ class MangaTranslator:
                     logger.error(f"Error rendering image in batch: {e}")
                     results.append(ctx)
 
+            # ✅ 批次完成后立即清理内存（参考高质量翻译模式的清理逻辑）
+            import gc
+            
+            # 1. 清理current_batch_images中的图像引用
+            for image, _ in current_batch_images:
+                if hasattr(image, 'close'):
+                    try:
+                        image.close()
+                    except:
+                        pass
+            current_batch_images = None
+            
+            # 2. 清理preprocessed_contexts中的输入图像
+            for ctx, _ in preprocessed_contexts:
+                if hasattr(ctx, 'input'):
+                    ctx.input = None
+            preprocessed_contexts.clear()
+            
+            # 3. 清理translated_contexts中的中间图像（保留result用于返回）
+            for ctx, _ in translated_contexts:
+                if hasattr(ctx, 'img_rgb'):
+                    ctx.img_rgb = None
+                if hasattr(ctx, 'img_inpainted'):
+                    ctx.img_inpainted = None
+                if hasattr(ctx, 'img_rendered'):
+                    ctx.img_rendered = None
+            translated_contexts.clear()
+            
+            # 4. 强制垃圾回收和GPU显存清理
+            self._cleanup_gpu_memory()
+            
+            logger.debug(f'[MEMORY] Batch {batch_start//batch_size + 1} cleanup completed')
+
         logger.info(f"Batch translation completed: processed {len(results)} images")
         return results
 

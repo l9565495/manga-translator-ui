@@ -314,6 +314,11 @@ This is an incorrect response because it includes extra text and explanations.
                 # 检查成功条件
                 if response.choices and response.choices[0].message.content and response.choices[0].finish_reason != 'content_filter':
                     result_text = response.choices[0].message.content.strip()
+                    
+                    # ✅ 检测HTML错误响应（404等）- 抛出特定异常供统一错误处理
+                    if result_text.startswith('<!DOCTYPE') or result_text.startswith('<html') or '<h1>404</h1>' in result_text:
+                        raise Exception(f"API_404_ERROR: API返回HTML错误页面 - API地址({self.base_url})或模型({self.model})配置错误")
+                    
                     # 增加清理步骤，移除可能的Markdown代码块
                     if result_text.startswith("```") and result_text.endswith("```"):
                         result_text = result_text[3:-3].strip()

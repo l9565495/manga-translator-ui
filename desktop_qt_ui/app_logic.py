@@ -1168,6 +1168,26 @@ class TranslationWorker(QObject):
             friendly_msg += "      - 将 gemini_hq 改为 gemini\n"
             friendly_msg += "      - 说明：普通翻译器不需要发送图片，只翻译文本\n\n"
         
+        # 检查是否是404错误（API地址或模型配置错误）
+        elif "API_404_ERROR" in error_message or "404" in error_message or "HTML错误页面" in error_message:
+            friendly_msg += "🔍 错误原因：API返回404错误\n\n"
+            friendly_msg += "📝 详细说明：\n"
+            friendly_msg += "   API返回了HTML格式的404错误页面，而不是正常的JSON响应。\n"
+            friendly_msg += "   这通常意味着API地址错误或模型名称不存在。\n\n"
+            friendly_msg += "💡 解决方案：\n"
+            friendly_msg += "   1. ⭐ 检查API地址配置（最常见）\n"
+            friendly_msg += "      - 位置：翻译设置 → 环境变量 → OPENAI_API_BASE\n"
+            friendly_msg += "      - 正确格式：https://api.openai.com/v1\n"
+            friendly_msg += "      - 注意：地址末尾必须是 /v1，不要多加或少加路径\n\n"
+            friendly_msg += "   2. 检查模型名称是否正确\n"
+            friendly_msg += "      - 位置：翻译设置 → 环境变量 → OPENAI_MODEL\n"
+            friendly_msg += "      - OpenAI支持的模型：gpt-4o, gpt-4-turbo, gpt-4, gpt-3.5-turbo\n"
+            friendly_msg += "      - 注意：模型名称区分大小写，必须完全匹配\n\n"
+            friendly_msg += "   3. 如果使用自定义API（如中转API）\n"
+            friendly_msg += "      - 确认中转服务的API地址格式\n"
+            friendly_msg += "      - 确认中转服务支持你使用的模型\n"
+            friendly_msg += "      - 联系中转服务提供商确认配置\n\n"
+        
         # 检查是否是API密钥错误
         elif "api key" in error_message.lower() or "authentication" in error_message.lower() or "unauthorized" in error_message.lower() or "401" in error_message:
             friendly_msg += "🔍 错误原因：API密钥验证失败\n\n"
@@ -1511,23 +1531,62 @@ class TranslationWorker(QObject):
                 if workflow_tip:
                     self.log_received.emit(workflow_tip)
 
-                images_with_configs = []
-                for file_path in self.files:
+                # ✅ 按批次加载图片，避免一次性加载所有图片到内存
+                self.log_received.emit(f"🚀 开始翻译（按批次加载图片以节省内存）...")
+                
+                all_contexts = []
+                for batch_num in range(total_batches):
                     if not self._is_running: raise asyncio.CancelledError("Task stopped by user.")
-                    self.progress.emit(len(images_with_configs), len(self.files), f"Loading for batch: {os.path.basename(file_path)}")
-                    try:
-                        # 使用二进制模式读取以避免Windows路径编码问题
-                        with open(file_path, 'rb') as f:
-                            image = Image.open(f)
-                            image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
-                        image.name = file_path
-                        images_with_configs.append((image, config))
-                    except Exception as e:
-                        self.log_received.emit(f"⚠️ 无法加载图片 {os.path.basename(file_path)}: {e}")
-                        self.logger.error(f"Error loading image {file_path}: {e}")
-
-                self.log_received.emit(f"🚀 开始翻译...")
-                contexts = await translator.translate_batch(images_with_configs, save_info=save_info)
+                    
+                    batch_start = batch_num * batch_size
+                    batch_end = min(batch_start + batch_size, total_images)
+                    current_batch_files = self.files[batch_start:batch_end]
+                    
+                    self.log_received.emit(f"\n📦 处理批次 {batch_num + 1}/{total_batches} (图片 {batch_start + 1}-{batch_end})...")
+                    
+                    # 加载当前批次的图片
+                    images_with_configs = []
+                    for file_path in current_batch_files:
+                        if not self._is_running: raise asyncio.CancelledError("Task stopped by user.")
+                        self.progress.emit(batch_start + len(images_with_configs), total_images, f"Loading: {os.path.basename(file_path)}")
+                        try:
+                            # 使用二进制模式读取以避免Windows路径编码问题
+                            with open(file_path, 'rb') as f:
+                                image = Image.open(f)
+                                image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
+                            image.name = file_path
+                            images_with_configs.append((image, config))
+                        except Exception as e:
+                            self.log_received.emit(f"⚠️ 无法加载图片 {os.path.basename(file_path)}: {e}")
+                            self.logger.error(f"Error loading image {file_path}: {e}")
+                            # 创建错误上下文
+                            from manga_translator.utils import Context
+                            error_ctx = Context()
+                            error_ctx.image_name = file_path
+                            error_ctx.translation_error = str(e)
+                            all_contexts.append(error_ctx)
+                    
+                    if images_with_configs:
+                        # 处理当前批次
+                        batch_contexts = await translator.translate_batch(images_with_configs, save_info=save_info)
+                        all_contexts.extend(batch_contexts)
+                        
+                        # ✅ 批次处理完成后，立即清理图片对象
+                        for image, _ in images_with_configs:
+                            if hasattr(image, 'close'):
+                                try:
+                                    image.close()
+                                except:
+                                    pass
+                        images_with_configs.clear()
+                        
+                        # 强制垃圾回收
+                        import gc
+                        gc.collect()
+                        
+                        self.log_received.emit(f"✅ 批次 {batch_num + 1} 完成，已清理内存")
+                
+                contexts = all_contexts
 
                 # The backend now handles saving for batch jobs. We just need to collect the paths/status.
                 success_count = 0
