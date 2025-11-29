@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QMessageBox, QAbstractItemView, QScrollArea, QToolButton, QStyle, QComboBox, QStyledItemDelegate
 )
 
+from services import get_i18n_manager
+
 
 class CaseInsensitiveSortProxyModel(QSortFilterProxyModel):
     """不区分大小写的排序代理模型"""
@@ -263,8 +265,9 @@ class FolderDialog(QDialog):
         self.history_index = -1  # 当前历史位置
         self.favorite_folders: List[str] = []  # 收藏的文件夹
         self.config_service = config_service
+        self.i18n = get_i18n_manager()
 
-        self.setWindowTitle("选择文件夹" + (" (可多选)" if multi_select else ""))
+        self.setWindowTitle(self._t("Select Folder") + (self._t(" (Multi-select)") if multi_select else ""))
         self.setMinimumSize(1000, 650)
         self.resize(1000, 650)
         
@@ -296,6 +299,12 @@ class FolderDialog(QDialog):
             self.navigate_to(start_dir, add_to_history=True)
         else:
             self.navigate_to(str(Path.home()), add_to_history=True)
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def _init_ui(self):
         """初始化UI"""
@@ -340,7 +349,7 @@ class FolderDialog(QDialog):
         # 后退按钮
         self.back_button = QToolButton()
         self.back_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack))
-        self.back_button.setToolTip("后退")
+        self.back_button.setToolTip(self._t("Back"))
         self.back_button.setIconSize(QSize(20, 20))
         self.back_button.setEnabled(False)
         toolbar_layout.addWidget(self.back_button)
@@ -348,7 +357,7 @@ class FolderDialog(QDialog):
         # 前进按钮
         self.forward_button = QToolButton()
         self.forward_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward))
-        self.forward_button.setToolTip("前进")
+        self.forward_button.setToolTip(self._t("Forward"))
         self.forward_button.setIconSize(QSize(20, 20))
         self.forward_button.setEnabled(False)
         toolbar_layout.addWidget(self.forward_button)
@@ -356,7 +365,7 @@ class FolderDialog(QDialog):
         # 上级目录按钮
         self.parent_button = QToolButton()
         self.parent_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
-        self.parent_button.setToolTip("上级目录")
+        self.parent_button.setToolTip(self._t("Parent Directory"))
         self.parent_button.setIconSize(QSize(20, 20))
         toolbar_layout.addWidget(self.parent_button)
 
@@ -369,19 +378,26 @@ class FolderDialog(QDialog):
         # 刷新按钮
         self.refresh_button = QToolButton()
         self.refresh_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
-        self.refresh_button.setToolTip("刷新")
+        self.refresh_button.setToolTip(self._t("Refresh"))
         self.refresh_button.setIconSize(QSize(20, 20))
         toolbar_layout.addWidget(self.refresh_button)
 
         toolbar_layout.addStretch()
 
         # 排序选项
-        sort_label = QLabel("排序:")
+        sort_label = QLabel(self._t("Sort:"))
         sort_label.setStyleSheet(f"color: {palette.color(QPalette.ColorRole.WindowText).name()}; font-size: 12px; margin-right: 4px;")
         toolbar_layout.addWidget(sort_label)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["名称 ↑", "名称 ↓", "修改时间 ↑", "修改时间 ↓", "大小 ↑", "大小 ↓"])
+        self.sort_combo.addItems([
+            self._t("Name ↑"),
+            self._t("Name ↓"),
+            self._t("Modified Time ↑"),
+            self._t("Modified Time ↓"),
+            self._t("Size ↑"),
+            self._t("Size ↓")
+        ])
         self.sort_combo.setCurrentIndex(0)
         self.sort_combo.setStyleSheet(f"""
             QComboBox {{
@@ -456,7 +472,7 @@ class FolderDialog(QDialog):
         # 地址栏编辑按钮
         self.edit_path_button = QToolButton()
         self.edit_path_button.setText("✏️")
-        self.edit_path_button.setToolTip("编辑路径")
+        self.edit_path_button.setToolTip(self._t("Edit Path"))
         self.edit_path_button.setStyleSheet(f"""
             QToolButton {{
                 background-color: transparent;
@@ -579,13 +595,13 @@ class FolderDialog(QDialog):
         info_layout.setContentsMargins(8, 4, 8, 4)
 
         if self.multi_select:
-            tip_label = QLabel("💡 提示：按住 Ctrl 或 Shift 可以多选文件夹")
+            tip_label = QLabel(self._t("💡 Tip: Hold Ctrl or Shift to select multiple folders"))
             tip_label.setStyleSheet(f"color: {palette.color(QPalette.ColorRole.PlaceholderText).name()}; font-size: 12px;")
             info_layout.addWidget(tip_label)
 
         info_layout.addStretch()
 
-        self.selection_label = QLabel("未选择")
+        self.selection_label = QLabel(self._t("Not Selected"))
         self.selection_label.setStyleSheet(f"color: #0078d4; font-weight: bold; font-size: 12px;")
         info_layout.addWidget(self.selection_label)
 
@@ -596,7 +612,7 @@ class FolderDialog(QDialog):
         button_layout.setContentsMargins(8, 8, 8, 8)
         button_layout.addStretch()
 
-        self.ok_button = QPushButton("确定")
+        self.ok_button = QPushButton(self._t("OK"))
         self.ok_button.setMinimumWidth(100)
         self.ok_button.setMinimumHeight(32)
         self.ok_button.setEnabled(False)
@@ -623,7 +639,7 @@ class FolderDialog(QDialog):
         """)
         button_layout.addWidget(self.ok_button)
 
-        self.cancel_button = QPushButton("取消")
+        self.cancel_button = QPushButton(self._t("Cancel"))
         self.cancel_button.setMinimumWidth(100)
         self.cancel_button.setMinimumHeight(32)
         self.cancel_button.setStyleSheet(f"""
@@ -1151,7 +1167,7 @@ class FolderDialog(QDialog):
                 self.selection_label.setText(f"将添加当前目录: {dir_name}")
                 self.ok_button.setEnabled(True)
             else:
-                self.selection_label.setText("未选择")
+                self.selection_label.setText(self._t("Not Selected"))
                 self.ok_button.setEnabled(False)
         elif count == 1:
             folder_name = os.path.basename(self.selected_folders[0])

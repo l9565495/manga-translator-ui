@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from services import get_i18n_manager
+
 
 class EditorToolbar(QWidget):
     """
@@ -31,8 +33,15 @@ class EditorToolbar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.i18n = get_i18n_manager()
         self._init_ui()
         self._connect_signals()
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
@@ -41,38 +50,38 @@ class EditorToolbar(QWidget):
 
         # --- File Actions ---
         self.back_button = QToolButton()
-        self.back_button.setText("返回")
-        self.back_button.setToolTip("返回主界面")
+        self.back_button.setText(self._t("Back"))
+        self.back_button.setToolTip(self._t("Back to Main"))
         layout.addWidget(self.back_button)
 
         self.export_button = QToolButton()
-        self.export_button.setText("导出图片")
-        self.export_button.setToolTip("导出当前渲染的图片")
+        self.export_button.setText(self._t("Export Image"))
+        self.export_button.setToolTip(self._t("Export current rendered image"))
         layout.addWidget(self.export_button)
         
         self.edit_file_button = QToolButton()
-        self.edit_file_button.setText("编辑原图")
-        self.edit_file_button.setToolTip("切换到当前翻译图的源文件进行编辑")
+        self.edit_file_button.setText(self._t("Edit Original"))
+        self.edit_file_button.setToolTip(self._t("Switch to source file of current translation for editing"))
         layout.addWidget(self.edit_file_button)
 
         layout.addWidget(self._create_separator())
 
         # --- Edit Actions ---
         self.undo_button = QToolButton()
-        self.undo_button.setText("撤销")
+        self.undo_button.setText(self._t("Undo"))
         self.undo_button.setEnabled(False)
-        self.undo_button.setToolTip("撤销上一个操作")
+        self.undo_button.setToolTip(self._t("Undo last operation"))
         layout.addWidget(self.undo_button)
 
         self.redo_button = QToolButton()
-        self.redo_button.setText("重做")
+        self.redo_button.setText(self._t("Redo"))
         self.redo_button.setEnabled(False)
-        self.redo_button.setToolTip("重做上一个撤销的操作")
+        self.redo_button.setToolTip(self._t("Redo last undone operation"))
         layout.addWidget(self.redo_button)
 
         self.edit_geometry_button = QToolButton()
-        self.edit_geometry_button.setText("编辑形状")
-        self.edit_geometry_button.setToolTip("为选中的文本框增加新的关联形状")
+        self.edit_geometry_button.setText(self._t("Edit Shape"))
+        self.edit_geometry_button.setToolTip(self._t("Add new associated shape for selected text box"))
         self.edit_geometry_button.setCheckable(True)
         layout.addWidget(self.edit_geometry_button)
 
@@ -80,48 +89,80 @@ class EditorToolbar(QWidget):
 
         # --- View Actions ---
         self.zoom_out_button = QToolButton()
-        self.zoom_out_button.setText("缩小 (-)")
+        self.zoom_out_button.setText(self._t("Zoom Out (-)"))
         layout.addWidget(self.zoom_out_button)
 
         self.zoom_label = QLabel("100%")
-        self.zoom_label.setFixedWidth(50)
+        self.zoom_label.setMinimumWidth(40)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.zoom_label)
 
         self.zoom_in_button = QToolButton()
-        self.zoom_in_button.setText("放大 (+)")
+        self.zoom_in_button.setText(self._t("Zoom In (+)"))
         layout.addWidget(self.zoom_in_button)
 
         self.fit_window_button = QToolButton()
-        self.fit_window_button.setText("适应窗口")
+        self.fit_window_button.setText(self._t("Fit to Window"))
         layout.addWidget(self.fit_window_button)
         
         layout.addWidget(self._create_separator())
 
         # --- Display Mode ---
-        layout.addWidget(QLabel("显示模式:"))
+        # 创建一个容器来包装显示模式控件，确保它们作为一个整体
+        display_mode_container = QWidget()
+        display_mode_layout = QHBoxLayout(display_mode_container)
+        display_mode_layout.setContentsMargins(0, 0, 0, 0)
+        display_mode_layout.setSpacing(5)
+        
+        self.display_mode_label = QLabel(self._t("Display Mode:"))
+        display_mode_layout.addWidget(self.display_mode_label)
+        
         self.display_mode_combo = QComboBox()
         self.display_mode_combo.addItems([
-            "文字文本框显示",
-            "只显示文字",
-            "只显示框线",
-            "都不显示"
+            self._t("Show Text and Boxes"),
+            self._t("Show Text Only"),
+            self._t("Show Boxes Only"),
+            self._t("Show Nothing")
         ])
-        layout.addWidget(self.display_mode_combo)
-
-        layout.addWidget(self._create_separator())
+        # 设置固定宽度，不使用自适应（自适应会增加额外空间）
+        self.display_mode_combo.setFixedWidth(110)
+        # 通过样式表缩短箭头和文字之间的距离
+        self.display_mode_combo.setStyleSheet("""
+            QComboBox {
+                padding-right: 2px;  /* 最小化右侧内边距 */
+                padding-left: 3px;
+            }
+            QComboBox::drop-down {
+                width: 16px;  /* 缩小箭头区域 */
+                border: none;
+            }
+        """)
+        display_mode_layout.addWidget(self.display_mode_combo)
+        
+        # 添加分隔符到容器内
+        display_mode_layout.addWidget(self._create_separator())
+        
+        # 设置容器的尺寸策略，防止被压缩
+        from PyQt6.QtWidgets import QSizePolicy
+        display_mode_container.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        
+        # 将整个容器添加到主布局
+        layout.addWidget(display_mode_container, 0)
 
         # --- Inpaint Preview ---
-        layout.addWidget(QLabel("修复预览:"))
+        self.inpaint_preview_label = QLabel(self._t("Inpaint Preview:"))
+        layout.addWidget(self.inpaint_preview_label)
         self.render_inpaint_button = QToolButton()
-        self.render_inpaint_button.setText("生成预览")
+        self.render_inpaint_button.setText(self._t("Generate Preview"))
         layout.addWidget(self.render_inpaint_button)
 
-        layout.addWidget(QLabel("原图不透明度:"))
+        self.opacity_label = QLabel(self._t("Original Image Opacity:"))
+        layout.addWidget(self.opacity_label)
         self.original_image_alpha_slider = QSlider(Qt.Orientation.Horizontal)
         self.original_image_alpha_slider.setRange(0, 100)
         self.original_image_alpha_slider.setValue(0) # Default to 0 (fully transparent, show inpainted)
-        self.original_image_alpha_slider.setFixedWidth(100)
+        # 设置滑块自适应，较小的最小宽度
+        self.original_image_alpha_slider.setMinimumWidth(80)
         layout.addWidget(self.original_image_alpha_slider)
 
         layout.addStretch() # Pushes everything to the left
@@ -130,6 +171,11 @@ class EditorToolbar(QWidget):
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setLineWidth(1)
+        separator.setMidLineWidth(0)
+        separator.setFixedWidth(2)  # 分隔符可以固定宽度，因为它只是一条线
+        # 设置分隔符的最小高度，确保它垂直显示
+        separator.setMinimumHeight(20)
         return separator
 
     def _connect_signals(self):
@@ -164,3 +210,44 @@ class EditorToolbar(QWidget):
 
     def update_zoom_level(self, zoom_level: float):
         self.zoom_label.setText(f"{zoom_level:.0%}")
+    
+    def refresh_ui_texts(self):
+        """刷新所有UI文本（用于语言切换）"""
+        # 刷新按钮文本
+        self.back_button.setText(self._t("Back"))
+        self.back_button.setToolTip(self._t("Back to Main"))
+        self.export_button.setText(self._t("Export Image"))
+        self.export_button.setToolTip(self._t("Export current rendered image"))
+        self.edit_file_button.setText(self._t("Edit Original"))
+        self.edit_file_button.setToolTip(self._t("Switch to source file of current translation for editing"))
+        self.undo_button.setText(self._t("Undo"))
+        self.undo_button.setToolTip(self._t("Undo last operation"))
+        self.redo_button.setText(self._t("Redo"))
+        self.redo_button.setToolTip(self._t("Redo last undone operation"))
+        self.edit_geometry_button.setText(self._t("Edit Shape"))
+        self.edit_geometry_button.setToolTip(self._t("Add new associated shape for selected text box"))
+        self.zoom_out_button.setText(self._t("Zoom Out (-)"))
+        self.zoom_in_button.setText(self._t("Zoom In (+)"))
+        self.fit_window_button.setText(self._t("Fit to Window"))
+        self.render_inpaint_button.setText(self._t("Generate Preview"))
+        
+        # 刷新下拉菜单
+        current_index = self.display_mode_combo.currentIndex()
+        self.display_mode_combo.blockSignals(True)
+        self.display_mode_combo.clear()
+        self.display_mode_combo.addItems([
+            self._t("Show Text and Boxes"),
+            self._t("Show Text Only"),
+            self._t("Show Boxes Only"),
+            self._t("Show Nothing")
+        ])
+        self.display_mode_combo.setCurrentIndex(current_index)
+        self.display_mode_combo.blockSignals(False)
+        
+        # 刷新标签
+        if hasattr(self, 'display_mode_label'):
+            self.display_mode_label.setText(self._t("Display Mode:"))
+        if hasattr(self, 'inpaint_preview_label'):
+            self.inpaint_preview_label.setText(self._t("Inpaint Preview:"))
+        if hasattr(self, 'opacity_label'):
+            self.opacity_label.setText(self._t("Original Image Opacity:"))

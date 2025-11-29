@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTextEdit,
@@ -21,7 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from services import get_config_service
+from services import get_config_service, get_i18n_manager
 from widgets.file_list_view import FileListView
 from utils.resource_helper import resource_path
 
@@ -38,6 +39,7 @@ class MainView(QWidget):
         super().__init__(parent)
         self.controller = controller
         self.config_service = get_config_service()
+        self.i18n = get_i18n_manager()
         self.env_widgets = {}
         self._env_debounce_timer = QTimer(self)
         self._env_debounce_timer.setSingleShot(True)
@@ -60,8 +62,12 @@ class MainView(QWidget):
         # --- 组合布局 ---
         main_splitter.addWidget(left_panel)
         main_splitter.addWidget(right_panel)
-        main_splitter.setStretchFactor(1, 1) # 让右侧面板拉伸
-        main_splitter.setSizes([300, 900]) # 设置初始大致比例
+        main_splitter.setStretchFactor(0, 1) # 左侧面板可以拉伸
+        main_splitter.setStretchFactor(1, 3) # 右侧面板拉伸更多
+        main_splitter.setCollapsible(0, True) # 左侧面板可以折叠
+        main_splitter.setCollapsible(1, True) # 右侧面板可以折叠
+        main_splitter.setSizes([300, 980]) # 设置初始比例
+        main_splitter.setHandleWidth(6) # 设置分隔条宽度
 
         self._create_dynamic_settings()
 
@@ -70,6 +76,12 @@ class MainView(QWidget):
         self.controller.state_manager.current_config_changed.connect(self.update_start_button_text)
         QTimer.singleShot(100, self.update_start_button_text) # Set initial text
         QTimer.singleShot(100, self._sync_workflow_mode_from_config) # Sync workflow mode dropdown
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     @pyqtSlot(dict)
     def set_parameters(self, config: dict):
@@ -105,16 +117,17 @@ class MainView(QWidget):
         section = self._sections_to_process.pop(0)
         config = self._config_to_process
 
+        # 使用固定的英文键名
         panel_map = {
-            "translator": self.tab_frames["基础设置_left"],
-            "cli": self.tab_frames["基础设置_right"],
-            "detector": self.tab_frames["高级设置_left"],
-            "inpainter": self.tab_frames["高级设置_left"],
-            "render": self.tab_frames["高级设置_right"],
-            "upscale": self.tab_frames["高级设置_right"],
-            "colorizer": self.tab_frames["高级设置_right"],
-            "ocr": self.tab_frames["选项_left"],
-            "global": self.tab_frames["选项_right"],
+            "translator": self.tab_frames["Basic Settings_left"],
+            "cli": self.tab_frames["Basic Settings_right"],
+            "detector": self.tab_frames["Advanced Settings_left"],
+            "inpainter": self.tab_frames["Advanced Settings_left"],
+            "render": self.tab_frames["Advanced Settings_right"],
+            "upscale": self.tab_frames["Advanced Settings_right"],
+            "colorizer": self.tab_frames["Advanced Settings_right"],
+            "ocr": self.tab_frames["Options_left"],
+            "global": self.tab_frames["Options_right"],
         }
 
         panel = panel_map.get(section)
@@ -139,13 +152,29 @@ class MainView(QWidget):
             if parent_layout:
                 # 如果 env_group_box 已存在，先移除它
                 if hasattr(self, 'env_group_box') and self.env_group_box is not None:
-                    parent_layout.removeWidget(self.env_group_box)
-                    self.env_group_box.deleteLater()
+                    try:
+                        # 检查对象是否还有效
+                        if not self.env_group_box.isWidgetType() or self.env_group_box.parent() is None:
+                            # 对象已被删除，只需重置引用
+                            self.env_group_box = None
+                        else:
+                            parent_layout.removeWidget(self.env_group_box)
+                            self.env_group_box.deleteLater()
+                            self.env_group_box = None
+                    except RuntimeError:
+                        # 对象已被删除
+                        self.env_group_box = None
                 
-                # 重新创建 env_group_box
-                self.env_group_box = QGroupBox("API密钥 (.env)")
-                self.env_layout = QFormLayout(self.env_group_box)
-                parent_layout.addWidget(self.env_group_box)
+                # 重新创建 env_group_box - 使用 GridLayout 避免 FormLayout 的列宽继承问题
+                self.env_group_box = QGroupBox(self._t("API Keys (.env)"))
+                from PyQt6.QtWidgets import QGridLayout
+                self.env_layout = QGridLayout(self.env_group_box)
+                self.env_layout.setColumnStretch(1, 1)  # 让输入框列可以拉伸
+                self.env_layout.setHorizontalSpacing(10)
+                self.env_layout.setVerticalSpacing(8)
+                self.env_layout.setContentsMargins(10, 10, 10, 10)
+                # 关键：使用 addRow 只传一个参数，让 GroupBox 跨越整行，不受标签列宽度影响
+                parent_layout.addRow(self.env_group_box)
 
             try:
                 translator_combo.currentTextChanged.disconnect(self._on_translator_changed)
@@ -182,7 +211,7 @@ class MainView(QWidget):
         
         if config.upscale.upscaler == "realcugan":
             # 当前是 realcugan
-            if text == "不使用":
+            if text == self._t("upscale_ratio_not_use"):
                 # 禁用超分
                 self.setting_changed.emit("upscale.upscale_ratio", None)
                 self.setting_changed.emit("upscale.realcugan_model", None)
@@ -208,7 +237,7 @@ class MainView(QWidget):
                     self.setting_changed.emit("upscale.realcugan_model", model_value)
         else:
             # 当前是其他超分模型，text 是倍率
-            if text == "不使用":
+            if text == self._t("upscale_ratio_not_use"):
                 self.setting_changed.emit(full_key, None)
             else:
                 try:
@@ -252,9 +281,9 @@ class MainView(QWidget):
                 # 如果有display_map，使用中文名称
                 if display_map:
                     display_options = [display_map.get(model, model) for model in realcugan_models]
-                    all_options = ["不使用"] + display_options
+                    all_options = [self._t("upscale_ratio_not_use")] + display_options
                 else:
-                    all_options = ["不使用"] + realcugan_models
+                    all_options = [self._t("upscale_ratio_not_use")] + realcugan_models
                 
                 upscale_ratio_widget.addItems(all_options)
             
@@ -268,7 +297,7 @@ class MainView(QWidget):
                 else:
                     upscale_ratio_widget.setCurrentText(config.upscale.realcugan_model)
             elif config.upscale.upscale_ratio is None:
-                upscale_ratio_widget.setCurrentText("不使用")
+                upscale_ratio_widget.setCurrentText(self._t("upscale_ratio_not_use"))
             elif realcugan_models:
                 if display_map:
                     upscale_ratio_widget.setCurrentText(display_map.get(realcugan_models[0], realcugan_models[0]))
@@ -276,12 +305,12 @@ class MainView(QWidget):
                     upscale_ratio_widget.setCurrentText(realcugan_models[0])
         else:
             # 显示普通倍率选项
-            ratio_options = ["不使用", "2", "3", "4"]
+            ratio_options = [self._t("upscale_ratio_not_use"), "2", "3", "4"]
             upscale_ratio_widget.addItems(ratio_options)
             # 设置默认值
             config = self.config_service.get_config()
             if config.upscale.upscale_ratio is None:
-                upscale_ratio_widget.setCurrentText("不使用")
+                upscale_ratio_widget.setCurrentText(self._t("upscale_ratio_not_use"))
             else:
                 upscale_ratio_widget.setCurrentText(str(config.upscale.upscale_ratio))
         
@@ -347,7 +376,7 @@ class MainView(QWidget):
                     print(f"Error scanning fonts directory: {e}")
                 combo.setCurrentText(str(value) if value else "")
                 combo.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(text, k, None))
-                button = QPushButton("打开目录")
+                button = QPushButton(self._t("Open Directory"))
                 button.clicked.connect(self.controller.open_font_directory)
                 hbox.addWidget(combo)
                 hbox.addWidget(button)
@@ -386,7 +415,7 @@ class MainView(QWidget):
                 filename = os.path.basename(value) if value else ""
                 combo.setCurrentText(filename)
                 combo.currentTextChanged.connect(lambda text, k=full_key: self._on_setting_changed(os.path.join('dict', text).replace('\\', '/') if text else None, k, None))
-                button = QPushButton("打开目录")
+                button = QPushButton(self._t("Open Directory"))
                 button.clicked.connect(self.controller.open_dict_directory)
                 hbox.addWidget(combo)
                 hbox.addWidget(button)
@@ -415,9 +444,9 @@ class MainView(QWidget):
                         # 如果有display_map，使用中文名称
                         if display_map:
                             display_options = [display_map.get(model, model) for model in realcugan_models]
-                            all_options = ["不使用"] + display_options
+                            all_options = [self._t("upscale_ratio_not_use")] + display_options
                         else:
-                            all_options = ["不使用"] + realcugan_models
+                            all_options = [self._t("upscale_ratio_not_use")] + realcugan_models
                         widget.addItems(all_options)
                     
                     # 设置当前值（从 realcugan_model 获取）
@@ -430,16 +459,16 @@ class MainView(QWidget):
                         else:
                             widget.setCurrentText(current_model)
                     elif value is None:
-                        widget.setCurrentText("不使用")
+                        widget.setCurrentText(self._t("upscale_ratio_not_use"))
                     elif realcugan_models:
                         widget.setCurrentText(realcugan_models[0])
                 else:
                     # 显示普通倍率选项
-                    ratio_options = ["不使用", "2", "3", "4"]
+                    ratio_options = [self._t("upscale_ratio_not_use"), "2", "3", "4"]
                     widget.addItems(ratio_options)
                     # 设置当前值
                     if value is None:
-                        widget.setCurrentText("不使用")
+                        widget.setCurrentText(self._t("upscale_ratio_not_use"))
                     else:
                         widget.setCurrentText(str(value))
                 
@@ -454,19 +483,20 @@ class MainView(QWidget):
                 widget = QLineEdit("")
                 # 根据参数名设置提示文本
                 if key == 'tile_size':
-                    widget.setPlaceholderText("默认: 400")
+                    widget.setPlaceholderText(self._t("Default: 400"))
                     widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, int))
                 elif key == 'line_spacing':
-                    widget.setPlaceholderText("横排默认: 0.01, 竖排默认: 0.2")
+                    widget.setPlaceholderText(self._t("Horizontal default: 0.01, Vertical default: 0.2"))
                     widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float))
                 elif key == 'font_size':
-                    widget.setPlaceholderText("自动")
+                    widget.setPlaceholderText(self._t("Auto"))
                     widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, int))
 
             elif (isinstance(value, str) or value is None) and (options or display_map):
                 widget = QComboBox()
                 if key == "translator":
                     widget.setObjectName("translator.translator")
+                    widget.setMinimumWidth(180)  # 设置翻译器下拉框最小宽度
                 
                 if display_map:
                     widget.addItems(list(display_map.values()))
@@ -494,15 +524,16 @@ class MainView(QWidget):
 
     def _create_left_panel(self) -> QWidget:
         left_panel = QWidget()
+        # 不设置任何宽度限制，完全自由调整
         left_layout = QVBoxLayout(left_panel)
 
         # 文件操作按钮
         file_button_widget = QWidget()
         file_buttons_layout = QHBoxLayout(file_button_widget)
         file_buttons_layout.setContentsMargins(0,0,0,0)
-        self.add_files_button = QPushButton("添加文件")
-        self.add_folder_button = QPushButton("添加文件夹")
-        self.clear_list_button = QPushButton("清空列表")
+        self.add_files_button = QPushButton(self._t("Add Files"))
+        self.add_folder_button = QPushButton(self._t("Add Folder"))
+        self.clear_list_button = QPushButton(self._t("Clear List"))
         file_buttons_layout.addWidget(self.add_files_button)
         file_buttons_layout.addWidget(self.add_folder_button)
         file_buttons_layout.addWidget(self.clear_list_button)
@@ -513,47 +544,47 @@ class MainView(QWidget):
         left_layout.addWidget(self.file_list)
 
         # --- Output Folder ---
-        output_folder_label = QLabel("输出目录:")
-        left_layout.addWidget(output_folder_label)
+        self.output_folder_label = QLabel(self._t("Output Directory:"))
+        left_layout.addWidget(self.output_folder_label)
 
         output_folder_widget = QWidget()
         output_folder_layout = QHBoxLayout(output_folder_widget)
         output_folder_layout.setContentsMargins(0,0,0,0)
         self.output_folder_input = QLineEdit()
-        self.output_folder_input.setPlaceholderText("选择或拖入输出文件夹...")
-        self.browse_output_button = QPushButton("浏览...")
-        self.open_output_button = QPushButton("打开")
+        self.output_folder_input.setPlaceholderText(self._t("Select or drag output folder..."))
+        self.browse_button = QPushButton(self._t("Browse..."))
+        self.open_button = QPushButton(self._t("Open"))
         output_folder_layout.addWidget(self.output_folder_input)
-        output_folder_layout.addWidget(self.browse_output_button)
-        output_folder_layout.addWidget(self.open_output_button)
+        output_folder_layout.addWidget(self.browse_button)
+        output_folder_layout.addWidget(self.open_button)
         left_layout.addWidget(output_folder_widget)
 
         # 翻译流程模式选择（放在开始翻译按钮上面）
-        workflow_label = QLabel("翻译流程模式:")
-        left_layout.addWidget(workflow_label)
+        self.workflow_mode_label = QLabel(self._t("Translation Workflow Mode:"))
+        left_layout.addWidget(self.workflow_mode_label)
 
         from PyQt6.QtWidgets import QComboBox
         self.workflow_mode_combo = QComboBox()
         self.workflow_mode_combo.addItems([
-            "正常翻译流程",
-            "导出翻译",
-            "导出原文",
-            "导入翻译并渲染",
-            "仅上色",
-            "仅超分"
+            self._t("Normal Translation"),
+            self._t("Export Translation"),
+            self._t("Export Original Text"),
+            self._t("Import Translation and Render"),
+            self._t("Colorize Only"),
+            self._t("Upscale Only")
         ])
         self.workflow_mode_combo.currentIndexChanged.connect(self._on_workflow_mode_changed)
         left_layout.addWidget(self.workflow_mode_combo)
 
-        self.start_button = QPushButton("开始翻译")
+        self.start_button = QPushButton(self._t("Start Translation"))
         self.start_button.setFixedHeight(40)
         left_layout.addWidget(self.start_button)
          # 配置导入导出按钮
         config_io_widget = QWidget()
         config_io_layout = QHBoxLayout(config_io_widget)
         config_io_layout.setContentsMargins(0,0,0,0)
-        self.export_config_button = QPushButton("导出配置")
-        self.import_config_button = QPushButton("导入配置")
+        self.export_config_button = QPushButton(self._t("Export Config"))
+        self.import_config_button = QPushButton(self._t("Import Config"))
         config_io_layout.addWidget(self.export_config_button)
         config_io_layout.addWidget(self.import_config_button)
         left_layout.addWidget(config_io_widget)
@@ -562,8 +593,8 @@ class MainView(QWidget):
         self.add_folder_button.clicked.connect(self.controller.add_folder)
         self.clear_list_button.clicked.connect(self.controller.clear_file_list)
         self.file_list.file_remove_requested.connect(self.controller.remove_file)
-        self.browse_output_button.clicked.connect(self.controller.select_output_folder)
-        self.open_output_button.clicked.connect(self.controller.open_output_folder)
+        self.browse_button.clicked.connect(self.controller.select_output_folder)
+        self.open_button.clicked.connect(self.controller.open_output_folder)
         self.start_button.clicked.connect(self.controller.start_backend_task)
         self.export_config_button.clicked.connect(self.controller.export_config)
         self.import_config_button.clicked.connect(self.controller.import_config)
@@ -583,8 +614,13 @@ class MainView(QWidget):
 
         # --- 动态创建标签页和其内部布局 ---
         self.tab_frames = {}
-        tabs_to_create = ["基础设置", "高级设置", "选项"]
-        for tab_name in tabs_to_create:
+        # 使用固定的英文键名，避免语言切换时键名不匹配
+        tabs_config = [
+            ("Basic Settings", self._t("Basic Settings")),
+            ("Advanced Settings", self._t("Advanced Settings")),
+            ("Options", self._t("Options"))
+        ]
+        for tab_key, tab_display_name in tabs_config:
             tab_content_widget = QWidget()
             tab_layout = QHBoxLayout(tab_content_widget)
             tab_layout.setContentsMargins(0,0,0,0)
@@ -605,22 +641,33 @@ class MainView(QWidget):
             right_scroll.setWidget(right_scroll_content)
 
             # 给滚动区域的内容设置布局，以便添加控件
-            QFormLayout(left_scroll_content)
-            QFormLayout(right_scroll_content)
+            left_form = QFormLayout(left_scroll_content)
+            left_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            left_form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            left_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)  # 标签左对齐，消除空白
+            left_form.setHorizontalSpacing(10)
+            left_form.setVerticalSpacing(8)
+            
+            right_form = QFormLayout(right_scroll_content)
+            right_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            right_form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            right_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)  # 标签左对齐，消除空白
+            right_form.setHorizontalSpacing(10)
+            right_form.setVerticalSpacing(8)
 
             tab_splitter.addWidget(left_scroll)
             tab_splitter.addWidget(right_scroll)
 
-            self.settings_tabs.addTab(tab_content_widget, tab_name)
+            self.settings_tabs.addTab(tab_content_widget, tab_display_name)
             
-            # 保存对滚动区域内容面板的引用，以便后续添加控件
-            self.tab_frames[f"{tab_name}_left"] = left_scroll_content
-            self.tab_frames[f"{tab_name}_right"] = right_scroll_content
+            # 使用固定的英文键名保存引用
+            self.tab_frames[f"{tab_key}_left"] = left_scroll_content
+            self.tab_frames[f"{tab_key}_right"] = right_scroll_content
 
         # 日志框
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setPlaceholderText("日志输出...")
+        self.log_box.setPlaceholderText(self._t("Log output..."))
         right_splitter.addWidget(self.log_box)
 
         right_splitter.setStretchFactor(0, 2) # 让设置面板占据更多空间
@@ -632,6 +679,98 @@ class MainView(QWidget):
         """安全地将消息追加到日志框。"""
         self.log_box.append(message.strip())
         self.log_box.verticalScrollBar().setValue(self.log_box.verticalScrollBar().maximum())
+    
+    def refresh_tab_titles(self):
+        """刷新标签页标题（用于语言切换）"""
+        tab_titles = ["Basic Settings", "Advanced Settings", "Options"]
+        for i, title_key in enumerate(tab_titles):
+            if i < self.settings_tabs.count():
+                self.settings_tabs.setTabText(i, self._t(title_key))
+    
+    def refresh_ui_texts(self):
+        """刷新所有UI文本（用于语言切换）"""
+        # 刷新标签页标题
+        self.refresh_tab_titles()
+        
+        # 刷新左侧文件管理按钮
+        if hasattr(self, 'add_files_button'):
+            self.add_files_button.setText(self._t("Add Files"))
+        if hasattr(self, 'add_folder_button'):
+            self.add_folder_button.setText(self._t("Add Folder"))
+        if hasattr(self, 'clear_list_button'):
+            self.clear_list_button.setText(self._t("Clear List"))
+        
+        # 刷新输出目录标签
+        if hasattr(self, 'output_folder_label'):
+            self.output_folder_label.setText(self._t("Output Directory:"))
+        if hasattr(self, 'output_folder_input'):
+            self.output_folder_input.setPlaceholderText(self._t("Select or drag output folder..."))
+        if hasattr(self, 'browse_button'):
+            self.browse_button.setText(self._t("Browse..."))
+        if hasattr(self, 'open_button'):
+            self.open_button.setText(self._t("Open"))
+        
+        # 刷新翻译流程模式标签和下拉菜单
+        if hasattr(self, 'workflow_mode_label'):
+            self.workflow_mode_label.setText(self._t("Translation Workflow Mode:"))
+        if hasattr(self, 'workflow_mode_combo'):
+            current_index = self.workflow_mode_combo.currentIndex()
+            self.workflow_mode_combo.blockSignals(True)
+            self.workflow_mode_combo.clear()
+            self.workflow_mode_combo.addItems([
+                self._t("Normal Translation"),
+                self._t("Export Translation"),
+                self._t("Export Original Text"),
+                self._t("Import Translation and Render"),
+                self._t("Colorize Only"),
+                self._t("Upscale Only")
+            ])
+            self.workflow_mode_combo.setCurrentIndex(current_index)
+            self.workflow_mode_combo.blockSignals(False)
+        
+        # 刷新开始按钮
+        self.update_start_button_text()
+        
+        # 刷新配置导入导出按钮
+        if hasattr(self, 'export_config_button'):
+            self.export_config_button.setText(self._t("Export Config"))
+        if hasattr(self, 'import_config_button'):
+            self.import_config_button.setText(self._t("Import Config"))
+        
+        # 刷新日志框占位符
+        if hasattr(self, 'log_box'):
+            self.log_box.setPlaceholderText(self._t("Log output..."))
+        
+        # 刷新文件列表视图（强制重绘以更新拖拽提示文本）
+        if hasattr(self, 'file_list') and hasattr(self.file_list, 'refresh_ui_texts'):
+            self.file_list.refresh_ui_texts()
+        
+        # 刷新 API Keys 分组框标题
+        if hasattr(self, 'env_group_box') and self.env_group_box is not None:
+            try:
+                self.env_group_box.setTitle(self._t("API Keys (.env)"))
+            except RuntimeError:
+                pass
+        
+        # 清理并重新创建动态设置以更新所有标签
+        self._clear_dynamic_settings()
+        self._create_dynamic_settings()
+    
+    def _clear_dynamic_settings(self):
+        """清理所有动态创建的设置控件"""
+        # 清理 env_group_box
+        if hasattr(self, 'env_group_box'):
+            self.env_group_box = None
+        
+        # 清理所有面板中的控件
+        for panel in self.tab_frames.values():
+            if panel and panel.layout():
+                layout = panel.layout()
+                # 清空布局中的所有控件
+                while layout.count():
+                    item = layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
 
     def _on_translator_changed(self, display_name: str):
         """当翻译器下拉菜单变化时，动态更新所需的.env输入字段"""
@@ -640,8 +779,17 @@ class MainView(QWidget):
         translator_key = reverse_map.get(display_name, display_name.lower())
 
         # Clear previous env widgets
-        while self.env_layout.rowCount() > 0:
-            self.env_layout.removeRow(0)
+        from PyQt6.QtWidgets import QGridLayout
+        if isinstance(self.env_layout, QGridLayout):
+            # GridLayout 清除方式
+            while self.env_layout.count():
+                item = self.env_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+        else:
+            # FormLayout 清除方式
+            while self.env_layout.rowCount() > 0:
+                self.env_layout.removeRow(0)
         self.env_widgets.clear()
 
         if not translator_key:
@@ -659,13 +807,21 @@ class MainView(QWidget):
 
     def _create_env_widgets(self, keys: list, current_values: dict):
         """为给定的键创建标签和输入框"""
+        from PyQt6.QtWidgets import QGridLayout
+        row = 0
         for key in keys:
             value = current_values.get(key, "")
             label_text = self.controller.get_display_mapping('labels').get(key, key)
             label = QLabel(f"{label_text}:")
             widget = QLineEdit(value)
             widget.textChanged.connect(partial(self._debounced_save_env_var, key))
-            self.env_layout.addRow(label, widget)
+            # 使用 GridLayout 的 addWidget 而不是 FormLayout 的 addRow
+            if isinstance(self.env_layout, QGridLayout):
+                self.env_layout.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft)
+                self.env_layout.addWidget(widget, row, 1)
+                row += 1
+            else:
+                self.env_layout.addRow(label, widget)
             self.env_widgets[key] = (label, widget)
 
     def _debounced_save_env_var(self, key: str, text: str):
@@ -687,7 +843,7 @@ class MainView(QWidget):
         last_dir = self.controller.get_last_open_dir()
         file_paths, _ = QFileDialog.getOpenFileNames(
             self, 
-            "添加文件", 
+            self._t("Add Files"), 
             last_dir, 
             "Image Files (*.png *.jpg *.jpeg *.bmp *.webp)"
         )
@@ -706,7 +862,7 @@ class MainView(QWidget):
     def on_translation_state_changed(self, is_translating: bool):
         """Handles the change of the translation state to update the start/stop button."""
         if is_translating:
-            self.start_button.setText("停止翻译")
+            self.start_button.setText(self._t("Stop Translation"))
             self.start_button.setStyleSheet("background-color: #C53929; color: white;")
             try:
                 self.start_button.clicked.disconnect()
@@ -796,20 +952,20 @@ class MainView(QWidget):
         try:
             config = self.config_service.get_config()
             if config.cli.upscale_only:
-                self.start_button.setText("开始超分")
+                self.start_button.setText(self._t("Start Upscaling"))
             elif config.cli.colorize_only:
-                self.start_button.setText("开始上色")
+                self.start_button.setText(self._t("Start Colorizing"))
             elif config.cli.load_text:
-                self.start_button.setText("导入翻译并渲染")
+                self.start_button.setText(self._t("Import Translation and Render"))
             elif config.cli.template:
-                self.start_button.setText("仅生成原文模板")
+                self.start_button.setText(self._t("Generate Original Text Template"))
             elif config.cli.generate_and_export:
-                self.start_button.setText("导出翻译")
+                self.start_button.setText(self._t("Export Translation"))
             else:
-                self.start_button.setText("开始翻译")
+                self.start_button.setText(self._t("Start Translation"))
         except Exception as e:
             # Fallback in case config is not ready
-            self.start_button.setText("开始翻译")
+            self.start_button.setText(self._t("Start Translation"))
             print(f"Could not update button text: {e}")
 
 

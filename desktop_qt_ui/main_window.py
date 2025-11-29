@@ -9,7 +9,7 @@ from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
 from editor_view import EditorView
 from main_view import MainView
-from services import ServiceManager, get_config_service, get_logger, get_state_manager
+from services import ServiceManager, get_config_service, get_logger, get_state_manager, get_i18n_manager
 
 
 class MainWindow(QMainWindow):
@@ -20,8 +20,13 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Manga Translator")
-        self.resize(1280, 800) # 设置默认窗口大小
+        self.logger = get_logger(__name__)
+        self.i18n = get_i18n_manager()
+        
+        self.setWindowTitle(self._t("Manga Translator"))
+        self.resize(1300, 800) # 设置默认窗口大小（增加20像素）
+        self.setMinimumSize(800, 600) # 设置最小窗口大小
+        # 不设置最大大小，允许无限制调整
         
         # 窗口居中显示
         from PyQt6.QtGui import QScreen
@@ -32,14 +37,18 @@ class MainWindow(QMainWindow):
         
         # 窗口图标已在 main.py 中设置，这里不需要重复设置
 
-        self.logger = get_logger(__name__)
-
         self._setup_logic_and_models()
         self._setup_ui()
         self._load_stylesheet()  # 加载样式表
         self._connect_signals()
 
         self.app_logic.initialize()
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def _setup_logic_and_models(self):
         """实例化所有逻辑和数据模型"""
@@ -57,30 +66,39 @@ class MainWindow(QMainWindow):
         """初始化UI组件"""
         # --- 菜单栏 ---
         menu_bar = self.menuBar()
-        file_menu = menu_bar.addMenu("&文件")
-        self.add_files_action = QAction("&添加文件...", self)
+        file_menu = menu_bar.addMenu(self._t("&File"))
+        self.add_files_action = QAction(self._t("&Add Files..."), self)
         file_menu.addAction(self.add_files_action)
 
-        edit_menu = menu_bar.addMenu("&编辑")
-        self.undo_action = QAction("&撤销", self)
-        self.redo_action = QAction("&重做", self)
+        edit_menu = menu_bar.addMenu(self._t("&Edit"))
+        self.undo_action = QAction(self._t("&Undo"), self)
+        self.redo_action = QAction(self._t("&Redo"), self)
         edit_menu.addAction(self.undo_action)
         edit_menu.addAction(self.redo_action)
 
-        view_menu = menu_bar.addMenu("&视图")
-        self.main_view_action = QAction("主视图", self)
-        self.editor_view_action = QAction("编辑器视图", self)
+        view_menu = menu_bar.addMenu(self._t("&View"))
+        self.main_view_action = QAction(self._t("Main View"), self)
+        self.editor_view_action = QAction(self._t("Editor View"), self)
         view_menu.addAction(self.main_view_action)
         view_menu.addAction(self.editor_view_action)
         
         # 主题菜单（顶级菜单）
-        theme_menu = menu_bar.addMenu("&主题")
-        self.light_theme_action = QAction("浅色", self)
-        self.dark_theme_action = QAction("深色", self)
-        self.gray_theme_action = QAction("灰色", self)
+        theme_menu = menu_bar.addMenu(self._t("&Theme"))
+        self.light_theme_action = QAction(self._t("Light"), self)
+        self.dark_theme_action = QAction(self._t("Dark"), self)
+        self.gray_theme_action = QAction(self._t("Gray"), self)
         theme_menu.addAction(self.light_theme_action)
         theme_menu.addAction(self.dark_theme_action)
         theme_menu.addAction(self.gray_theme_action)
+        
+        # 语言菜单（顶级菜单）
+        language_menu = menu_bar.addMenu(self._t("&Language"))
+        if self.i18n:
+            available_locales = self.i18n.get_available_locales()
+            for locale_code, locale_info in available_locales.items():
+                action = QAction(locale_info.name, self)
+                action.triggered.connect(lambda checked, code=locale_code: self._change_language(code))
+                language_menu.addAction(action)
 
         # --- 中心布局 (QStackedWidget) ---
         self.stacked_widget = QStackedWidget()
@@ -210,6 +228,92 @@ class MainWindow(QMainWindow):
         self.logger.info(f"File double-clicked from main list: {file_path}. Switching to editor.")
         self.enter_editor_mode(file_to_load=file_path)
 
+    def _change_language(self, locale_code: str):
+        """切换语言"""
+        if self.i18n and self.i18n.set_locale(locale_code):
+            # 保存语言设置到配置
+            config = self.config_service.get_config()
+            config.app.ui_language = locale_code
+            self.config_service.set_config(config)
+            self.config_service.save_config_file()
+            
+            # 刷新UI文本
+            self._refresh_ui_texts()
+            self.logger.info(f"语言已切换到: {locale_code}")
+    
+    def _refresh_ui_texts(self):
+        """刷新UI文本"""
+        # 更新窗口标题
+        self.setWindowTitle(self._t("Manga Translator"))
+        
+        # 更新菜单文本
+        menu_bar = self.menuBar()
+        menus = menu_bar.findChildren(QAction)
+        
+        # 由于菜单已经创建，我们需要重新设置文本
+        # 这里简单地重新创建菜单栏
+        menu_bar.clear()
+        self._setup_ui_menus()
+        
+        # 刷新主视图的所有文本
+        if hasattr(self, 'main_view') and self.main_view:
+            self.main_view.refresh_ui_texts()
+        
+        # 刷新编辑器视图的所有文本（如果存在）
+        if hasattr(self, 'editor_view') and self.editor_view:
+            if hasattr(self.editor_view, 'refresh_ui_texts'):
+                self.editor_view.refresh_ui_texts()
+    
+    def _setup_ui_menus(self):
+        """设置UI菜单（用于语言切换后刷新）"""
+        menu_bar = self.menuBar()
+        
+        # 文件菜单
+        file_menu = menu_bar.addMenu(self._t("&File"))
+        self.add_files_action = QAction(self._t("&Add Files..."), self)
+        file_menu.addAction(self.add_files_action)
+        
+        # 编辑菜单
+        edit_menu = menu_bar.addMenu(self._t("&Edit"))
+        self.undo_action = QAction(self._t("&Undo"), self)
+        self.redo_action = QAction(self._t("&Redo"), self)
+        edit_menu.addAction(self.undo_action)
+        edit_menu.addAction(self.redo_action)
+        
+        # 视图菜单
+        view_menu = menu_bar.addMenu(self._t("&View"))
+        self.main_view_action = QAction(self._t("Main View"), self)
+        self.editor_view_action = QAction(self._t("Editor View"), self)
+        view_menu.addAction(self.main_view_action)
+        view_menu.addAction(self.editor_view_action)
+        
+        # 主题菜单
+        theme_menu = menu_bar.addMenu(self._t("&Theme"))
+        self.light_theme_action = QAction(self._t("Light"), self)
+        self.dark_theme_action = QAction(self._t("Dark"), self)
+        self.gray_theme_action = QAction(self._t("Gray"), self)
+        theme_menu.addAction(self.light_theme_action)
+        theme_menu.addAction(self.dark_theme_action)
+        theme_menu.addAction(self.gray_theme_action)
+        
+        # 语言菜单
+        language_menu = menu_bar.addMenu(self._t("&Language"))
+        if self.i18n:
+            available_locales = self.i18n.get_available_locales()
+            for locale_code, locale_info in available_locales.items():
+                action = QAction(locale_info.name, self)
+                action.triggered.connect(lambda checked, code=locale_code: self._change_language(code))
+                language_menu.addAction(action)
+        
+        # 重新连接信号
+        self.main_view_action.triggered.connect(lambda: self.stacked_widget.setCurrentWidget(self.main_view))
+        self.editor_view_action.triggered.connect(self.switch_to_editor_view)
+        self.undo_action.triggered.connect(self.editor_controller.undo)
+        self.redo_action.triggered.connect(self.editor_controller.redo)
+        self.light_theme_action.triggered.connect(lambda: self._change_theme("light"))
+        self.dark_theme_action.triggered.connect(lambda: self._change_theme("dark"))
+        self.gray_theme_action.triggered.connect(lambda: self._change_theme("gray"))
+    
     @pyqtSlot(list)
     def on_task_completed(self, saved_files: list):
         """
@@ -219,10 +323,13 @@ class MainWindow(QMainWindow):
         if not saved_files:
             return
 
-        reply = QMessageBox.question(self, '任务完成', 
-                                     f"翻译完成，成功保存 {len(saved_files)} 个文件。\n\n是否在编辑器中打开结果？",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
+        reply = QMessageBox.question(
+            self, 
+            self._t('Task Completed'), 
+            self._t("Translation completed, {count} files saved.\n\nOpen results in editor?", count=len(saved_files)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
 
         if reply == QMessageBox.StandardButton.Yes:
             self.logger.info("User chose to open results in editor.")

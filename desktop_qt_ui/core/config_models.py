@@ -128,6 +128,7 @@ class AppSection(BaseModel):
     last_output_path: str = ""
     favorite_folders: Optional[List[str]] = None
     theme: str = "light"  # 主题：light, dark, gray
+    ui_language: str = "auto"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等
 
 class AppSettings(BaseModel):
     app: AppSection = Field(default_factory=AppSection)

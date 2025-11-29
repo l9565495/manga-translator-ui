@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import QFileDialog, QListView, QTreeView
 from services import (
     get_config_service,
     get_file_service,
+    get_i18n_manager,
     get_logger,
     get_state_manager,
     get_translation_service,
@@ -63,6 +64,7 @@ class MainAppLogic(QObject):
         self.translation_service = get_translation_service()
         self.file_service = get_file_service()
         self.state_manager = get_state_manager()
+        self.i18n = get_i18n_manager()
 
         self.thread = None
         self.worker = None
@@ -71,10 +73,15 @@ class MainAppLogic(QObject):
 
         self.source_files: List[str] = [] # Holds both files and folders
         self.file_to_folder_map: Dict[str, Optional[str]] = {} # 记录文件来自哪个文件夹
-        self.display_name_maps = None
 
         self.app_config = AppConfig()
         self.logger.info("主页面应用业务逻辑初始化完成")
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
 
     @pyqtSlot(dict)
@@ -91,8 +98,8 @@ class MainAppLogic(QObject):
             output_folder = config.app.last_output_path
 
             if not output_folder:
-                self.logger.error("输出目录未设置，无法保存文件。")
-                self.state_manager.set_status_message("错误：输出目录未设置！")
+                self.logger.error(self._t("log_output_dir_not_set"))
+                self.state_manager.set_status_message(self._t("error_output_dir_not_set"))
                 return
 
             original_path = result['original_path']
@@ -117,7 +124,7 @@ class MainAppLogic(QObject):
                 final_output_folder = output_folder
 
             # 确定文件扩展名
-            if output_format and output_format != "不指定":
+            if output_format and output_format != self._t("format_not_specified"):
                 file_extension = f".{output_format}"
                 output_filename = os.path.splitext(base_filename)[0] + file_extension
             else:
@@ -146,11 +153,11 @@ class MainAppLogic(QObject):
 
             self.saved_files_count += 1
             self.saved_files_list.append(final_output_path)  # 收集保存的文件路径
-            self.logger.info(f"成功保存文件: {final_output_path}")
+            self.logger.info(self._t("log_file_saved_successfully", path=final_output_path))
             self.task_file_completed.emit({'path': final_output_path})
 
         except Exception as e:
-            self.logger.error(f"保存文件 {result['original_path']} 时出错: {e}")
+            self.logger.error(self._t("log_file_save_error", path=result['original_path'], error=e))
 
     def _update_translation_map(self, source_path: str, translated_path: str):
         """在输出目录创建或更新 translation_map.json"""
@@ -187,7 +194,7 @@ class MainAppLogic(QObject):
 
     @pyqtSlot()
     def select_output_folder(self):
-        folder = QFileDialog.getExistingDirectory(None, "选择输出目录")
+        folder = QFileDialog.getExistingDirectory(None, self._t("Select Output Directory"))
         if folder:
             self.update_single_config('app.last_output_path', folder)
             self.output_path_updated.emit(folder)
@@ -275,27 +282,27 @@ class MainAppLogic(QObject):
                 config = self.config_service.get_config()
                 self.state_manager.set_current_config(config)
                 self.state_manager.set_state(AppStateKey.CONFIG_PATH, config_path)
-                self.logger.info(f"配置文件加载成功: {config_path}")
+                self.logger.info(self._t("log_config_loaded_successfully", path=config_path))
                 self.config_loaded.emit(config.dict())
                 if config.app.last_output_path:
                     self.output_path_updated.emit(config.app.last_output_path)
                 return True
             else:
-                self.logger.error(f"配置文件加载失败: {config_path}")
+                self.logger.error(self._t("log_config_load_failed", path=config_path))
                 return False
         except Exception as e:
-            self.logger.error(f"加载配置文件异常: {e}")
+            self.logger.error(self._t("log_config_load_exception", error=e))
             return False
     
     def save_config_file(self, config_path: str = None) -> bool:
         try:
             success = self.config_service.save_config_file(config_path)
             if success:
-                self.logger.info("配置文件保存成功")
+                self.logger.info(self._t("log_config_saved_successfully"))
                 return True
             return False
         except Exception as e:
-            self.logger.error(f"保存配置文件异常: {e}")
+            self.logger.error(self._t("log_config_save_exception", error=e))
             return False
     
     def update_config(self, config_updates: Dict[str, Any]) -> bool:
@@ -303,10 +310,10 @@ class MainAppLogic(QObject):
             self.config_service.update_config(config_updates)
             updated_config = self.config_service.get_config()
             self.state_manager.set_current_config(updated_config)
-            self.logger.info("配置更新成功")
+            self.logger.info(self._t("log_config_updated_successfully"))
             return True
         except Exception as e:
-            self.logger.error(f"更新配置异常: {e}")
+            self.logger.error(self._t("log_config_update_exception", error=e))
             return False
 
     def update_single_config(self, full_key: str, value: Any):
@@ -321,16 +328,16 @@ class MainAppLogic(QObject):
             
             self.config_service.set_config(config_obj)
             self.config_service.save_config_file()
-            self.logger.debug(f"配置已保存: '{full_key}' = '{value}'")
+            self.logger.debug(self._t("log_config_saved", config_key=full_key, value=value))
 
             # 当翻译器设置被更改时，直接更新翻译服务的内部状态
             if full_key == 'translator.translator':
-                self.logger.debug(f"翻译器已切换: '{value}'")
+                self.logger.debug(self._t("log_translator_switched", value=value))
                 self.translation_service.set_translator(value)
 
             # 当渲染设置被更改时，通知编辑器刷新
             if full_key.startswith('render.'):
-                self.logger.debug(f"渲染设置已更改: '{full_key}'")
+                self.logger.debug(self._t("log_render_setting_changed", config_key=full_key))
                 self.render_setting_changed.emit()
 
         except Exception as e:
@@ -339,106 +346,203 @@ class MainAppLogic(QObject):
 
     # region UI数据提供
     def get_display_mapping(self, key: str) -> Optional[Dict[str, str]]:
-        if not hasattr(self, 'display_name_maps') or self.display_name_maps is None:
-            self.display_name_maps = {
-                "alignment": {"auto": "自动", "left": "左对齐", "center": "居中", "right": "右对齐"},
-                "direction": {"auto": "自动", "h": "横排", "v": "竖排"},
-                "upscaler": {
-                    "waifu2x": "Waifu2x",
-                    "esrgan": "ESRGAN",
-                    "4xultrasharp": "4x UltraSharp",
-                    "realcugan": "Real-CUGAN"
-                },
-                "layout_mode": {
-                    'default': "默认模式 (有Bug)",
-                    'smart_scaling': "智能缩放 (推荐)",
-                    'strict': "严格边界 (缩小字体)",
-                    'fixed_font': "固定字体 (扩大文本框)",
-                    'disable_all': "完全禁用 (裁剪文本)",
-                    'balloon_fill': "填充气泡 (气泡检测)"
-                },
+        # 每次都动态生成翻译映射，确保语言切换时能正确更新
+        display_name_maps = {
+            "alignment": {
+                "auto": self._t("alignment_auto"),
+                "left": self._t("alignment_left"),
+                "center": self._t("alignment_center"),
+                "right": self._t("alignment_right")
+            },
+            "direction": {
+                "auto": self._t("direction_auto"),
+                "h": self._t("direction_horizontal"),
+                "v": self._t("direction_vertical")
+            },
+            "upscaler": {
+                "waifu2x": "Waifu2x",
+                "esrgan": "ESRGAN",
+                "4xultrasharp": "4x UltraSharp",
+                "realcugan": "Real-CUGAN"
+            },
+            "layout_mode": {
+                'default': self._t("layout_mode_default"),
+                'smart_scaling': self._t("layout_mode_smart_scaling"),
+                'strict': self._t("layout_mode_strict"),
+                'fixed_font': self._t("layout_mode_fixed_font"),
+                'disable_all': self._t("layout_mode_disable_all"),
+                'balloon_fill': self._t("layout_mode_balloon_fill")
+            },
                 "realcugan_model": {
-                    "2x-conservative": "2倍-保守",
-                    "2x-conservative-pro": "2倍-保守-Pro",
-                    "2x-no-denoise": "2倍-无降噪",
-                    "2x-denoise1x": "2倍-降噪1x",
-                    "2x-denoise2x": "2倍-降噪2x",
-                    "2x-denoise3x": "2倍-降噪3x",
-                    "2x-denoise3x-pro": "2倍-降噪3x-Pro",
-                    "3x-conservative": "3倍-保守",
-                    "3x-conservative-pro": "3倍-保守-Pro",
-                    "3x-no-denoise": "3倍-无降噪",
-                    "3x-no-denoise-pro": "3倍-无降噪-Pro",
-                    "3x-denoise3x": "3倍-降噪3x",
-                    "3x-denoise3x-pro": "3倍-降噪3x-Pro",
-                    "4x-conservative": "4倍-保守",
-                    "4x-no-denoise": "4倍-无降噪",
-                    "4x-denoise3x": "4倍-降噪3x",
+                    "2x-conservative": self._t("realcugan_2x_conservative"),
+                    "2x-conservative-pro": self._t("realcugan_2x_conservative_pro"),
+                    "2x-no-denoise": self._t("realcugan_2x_no_denoise"),
+                    "2x-denoise1x": self._t("realcugan_2x_denoise1x"),
+                    "2x-denoise2x": self._t("realcugan_2x_denoise2x"),
+                    "2x-denoise3x": self._t("realcugan_2x_denoise3x"),
+                    "2x-denoise3x-pro": self._t("realcugan_2x_denoise3x_pro"),
+                    "3x-conservative": self._t("realcugan_3x_conservative"),
+                    "3x-conservative-pro": self._t("realcugan_3x_conservative_pro"),
+                    "3x-no-denoise": self._t("realcugan_3x_no_denoise"),
+                    "3x-no-denoise-pro": self._t("realcugan_3x_no_denoise_pro"),
+                    "3x-denoise3x": self._t("realcugan_3x_denoise3x"),
+                    "3x-denoise3x-pro": self._t("realcugan_3x_denoise3x_pro"),
+                    "4x-conservative": self._t("realcugan_4x_conservative"),
+                    "4x-no-denoise": self._t("realcugan_4x_no_denoise"),
+                    "4x-denoise3x": self._t("realcugan_4x_denoise3x"),
                 },
                 "translator": {
-                    "youdao": "有道翻译", "baidu": "百度翻译", "deepl": "DeepL", "papago": "Papago",
-                    "caiyun": "彩云小译", "openai": "OpenAI",
-                    "none": "无", "original": "原文", "sakura": "Sakura",
-                    "groq": "Groq", "gemini": "Google Gemini",
-                    "openai_hq": "高质量翻译 OpenAI", "gemini_hq": "高质量翻译 Gemini",
-                    "offline": "离线翻译", "nllb": "NLLB", "nllb_big": "NLLB (Big)", "sugoi": "Sugoi",
-                    "jparacrawl": "JParaCrawl", "jparacrawl_big": "JParaCrawl (Big)", "m2m100": "M2M100",
-                    "m2m100_big": "M2M100 (Big)", "mbart50": "mBART50", "qwen2": "Qwen2", "qwen2_big": "Qwen2 (Big)",
+                    "youdao": self._t("translator_youdao"),
+                    "baidu": self._t("translator_baidu"),
+                    "deepl": "DeepL",
+                    "papago": "Papago",
+                    "caiyun": self._t("translator_caiyun"),
+                    "openai": "OpenAI",
+                    "none": self._t("translator_none"),
+                    "original": self._t("translator_original"),
+                    "sakura": "Sakura",
+                    "groq": "Groq",
+                    "gemini": "Google Gemini",
+                    "openai_hq": self._t("translator_openai_hq"),
+                    "gemini_hq": self._t("translator_gemini_hq"),
+                    "offline": self._t("translator_offline"),
+                    "nllb": "NLLB",
+                    "nllb_big": "NLLB (Big)",
+                    "sugoi": "Sugoi",
+                    "jparacrawl": "JParaCrawl",
+                    "jparacrawl_big": "JParaCrawl (Big)",
+                    "m2m100": "M2M100",
+                    "m2m100_big": "M2M100 (Big)",
+                    "mbart50": "mBART50",
+                    "qwen2": "Qwen2",
+                    "qwen2_big": "Qwen2 (Big)",
                 },
                 "target_lang": self.translation_service.get_target_languages(),
                 "labels": {
-                    "filter_text": "过滤文本 (Regex)", "kernel_size": "卷积核大小", "mask_dilation_offset": "遮罩扩张偏移",
-                    "translator": "翻译器", "target_lang": "目标语言", "no_text_lang_skip": "不跳过目标语言文本",
-                    "gpt_config": "GPT配置文件路径", "high_quality_prompt_path": "高质量翻译提示词", "use_mocr_merge": "使用MOCR合并",
-                    "ocr": "OCR模型", "use_hybrid_ocr": "启用混合OCR", "secondary_ocr": "备用OCR",
-                    "min_text_length": "最小文本长度", "ignore_bubble": "忽略非气泡文本", "prob": "文本区域最低概率 (prob)",
-                    "merge_gamma": "合并-距离容忍度", "merge_sigma": "合并-离群容忍度", "merge_edge_ratio_threshold": "合并-边缘距离比例阈值", "detector": "文本检测器",
-                    "detection_size": "检测大小", "text_threshold": "文本阈值", "det_rotate": "旋转图像进行检测",
-                    "det_auto_rotate": "旋转图像以优先检测垂直文本行", "det_invert": "反转图像颜色进行检测",
-                    "det_gamma_correct": "应用伽马校正进行检测", "use_yolo_obb": "启用YOLO辅助检测", "yolo_obb_conf": "YOLO置信度阈值", "yolo_obb_iou": "YOLO交叉比(IoU)", "yolo_obb_overlap_threshold": "YOLO辅助检测重叠率删除阈值", "box_threshold": "边界框生成阈值", "unclip_ratio": "Unclip比例", "min_box_area_ratio": "最小检测框面积占比",
-                    "inpainter": "修复模型", "inpainting_size": "修复大小", "inpainting_precision": "修复精度", "inpainting_split_ratio": "极端长宽比切割阈值",
-                    "renderer": "渲染器", "alignment": "对齐方式", "disable_font_border": "禁用字体边框",
-                    "disable_auto_wrap": "AI断句", "font_size_offset": "字体大小偏移量", "font_size_minimum": "最小字体大小",
-                    "max_font_size": "最大字体大小", "font_scale_ratio": "字体缩放比例",
-                    "stroke_width": "描边宽度比例",
-                    "center_text_in_bubble": "AI断句时文本居中",
-                    "optimize_line_breaks": "AI断句自动扩大文字", "check_br_and_retry": "AI断句检查",
-                    "strict_smart_scaling": "AI断句自动扩大文字下不扩大文本框",
-                    "direction": "文本方向", "uppercase": "大写", "lowercase": "小写",
-                    "font_path": "字体路径", "no_hyphenation": "禁用连字符", "font_color": "字体颜色",
-                    "auto_rotate_symbols": "竖排内横排", "rtl": "从右到左", "layout_mode": "排版模式",
-                    "upscaler": "超分模型", "upscale_ratio": "超分倍数", "realcugan_model": "Real-CUGAN模型", "tile_size": "分块大小(0=不分割)", "revert_upscaling": "还原超分", "colorization_size": "上色大小",
-                    "denoise_sigma": "降噪强度", "colorizer": "上色模型", "verbose": "详细日志",
-                    "attempts": "重试次数", "max_requests_per_minute": "每分钟最大请求数", "ignore_errors": "忽略错误", "use_gpu": "使用 GPU",
-                    "use_gpu_limited": "使用 GPU（受限）", "context_size": "上下文页数", "format": "输出格式",
-                    "overwrite": "覆盖已存在文件", "skip_no_text": "跳过无文本图像",
-                    "save_text": "图片可编辑", "load_text": "导入翻译", "template": "导出原文",
-                    "save_quality": "图像保存质量", "batch_size": "批量大小",
-                    "batch_concurrent": "并发批量处理", "generate_and_export": "导出翻译",
-                    "last_output_path": "最后输出路径", "line_spacing": "行间距", "font_size": "字体大小",
-                    "YOUDAO_APP_KEY": "有道翻译应用ID", "YOUDAO_SECRET_KEY": "有道翻译应用秘钥",
-                    "BAIDU_APP_ID": "百度翻译 AppID", "BAIDU_SECRET_KEY": "百度翻译密钥",
-                    "DEEPL_AUTH_KEY": "DeepL 授权密钥", "CAIYUN_TOKEN": "彩云小译 API 令牌",
-                    "OPENAI_API_KEY": "OpenAI API 密钥", "OPENAI_MODEL": "OpenAI 模型",
-                    "OPENAI_API_BASE": "OpenAI API 地址", "OPENAI_HTTP_PROXY": "HTTP 代理", "OPENAI_GLOSSARY_PATH": "术语表路径",
-                    "DEEPSEEK_API_KEY": "DeepSeek API 密钥", "DEEPSEEK_API_BASE": "DeepSeek API 地址", "DEEPSEEK_MODEL": "DeepSeek 模型",
-                    "GROQ_API_KEY": "Groq API 密钥", "GROQ_MODEL": "Groq 模型",
-                    "GEMINI_API_KEY": "Gemini API 密钥", "GEMINI_MODEL": "Gemini 模型", "GEMINI_API_BASE": "Gemini API 地址",
-                    "SAKURA_API_BASE": "SAKURA API 地址", "SAKURA_DICT_PATH": "SAKURA 词典路径", "SAKURA_VERSION": "SAKURA API 版本",
-                    "CUSTOM_OPENAI_API_BASE": "自定义 OpenAI API 地址", "CUSTOM_OPENAI_MODEL": "自定义 OpenAI 模型",
-                    "CUSTOM_OPENAI_API_KEY": "自定义 OpenAI API 密钥", "CUSTOM_OPENAI_MODEL_CONF": "自定义 OpenAI 模型配置"
+                    "filter_text": self._t("label_filter_text"),
+                    "kernel_size": self._t("label_kernel_size"),
+                    "mask_dilation_offset": self._t("label_mask_dilation_offset"),
+                    "translator": self._t("label_translator"),
+                    "target_lang": self._t("label_target_lang"),
+                    "no_text_lang_skip": self._t("label_no_text_lang_skip"),
+                    "gpt_config": self._t("label_gpt_config"),
+                    "high_quality_prompt_path": self._t("label_high_quality_prompt_path"),
+                    "use_mocr_merge": self._t("label_use_mocr_merge"),
+                    "ocr": self._t("label_ocr"),
+                    "use_hybrid_ocr": self._t("label_use_hybrid_ocr"),
+                    "secondary_ocr": self._t("label_secondary_ocr"),
+                    "min_text_length": self._t("label_min_text_length"),
+                    "ignore_bubble": self._t("label_ignore_bubble"),
+                    "prob": self._t("label_prob"),
+                    "merge_gamma": self._t("label_merge_gamma"),
+                    "merge_sigma": self._t("label_merge_sigma"),
+                    "merge_edge_ratio_threshold": self._t("label_merge_edge_ratio_threshold"),
+                    "detector": self._t("label_detector"),
+                    "detection_size": self._t("label_detection_size"),
+                    "text_threshold": self._t("label_text_threshold"),
+                    "det_rotate": self._t("label_det_rotate"),
+                    "det_auto_rotate": self._t("label_det_auto_rotate"),
+                    "det_invert": self._t("label_det_invert"),
+                    "det_gamma_correct": self._t("label_det_gamma_correct"),
+                    "use_yolo_obb": self._t("label_use_yolo_obb"),
+                    "yolo_obb_conf": self._t("label_yolo_obb_conf"),
+                    "yolo_obb_iou": self._t("label_yolo_obb_iou"),
+                    "yolo_obb_overlap_threshold": self._t("label_yolo_obb_overlap_threshold"),
+                    "box_threshold": self._t("label_box_threshold"),
+                    "unclip_ratio": self._t("label_unclip_ratio"),
+                    "min_box_area_ratio": self._t("label_min_box_area_ratio"),
+                    "inpainter": self._t("label_inpainter"),
+                    "inpainting_size": self._t("label_inpainting_size"),
+                    "inpainting_precision": self._t("label_inpainting_precision"),
+                    "inpainting_split_ratio": self._t("label_inpainting_split_ratio"),
+                    "renderer": self._t("label_renderer"),
+                    "alignment": self._t("label_alignment"),
+                    "disable_font_border": self._t("label_disable_font_border"),
+                    "disable_auto_wrap": self._t("label_disable_auto_wrap"),
+                    "font_size_offset": self._t("label_font_size_offset"),
+                    "font_size_minimum": self._t("label_font_size_minimum"),
+                    "max_font_size": self._t("label_max_font_size"),
+                    "font_scale_ratio": self._t("label_font_scale_ratio"),
+                    "stroke_width": self._t("label_stroke_width"),
+                    "center_text_in_bubble": self._t("label_center_text_in_bubble"),
+                    "optimize_line_breaks": self._t("label_optimize_line_breaks"),
+                    "check_br_and_retry": self._t("label_check_br_and_retry"),
+                    "strict_smart_scaling": self._t("label_strict_smart_scaling"),
+                    "direction": self._t("label_direction"),
+                    "uppercase": self._t("label_uppercase"),
+                    "lowercase": self._t("label_lowercase"),
+                    "font_path": self._t("label_font_path"),
+                    "no_hyphenation": self._t("label_no_hyphenation"),
+                    "font_color": self._t("label_font_color"),
+                    "auto_rotate_symbols": self._t("label_auto_rotate_symbols"),
+                    "rtl": self._t("label_rtl"),
+                    "layout_mode": self._t("label_layout_mode"),
+                    "upscaler": self._t("label_upscaler"),
+                    "upscale_ratio": self._t("label_upscale_ratio"),
+                    "realcugan_model": self._t("label_realcugan_model"),
+                    "tile_size": self._t("label_tile_size"),
+                    "revert_upscaling": self._t("label_revert_upscaling"),
+                    "colorization_size": self._t("label_colorization_size"),
+                    "denoise_sigma": self._t("label_denoise_sigma"),
+                    "colorizer": self._t("label_colorizer"),
+                    "verbose": self._t("label_verbose"),
+                    "attempts": self._t("label_attempts"),
+                    "max_requests_per_minute": self._t("label_max_requests_per_minute"),
+                    "ignore_errors": self._t("label_ignore_errors"),
+                    "use_gpu": self._t("label_use_gpu"),
+                    "use_gpu_limited": self._t("label_use_gpu_limited"),
+                    "context_size": self._t("label_context_size"),
+                    "format": self._t("label_format"),
+                    "overwrite": self._t("label_overwrite"),
+                    "skip_no_text": self._t("label_skip_no_text"),
+                    "save_text": self._t("label_save_text"),
+                    "load_text": self._t("label_load_text"),
+                    "template": self._t("label_template"),
+                    "save_quality": self._t("label_save_quality"),
+                    "batch_size": self._t("label_batch_size"),
+                    "batch_concurrent": self._t("label_batch_concurrent"),
+                    "generate_and_export": self._t("label_generate_and_export"),
+                    "last_output_path": self._t("label_last_output_path"),
+                    "line_spacing": self._t("label_line_spacing"),
+                    "font_size": self._t("label_font_size"),
+                    "YOUDAO_APP_KEY": self._t("label_YOUDAO_APP_KEY"),
+                    "YOUDAO_SECRET_KEY": self._t("label_YOUDAO_SECRET_KEY"),
+                    "BAIDU_APP_ID": self._t("label_BAIDU_APP_ID"),
+                    "BAIDU_SECRET_KEY": self._t("label_BAIDU_SECRET_KEY"),
+                    "DEEPL_AUTH_KEY": self._t("label_DEEPL_AUTH_KEY"),
+                    "CAIYUN_TOKEN": self._t("label_CAIYUN_TOKEN"),
+                    "OPENAI_API_KEY": self._t("label_OPENAI_API_KEY"),
+                    "OPENAI_MODEL": self._t("label_OPENAI_MODEL"),
+                    "OPENAI_API_BASE": self._t("label_OPENAI_API_BASE"),
+                    "OPENAI_HTTP_PROXY": self._t("label_OPENAI_HTTP_PROXY"),
+                    "OPENAI_GLOSSARY_PATH": self._t("label_OPENAI_GLOSSARY_PATH"),
+                    "DEEPSEEK_API_KEY": self._t("label_DEEPSEEK_API_KEY"),
+                    "DEEPSEEK_API_BASE": self._t("label_DEEPSEEK_API_BASE"),
+                    "DEEPSEEK_MODEL": self._t("label_DEEPSEEK_MODEL"),
+                    "GROQ_API_KEY": self._t("label_GROQ_API_KEY"),
+                    "GROQ_MODEL": self._t("label_GROQ_MODEL"),
+                    "GEMINI_API_KEY": self._t("label_GEMINI_API_KEY"),
+                    "GEMINI_MODEL": self._t("label_GEMINI_MODEL"),
+                    "GEMINI_API_BASE": self._t("label_GEMINI_API_BASE"),
+                    "SAKURA_API_BASE": self._t("label_SAKURA_API_BASE"),
+                    "SAKURA_DICT_PATH": self._t("label_SAKURA_DICT_PATH"),
+                    "SAKURA_VERSION": self._t("label_SAKURA_VERSION"),
+                    "CUSTOM_OPENAI_API_BASE": self._t("label_CUSTOM_OPENAI_API_BASE"),
+                    "CUSTOM_OPENAI_MODEL": self._t("label_CUSTOM_OPENAI_MODEL"),
+                    "CUSTOM_OPENAI_API_KEY": self._t("label_CUSTOM_OPENAI_API_KEY"),
+                    "CUSTOM_OPENAI_MODEL_CONF": self._t("label_CUSTOM_OPENAI_MODEL_CONF")
                 }
             }
-        return self.display_name_maps.get(key)
+        return display_name_maps.get(key)
 
     def get_options_for_key(self, key: str) -> Optional[List[str]]:
         options_map = {
-            "format": ["不指定"] + list(OUTPUT_FORMATS.keys()),
+            "format": [self._t("format_not_specified")] + list(OUTPUT_FORMATS.keys()),
             "renderer": [member.value for member in Renderer],
             "alignment": [member.value for member in Alignment],
             "direction": [member.value for member in Direction],
             "upscaler": [member.value for member in Upscaler],
-            "upscale_ratio": ["不使用", "2", "3", "4"],
+            "upscale_ratio": [self._t("upscale_ratio_not_use"), "2", "3", "4"],
             "realcugan_model": [
                 "2x-conservative",
                 "2x-conservative-pro",
@@ -476,7 +580,7 @@ class MainAppLogic(QObject):
             # 选择保存位置
             file_path, _ = QFileDialog.getSaveFileName(
                 None,
-                "导出配置",
+                self._t("Export Config"),
                 "manga_translator_config.json",
                 "JSON Files (*.json)"
             )
@@ -505,19 +609,19 @@ class MainAppLogic(QObject):
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(config_dict, f, indent=2, ensure_ascii=False)
             
-            self.logger.info(f"配置已导出到: {file_path}")
+            self.logger.info(self._t("log_config_exported", path=file_path))
             QMessageBox.information(
                 None,
-                "导出成功",
-                f"配置已成功导出到：\n{file_path}\n\n注意：API密钥等敏感信息未包含在导出文件中。"
+                self._t("Export Success"),
+                self._t("Config exported successfully to:\n{path}\n\nNote: Sensitive information like API keys are not included.", path=file_path)
             )
             
         except Exception as e:
-            self.logger.error(f"导出配置失败: {e}")
+            self.logger.error(self._t("log_config_export_failed", error=e))
             QMessageBox.critical(
                 None,
-                "导出失败",
-                f"导出配置时发生错误：\n{str(e)}"
+                self._t("Export Failed"),
+                self._t("Error occurred while exporting config:\n{error}", error=str(e))
             )
     
     @pyqtSlot()
@@ -530,7 +634,7 @@ class MainAppLogic(QObject):
             # 选择要导入的文件
             file_path, _ = QFileDialog.getOpenFileName(
                 None,
-                "导入配置",
+                self._t("Import Config"),
                 "",
                 "JSON Files (*.json)"
             )
@@ -573,19 +677,19 @@ class MainAppLogic(QObject):
             config_dict_for_ui = self.config_service._convert_config_for_ui(new_config.dict())
             self.config_loaded.emit(config_dict_for_ui)
             
-            self.logger.info(f"配置已从 {file_path} 导入")
+            self.logger.info(self._t("log_config_imported", path=file_path))
             QMessageBox.information(
                 None,
-                "导入成功",
-                f"配置已成功导入！\n\n来源：{file_path}\n\n注意：您的API密钥等敏感信息已保留，未被覆盖。"
+                self._t("Import Success"),
+                self._t("Config imported successfully!\n\nSource: {path}\n\nNote: Your API keys and sensitive information have been preserved.", path=file_path)
             )
             
         except Exception as e:
-            self.logger.error(f"导入配置失败: {e}")
+            self.logger.error(self._t("log_config_import_failed", error=e))
             QMessageBox.critical(
                 None,
-                "导入失败",
-                f"导入配置时发生错误：\n{str(e)}\n\n请确保文件格式正确。"
+                self._t("Import Failed"),
+                self._t("Error occurred while importing config:\n{error}\n\nPlease ensure the file format is correct.", error=str(e))
             )
     # endregion
 
@@ -804,8 +908,8 @@ class MainAppLogic(QObject):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 None,
-                "文件列表为空",
-                "请先添加要翻译的图片文件！\n\n可以通过以下方式添加：\n• 点击「添加文件」按钮\n• 点击「添加文件夹」按钮\n• 直接拖拽文件到文件列表"
+                self._t("File List Empty"),
+                self._t("Please add image files to translate!\n\nYou can add files by:\n• Click 'Add Files' button\n• Click 'Add Folder' button\n• Drag and drop files to the list")
             )
             return
 
@@ -816,8 +920,8 @@ class MainAppLogic(QObject):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 None,
-                "输出目录不合法",
-                "请先设置有效的输出目录！\n\n可以通过以下方式设置：\n• 点击「浏览...」按钮选择输出目录\n• 直接在输出目录输入框中输入路径"
+                self._t("Invalid Output Directory"),
+                self._t("Please set a valid output directory!\n\nYou can set it by:\n• Click 'Browse...' button to select directory\n• Enter path directly in the output directory field")
             )
             return
 
@@ -1098,6 +1202,13 @@ class TranslationWorker(QObject):
         self.file_to_folder_map = file_to_folder_map or {}  # 文件到文件夹的映射
         self._is_running = True
         self._current_task = None  # 保存当前运行的异步任务
+        self.i18n = get_i18n_manager()
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def stop(self):
         self.log_received.emit("--- Stop request received.")
@@ -1490,34 +1601,34 @@ class TranslationWorker(QObject):
             }
 
             # 确定翻译流程模式
-            workflow_mode = "正常翻译流程"
+            workflow_mode = self._t("Normal Translation")
             workflow_tip = ""
             cli_config = self.config_dict.get('cli', {})
             if cli_config.get('upscale_only', False):
-                workflow_mode = "仅超分"
-                workflow_tip = "💡 提示：仅对图片进行超分处理，不进行检测、OCR、翻译和渲染"
+                workflow_mode = self._t("Upscale Only")
+                workflow_tip = self._t("💡 Tip: Only upscale images, no detection, OCR, translation or rendering")
             elif cli_config.get('colorize_only', False):
-                workflow_mode = "仅上色"
-                workflow_tip = "💡 提示：仅对图片进行上色处理，不进行检测、OCR、翻译和渲染"
+                workflow_mode = self._t("Colorize Only")
+                workflow_tip = self._t("💡 Tip: Only colorize images, no detection, OCR, translation or rendering")
             elif cli_config.get('generate_and_export', False):
-                workflow_mode = "导出翻译"
-                workflow_tip = "💡 提示：导出翻译后，可在 manga_translator_work/translations/ 目录查看 图片名_translated.txt 文件"
+                workflow_mode = self._t("Export Translation")
+                workflow_tip = self._t("💡 Tip: After exporting, check manga_translator_work/translations/ for imagename_translated.txt files")
             elif cli_config.get('template', False):
-                workflow_mode = "导出原文"
-                workflow_tip = "💡 提示：导出原文后，可在 manga_translator_work/originals/ 目录手动翻译 图片名_original.txt 文件，然后使用「导入翻译并渲染」模式"
+                workflow_mode = self._t("Export Original Text")
+                workflow_tip = self._t("💡 Tip: After exporting, manually translate imagename_original.txt in manga_translator_work/originals/, then use 'Import Translation and Render' mode")
             elif cli_config.get('load_text', False):
-                workflow_mode = "导入翻译并渲染"
-                workflow_tip = "💡 提示：将从 manga_translator_work/originals/ 或 translations/ 目录读取 TXT 文件并渲染（优先使用 _original.txt）"
+                workflow_mode = self._t("Import Translation and Render")
+                workflow_tip = self._t("💡 Tip: Will read TXT files from manga_translator_work/originals/ or translations/ and render (prioritize _original.txt)")
                 
                 # 在load_text模式下，先自动导入txt文件的翻译到JSON
-                self.log_received.emit("📥 正在从TXT文件导入翻译到JSON...")
+                self.log_received.emit(self._t("📥 Importing translations from TXT files to JSON..."))
                 from desktop_qt_ui.services.workflow_service import smart_update_translations_from_images, ensure_default_template_exists
                 template_path = ensure_default_template_exists()
                 if template_path:
                     import_result = smart_update_translations_from_images(self.files, template_path)
-                    self.log_received.emit(f"导入结果：{import_result}")
+                    self.log_received.emit(self._t("Import result: {result}", result=import_result))
                 else:
-                    self.log_received.emit("⚠️ 警告：无法找到模板文件，跳过自动导入翻译")
+                    self.log_received.emit(self._t("⚠️ Warning: Cannot find template file, skipping auto-import"))
 
             if is_hq or (len(self.files) > 1 and batch_size > 1):
                 self.log_received.emit(f"--- [12] THREAD: Starting batch processing ({'HQ mode' if is_hq else 'Batch mode'})...")
@@ -1525,14 +1636,14 @@ class TranslationWorker(QObject):
                 # 输出批量处理信息
                 total_images = len(self.files)
                 total_batches = (total_images + batch_size - 1) // batch_size if batch_size > 0 else 1
-                self.log_received.emit(f"📊 批量处理模式：共 {total_images} 张图片，分 {total_batches} 个批次处理")
-                self.log_received.emit(f"🔧 翻译流程：{workflow_mode}")
-                self.log_received.emit(f"📁 输出目录：{self.output_folder}")
+                self.log_received.emit(self._t("📊 Batch processing mode: {total} images in {batches} batches", total=total_images, batches=total_batches))
+                self.log_received.emit(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
+                self.log_received.emit(self._t("📁 Output directory: {dir}", dir=self.output_folder))
                 if workflow_tip:
                     self.log_received.emit(workflow_tip)
 
                 # ✅ 按批次加载图片，避免一次性加载所有图片到内存
-                self.log_received.emit(f"🚀 开始翻译（按批次加载图片以节省内存）...")
+                self.log_received.emit(self._t("🚀 Starting translation (loading images in batches to save memory)..."))
                 
                 all_contexts = []
                 for batch_num in range(total_batches):
@@ -1542,7 +1653,7 @@ class TranslationWorker(QObject):
                     batch_end = min(batch_start + batch_size, total_images)
                     current_batch_files = self.files[batch_start:batch_end]
                     
-                    self.log_received.emit(f"\n📦 处理批次 {batch_num + 1}/{total_batches} (图片 {batch_start + 1}-{batch_end})...")
+                    self.log_received.emit(self._t("\n📦 Processing batch {current}/{total} (images {start}-{end})...", current=batch_num + 1, total=total_batches, start=batch_start + 1, end=batch_end))
                     
                     # 加载当前批次的图片
                     images_with_configs = []
@@ -1616,19 +1727,19 @@ class TranslationWorker(QObject):
                         failed_count += 1
 
                 if failed_count > 0:
-                    self.log_received.emit(f"\n⚠️ 批量翻译完成：成功 {success_count}/{total_images} 张，失败 {failed_count}/{total_images} 张")
+                    self.log_received.emit(self._t("\n⚠️ Batch translation completed: {success}/{total} succeeded, {failed}/{total} failed", success=success_count, total=total_images, failed=failed_count))
                 else:
-                    self.log_received.emit(f"✅ 批量翻译完成：成功 {success_count}/{total_images} 张")
-                self.log_received.emit(f"💾 文件已保存到：{self.output_folder}")
+                    self.log_received.emit(self._t("✅ Batch translation completed: {success}/{total} succeeded", success=success_count, total=total_images))
+                self.log_received.emit(self._t("💾 Files saved to: {dir}", dir=self.output_folder))
 
             else:
                 self.log_received.emit("--- [12] THREAD: Starting sequential processing...")
                 total_files = len(self.files)
 
                 # 输出顺序处理信息
-                self.log_received.emit(f"📊 顺序处理模式：共 {total_files} 张图片")
-                self.log_received.emit(f"🔧 翻译流程：{workflow_mode}")
-                self.log_received.emit(f"📁 输出目录：{self.output_folder}")
+                self.log_received.emit(self._t("📊 Sequential processing mode: {total} images", total=total_files))
+                self.log_received.emit(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
+                self.log_received.emit(self._t("📁 Output directory: {dir}", dir=self.output_folder))
                 if workflow_tip:
                     self.log_received.emit(workflow_tip)
 

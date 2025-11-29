@@ -19,6 +19,7 @@ from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
 from editor.graphics_view import GraphicsView
+from services import get_i18n_manager
 from widgets.editor_toolbar import EditorToolbar
 from widgets.file_list_view import FileListView
 from widgets.property_panel import PropertyPanel
@@ -38,6 +39,7 @@ class EditorView(QWidget):
         self.model = model
         self.controller = controller
         self.logic = logic
+        self.i18n = get_i18n_manager()
 
         # 设置controller的view引用，用于更新UI状态
         self.controller.set_view(self)
@@ -75,6 +77,12 @@ class EditorView(QWidget):
         # --- 连接信号与槽 ---
         self._connect_signals()
         self._setup_shortcuts()
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def _setup_shortcuts(self):
         """设置编辑器快捷键"""
@@ -194,7 +202,7 @@ class EditorView(QWidget):
 
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
-        left_tab_widget = QTabWidget()
+        self.left_tab_widget = QTabWidget()
         
         # 创建“可编辑译文”标签页
         translation_widget = QWidget()
@@ -206,15 +214,15 @@ class EditorView(QWidget):
         replace_layout = QHBoxLayout(replace_widget)
         replace_layout.setContentsMargins(5, 5, 5, 5)
         self.find_input = QLineEdit()
-        self.find_input.setPlaceholderText("查找")
+        self.find_input.setPlaceholderText(self._t("Find"))
         self.replace_input = QLineEdit()
-        self.replace_input.setPlaceholderText("替换为")
-        self.replace_all_button = QPushButton("全部替换")
+        self.replace_input.setPlaceholderText(self._t("Replace with"))
+        self.replace_all_button = QPushButton(self._t("Replace All"))
         replace_layout.addWidget(self.find_input)
         replace_layout.addWidget(self.replace_input)
         replace_layout.addWidget(self.replace_all_button)
         
-        self.apply_translations_button = QPushButton("应用所有译文修改")
+        self.apply_translations_button = QPushButton(self._t("Apply All Translation Changes"))
         self.region_list_view = RegionListView(self)
         
         translation_layout.addWidget(replace_widget)
@@ -223,14 +231,55 @@ class EditorView(QWidget):
 
         self.property_panel = PropertyPanel(self.model, self.app_logic, self)
 
-        left_tab_widget.addTab(translation_widget, "可编辑译文")
-        left_tab_widget.addTab(self.property_panel, "属性编辑")
+        self.left_tab_widget.addTab(translation_widget, self._t("Editable Translation"))
+        self.left_tab_widget.addTab(self.property_panel, self._t("Property Editor"))
 
         # 设置默认显示"属性编辑"标签页
-        left_tab_widget.setCurrentIndex(1)
+        self.left_tab_widget.setCurrentIndex(1)
 
-        return left_tab_widget
+        return self.left_tab_widget
 
+    def refresh_tab_titles(self):
+        """刷新标签页标题（用于语言切换）"""
+        if hasattr(self, 'left_tab_widget') and self.left_tab_widget:
+            self.left_tab_widget.setTabText(0, self._t("Editable Translation"))
+            self.left_tab_widget.setTabText(1, self._t("Property Editor"))
+    
+    def refresh_ui_texts(self):
+        """刷新所有UI文本（用于语言切换）"""
+        # 刷新标签页标题
+        self.refresh_tab_titles()
+        
+        # 刷新查找替换按钮
+        if hasattr(self, 'find_input'):
+            self.find_input.setPlaceholderText(self._t("Find"))
+        if hasattr(self, 'replace_input'):
+            self.replace_input.setPlaceholderText(self._t("Replace with"))
+        if hasattr(self, 'replace_all_button'):
+            self.replace_all_button.setText(self._t("Replace All"))
+        if hasattr(self, 'apply_translations_button'):
+            self.apply_translations_button.setText(self._t("Apply All Translation Changes"))
+        
+        # 刷新工具栏
+        if hasattr(self, 'toolbar'):
+            self.toolbar.refresh_ui_texts()
+        
+        # 刷新属性面板
+        if hasattr(self, 'property_panel'):
+            self.property_panel.refresh_ui_texts()
+        
+        # 刷新右侧文件列表按钮
+        if hasattr(self, 'add_files_button'):
+            self.add_files_button.setText(self._t("Add Files"))
+        if hasattr(self, 'add_folder_button'):
+            self.add_folder_button.setText(self._t("Add Folder"))
+        if hasattr(self, 'clear_list_button'):
+            self.clear_list_button.setText(self._t("Clear List"))
+        
+        # 刷新文件列表视图（强制重绘以更新拖拽提示文本）
+        if hasattr(self, 'file_list') and hasattr(self.file_list, 'refresh_ui_texts'):
+            self.file_list.refresh_ui_texts()
+    
     def _on_apply_changes_clicked(self):
         """应用所有在列表中修改的译文"""
         translations = self.region_list_view.get_all_translations()
@@ -325,9 +374,9 @@ class EditorView(QWidget):
         file_button_widget = QWidget()
         file_buttons_layout = QHBoxLayout(file_button_widget)
         file_buttons_layout.setContentsMargins(0,0,0,0)
-        self.add_files_button = QPushButton("添加文件")
-        self.add_folder_button = QPushButton("添加文件夹")
-        self.clear_list_button = QPushButton("清空列表")
+        self.add_files_button = QPushButton(self._t("Add Files"))
+        self.add_folder_button = QPushButton(self._t("Add Folder"))
+        self.clear_list_button = QPushButton(self._t("Clear List"))
         file_buttons_layout.addWidget(self.add_files_button)
         file_buttons_layout.addWidget(self.add_folder_button)
         file_buttons_layout.addWidget(self.clear_list_button)

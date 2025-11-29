@@ -226,6 +226,10 @@ class FileListView(QTreeWidget):
         super().__init__(parent)
         self.model = model
         
+        # 导入i18n
+        from services import get_i18n_manager
+        self.i18n = get_i18n_manager()
+        
         # 设置树形控件属性
         self.setHeaderHidden(True)  # 隐藏标题栏
         self.setIndentation(20)  # 设置缩进
@@ -240,6 +244,18 @@ class FileListView(QTreeWidget):
         
         # 连接选择信号
         self.itemSelectionChanged.connect(self._on_selection_changed)
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
+    
+    def refresh_ui_texts(self):
+        """刷新UI文本（用于语言切换）"""
+        # 强制重绘以更新拖拽提示文本
+        self.viewport().update()
+        self.update()
 
     def paintEvent(self, event):
         """重写绘制事件，在列表为空时显示提示"""
@@ -260,7 +276,7 @@ class FileListView(QTreeWidget):
             
             # 绘制提示文本
             rect = self.viewport().rect()
-            text = "拖拽文件或文件夹到此处\n或点击上方按钮添加"
+            text = self._t("Drag and drop files or folders here\nor click the buttons above to add")
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
             
             painter.end()

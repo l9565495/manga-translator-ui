@@ -3,7 +3,8 @@
     "last_open_dir": ".",
     "last_output_path": "",
     "favorite_folders": null,
-    "theme": "light"
+    "theme": "light",
+    "ui_language": "auto"
   },
   "filter_text": null,
   "kernel_size": 3,

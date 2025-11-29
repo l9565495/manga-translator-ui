@@ -211,9 +211,10 @@ class ConfigService(QObject):
                         config_dict['app'] = {}
                     config_dict['app']['last_open_dir'] = '.'
                     config_dict['app']['last_output_path'] = ''
-                    # 模板配置中这两个字段保持固定值
+                    # 模板配置中这些字段保持固定值
                     config_dict['app']['favorite_folders'] = None
                     config_dict['app']['theme'] = 'light'
+                    config_dict['app']['ui_language'] = 'auto'  # 模板配置始终为 auto
                     
                     if 'cli' in config_dict:
                         config_dict['cli']['verbose'] = False

@@ -15,6 +15,7 @@ from desktop_qt_ui.editor.core import ResourceManager
 from .config_service import ConfigService
 from .file_service import FileService
 from .history_service import EditorStateManager as HistoryService
+from .i18n_service import I18nManager, get_i18n_manager
 from .log_service import LogService, setup_logging
 from .ocr_service import OcrService
 from .render_parameter_service import RenderParameterService
@@ -66,6 +67,12 @@ class ServiceContainer:
         self.services['log'] = LogService()
         self.services['state'] = StateManager()
         self.services['config'] = ConfigService(self.root_dir)
+        
+        # 初始化i18n服务 - 从配置读取语言设置
+        locale_dir = os.path.join(self.root_dir, "desktop_qt_ui", "locales")
+        config = self.services['config'].get_config()
+        ui_language = config.app.ui_language if hasattr(config.app, 'ui_language') else "auto"
+        self.services['i18n'] = I18nManager(locale_dir=locale_dir, fallback_locale="zh_CN", config_language=ui_language)
         
         # 根据配置设置日志级别
         try:
@@ -226,6 +233,11 @@ class ServiceManager:
         return cls.get_service('resource_manager')
     
     @classmethod
+    def get_i18n_manager(cls) -> Optional[I18nManager]:
+        """获取国际化管理器"""
+        return cls.get_service('i18n')
+    
+    @classmethod
     def shutdown(cls):
         """关闭服务管理器"""
         if cls._container:
@@ -279,6 +291,10 @@ def get_history_service() -> Optional[HistoryService]:
 def get_resource_manager() -> Optional[ResourceManager]:
     """获取资源管理器的便捷函数"""
     return ServiceManager.get_resource_manager()
+
+def get_i18n_manager() -> Optional[I18nManager]:
+    """获取国际化管理器的便捷函数"""
+    return ServiceManager.get_i18n_manager()
 
 def shutdown_services():
     """关闭服务的便捷函数"""

@@ -40,8 +40,9 @@ class TranslationResult:
 class TranslationService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        from . import get_config_service  # Lazy import to avoid circular dependency
+        from . import get_config_service, get_i18n_manager  # Lazy import to avoid circular dependency
         self.config_service = get_config_service()
+        self.i18n = get_i18n_manager()
         
         # 从配置服务正确初始化当前状态
         initial_config = self.config_service.get_config()
@@ -52,6 +53,12 @@ class TranslationService:
             self.current_translator_enum = Translator.sugoi # Fallback
         
         self.current_target_lang = initial_config.translator.target_lang or 'CHS'
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def get_available_translators(self) -> List[str]:
         if not TRANSLATOR_AVAILABLE:
@@ -59,33 +66,33 @@ class TranslationService:
         return [t.value for t in Translator]
 
     def get_target_languages(self) -> Dict[str, str]:
-        """获取支持的目标语言列表（中文）"""
+        """获取支持的目标语言列表（支持国际化）"""
         return {
-            'CHS': '简体中文',
-            'CHT': '繁体中文',
-            'CSY': '捷克语',
-            'NLD': '荷兰语',
-            'ENG': '英语',
-            'FRA': '法语',
-            'DEU': '德语',
-            'HUN': '匈牙利语',
-            'ITA': '意大利语',
-            'JPN': '日语',
-            'KOR': '韩语',
-            'POL': '波兰语',
-            'PTB': '葡萄牙语（巴西）',
-            'ROM': '罗马尼亚语',
-            'RUS': '俄语',
-            'ESP': '西班牙语',
-            'TRK': '土耳其语',
-            'UKR': '乌克兰语',
-            'VIN': '越南语',
-            'ARA': '阿拉伯语',
-            'SRP': '塞尔维亚语',
-            'HRV': '克罗地亚语',
-            'THA': '泰语',
-            'IND': '印度尼西亚语',
-            'FIL': '菲律宾语（他加禄语）'
+            'CHS': self._t('lang_CHS'),
+            'CHT': self._t('lang_CHT'),
+            'CSY': self._t('lang_CSY'),
+            'NLD': self._t('lang_NLD'),
+            'ENG': self._t('lang_ENG'),
+            'FRA': self._t('lang_FRA'),
+            'DEU': self._t('lang_DEU'),
+            'HUN': self._t('lang_HUN'),
+            'ITA': self._t('lang_ITA'),
+            'JPN': self._t('lang_JPN'),
+            'KOR': self._t('lang_KOR'),
+            'POL': self._t('lang_POL'),
+            'PTB': self._t('lang_PTB'),
+            'ROM': self._t('lang_ROM'),
+            'RUS': self._t('lang_RUS'),
+            'ESP': self._t('lang_ESP'),
+            'TRK': self._t('lang_TRK'),
+            'UKR': self._t('lang_UKR'),
+            'VIN': self._t('lang_VIN'),
+            'ARA': self._t('lang_ARA'),
+            'SRP': self._t('lang_SRP'),
+            'HRV': self._t('lang_HRV'),
+            'THA': self._t('lang_THA'),
+            'IND': self._t('lang_IND'),
+            'FIL': self._t('lang_FIL')
         }
 
     async def translate_text(self, text: str, 

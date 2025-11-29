@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from services import get_config_service
+from services import get_config_service, get_i18n_manager
 
 # from .collapsible_frame import CollapsibleFrame  # 不再使用折叠框
 from .syntax_highlighter import HorizontalTagHighlighter
@@ -112,6 +112,7 @@ class PropertyPanel(QWidget):
         self.model = model
         self.app_logic = app_logic
         self.config_service = get_config_service()
+        self.i18n = get_i18n_manager()
         self._init_ui()
         self._connect_signals()
         self._connect_model_signals() # Connect to model signals
@@ -120,6 +121,12 @@ class PropertyPanel(QWidget):
         self.clear_and_disable_selection_dependent()
         # 初始化时从配置加载蒙版参数
         self._load_mask_config_from_settings()
+    
+    def _t(self, key: str, **kwargs) -> str:
+        """翻译辅助方法"""
+        if self.i18n:
+            return self.i18n.translate(key, **kwargs)
+        return key
 
     def _init_ui(self):
         # 创建主布局
@@ -155,31 +162,35 @@ class PropertyPanel(QWidget):
         # self.highlighter = HorizontalTagHighlighter(self.translated_text_box.document())
 
     def _create_region_info_section(self, layout):
-        self.info_group = QGroupBox("区域信息")
+        self.info_group = QGroupBox(self._t("Region Info"))
         info_layout = QFormLayout(self.info_group)
         self.index_label = QLabel("-")
         self.bbox_label = QLabel("-")
         self.size_label = QLabel("-")
         self.angle_label = QLabel("-")
-        info_layout.addRow("索引:", self.index_label)
-        info_layout.addRow("位置:", self.bbox_label)
-        info_layout.addRow("尺寸:", self.size_label)
-        info_layout.addRow("角度:", self.angle_label)
+        self.index_row_label = QLabel(self._t("Index:"))
+        self.bbox_row_label = QLabel(self._t("Position:"))
+        self.size_row_label = QLabel(self._t("Size:"))
+        self.angle_row_label = QLabel(self._t("Angle:"))
+        info_layout.addRow(self.index_row_label, self.index_label)
+        info_layout.addRow(self.bbox_row_label, self.bbox_label)
+        info_layout.addRow(self.size_row_label, self.size_label)
+        info_layout.addRow(self.angle_row_label, self.angle_label)
         layout.addWidget(self.info_group)
 
     def _create_mask_edit_section(self, layout):
-        self.mask_edit_frame = QGroupBox("蒙版编辑")
+        self.mask_edit_frame = QGroupBox(self._t("Mask Editing"))
         mask_layout = QVBoxLayout(self.mask_edit_frame)
         tools_layout = QHBoxLayout()
 
         self.mask_tool_group = QButtonGroup(self)
         self.mask_tool_group.setExclusive(True)
 
-        self.brush_button = QPushButton("画笔")
+        self.brush_button = QPushButton(self._t("Brush"))
         self.brush_button.setCheckable(True)
-        self.eraser_button = QPushButton("橡皮擦")
+        self.eraser_button = QPushButton(self._t("Eraser"))
         self.eraser_button.setCheckable(True)
-        self.select_button = QPushButton("不选择")
+        self.select_button = QPushButton(self._t("No Selection"))
         self.select_button.setCheckable(True)
 
         self.mask_tool_group.addButton(self.select_button, 0)
@@ -193,7 +204,8 @@ class PropertyPanel(QWidget):
 
         mask_layout.addLayout(tools_layout)
         brush_size_layout = QHBoxLayout()
-        brush_size_layout.addWidget(QLabel("笔刷大小:"))
+        self.brush_size_label = QLabel(self._t("Brush Size:"))
+        brush_size_layout.addWidget(self.brush_size_label)
         self.brush_size_slider = QSlider(Qt.Orientation.Horizontal)
         self.brush_size_slider.setRange(1, 100)
         self.brush_size_label = QLabel("20")
@@ -204,14 +216,16 @@ class PropertyPanel(QWidget):
         mask_params_layout = QFormLayout()
         self.mask_dilation_offset_entry = QLineEdit()
         self.mask_kernel_size_entry = QLineEdit()
-        mask_params_layout.addRow("扩张偏移:", self.mask_dilation_offset_entry)
-        mask_params_layout.addRow("内核大小:", self.mask_kernel_size_entry)
+        self.mask_dilation_label = QLabel(self._t("Dilation Offset:"))
+        self.mask_kernel_label = QLabel(self._t("Kernel Size:"))
+        mask_params_layout.addRow(self.mask_dilation_label, self.mask_dilation_offset_entry)
+        mask_params_layout.addRow(self.mask_kernel_label, self.mask_kernel_size_entry)
         mask_layout.addLayout(mask_params_layout)
-        self.ignore_bubble_checkbox = QCheckBox("忽略气泡")
-        self.update_mask_button = QPushButton("更新蒙版")
-        self.show_refined_mask_checkbox = QCheckBox("显示优化蒙版")
+        self.ignore_bubble_checkbox = QCheckBox(self._t("Ignore Bubble"))
+        self.update_mask_button = QPushButton(self._t("Update Mask"))
+        self.show_refined_mask_checkbox = QCheckBox(self._t("Show Refined Mask"))
         self.show_refined_mask_checkbox.setChecked(False)  # 默认关闭
-        self.show_removed_checkbox = QCheckBox("显示被优化区域")
+        self.show_removed_checkbox = QCheckBox(self._t("Show Optimized Regions"))
         mask_layout.addWidget(self.ignore_bubble_checkbox)
         mask_layout.addWidget(self.update_mask_button)
         mask_layout.addWidget(self.show_refined_mask_checkbox)
@@ -219,23 +233,26 @@ class PropertyPanel(QWidget):
         layout.addWidget(self.mask_edit_frame)
 
     def _create_text_section(self, layout):
-        self.text_edit_frame = QGroupBox("文本内容")
+        self.text_edit_frame = QGroupBox(self._t("Text Content"))
         text_layout = QVBoxLayout(self.text_edit_frame)
         ocr_trans_config_layout = QFormLayout()
         self.ocr_model_combo = QComboBox()
         self.translator_combo = QComboBox()
+        self.translator_combo.setMinimumWidth(150)  # 设置翻译器下拉框最小宽度
         self.target_language_combo = QComboBox()
         ocr_row = QHBoxLayout()
         ocr_row.addWidget(self.ocr_model_combo)
-        self.ocr_button = QPushButton("识别")
+        self.ocr_button = QPushButton(self._t("Recognize"))
         ocr_row.addWidget(self.ocr_button)
         translator_row = QHBoxLayout()
         translator_row.addWidget(self.translator_combo)
-        self.translate_button = QPushButton("翻译")
+        self.translate_button = QPushButton(self._t("Translate"))
         translator_row.addWidget(self.translate_button)
-        ocr_trans_config_layout.addRow("OCR模型:", ocr_row)
-        ocr_trans_config_layout.addRow("翻译器:", translator_row)
-        ocr_trans_config_layout.addRow("目标语言:", self.target_language_combo)
+        self.translator_row_label = QLabel(self._t("Translator:"))
+        self.target_lang_row_label = QLabel(self._t("Target Language:"))
+        ocr_trans_config_layout.addRow(self._t("OCR Model:"), ocr_row)
+        ocr_trans_config_layout.addRow(self.translator_row_label, translator_row)
+        ocr_trans_config_layout.addRow(self.target_lang_row_label, self.target_language_combo)
         text_layout.addLayout(ocr_trans_config_layout)
         
         # 原文文本框
@@ -254,28 +271,30 @@ class PropertyPanel(QWidget):
         self.translated_text_box.setMinimumHeight(80)
         self.translated_text_box.setMaximumHeight(150)
         
-        text_layout.addWidget(QLabel("原文:"))
+        self.original_text_label = QLabel(self._t("Original Text:"))
+        text_layout.addWidget(self.original_text_label)
         text_layout.addWidget(self.original_text_box)
-        text_layout.addWidget(QLabel("译文:"))
+        self.translated_text_label = QLabel(self._t("Translated Text:"))
+        text_layout.addWidget(self.translated_text_label)
         text_layout.addWidget(self.translated_text_box)
         insert_buttons_layout = QHBoxLayout()
         insert_buttons_layout.setSpacing(4)
-        self.insert_placeholder_button = QPushButton("占位符")
-        self.insert_placeholder_button.setToolTip("插入占位符 ＿")
-        self.insert_newline_button = QPushButton("换行↵")
-        self.insert_newline_button.setToolTip("插入换行符")
-        self.mark_horizontal_button = QPushButton("横排⇄")
-        self.mark_horizontal_button.setToolTip("标记选中文字为横排显示")
+        self.insert_placeholder_button = QPushButton(self._t("Placeholder"))
+        self.insert_placeholder_button.setToolTip(self._t("Insert placeholder ＿"))
+        self.insert_newline_button = QPushButton(self._t("Newline↵"))
+        self.insert_newline_button.setToolTip(self._t("Insert newline"))
+        self.mark_horizontal_button = QPushButton(self._t("Horizontal⇄"))
+        self.mark_horizontal_button.setToolTip(self._t("Mark selected text as horizontal display"))
         insert_buttons_layout.addWidget(self.insert_placeholder_button)
         insert_buttons_layout.addWidget(self.insert_newline_button)
         insert_buttons_layout.addWidget(self.mark_horizontal_button)
         text_layout.addLayout(insert_buttons_layout)
-        self.text_stats_label = QLabel("字符数: 0")
+        self.text_stats_label = QLabel(self._t("Character count: 0"))
         text_layout.addWidget(self.text_stats_label)
         layout.addWidget(self.text_edit_frame)
 
     def _create_style_section(self, layout):
-        self.style_edit_frame = QGroupBox("样式设置")
+        self.style_edit_frame = QGroupBox(self._t("Style Settings"))
         style_layout = QFormLayout(self.style_edit_frame)
         
         # Font family selector with refresh capability
@@ -311,7 +330,8 @@ class PropertyPanel(QWidget):
         self.font_family_combo = RefreshableComboBox(self)
         self.font_family_combo.setEditable(False)
         self._populate_font_list()
-        style_layout.addRow("字体:", self.font_family_combo)
+        self.font_label = QLabel(self._t("Font:"))
+        style_layout.addRow(self.font_label, self.font_family_combo)
         
         # Font size
         font_size_layout = QHBoxLayout()
@@ -319,18 +339,22 @@ class PropertyPanel(QWidget):
         font_size_layout.addWidget(self.font_size_input)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
         self.font_size_slider.setRange(8, 72)
-        style_layout.addRow("字体大小:", font_size_layout)
+        self.font_size_label = QLabel(self._t("Font Size:"))
+        style_layout.addRow(self.font_size_label, font_size_layout)
         style_layout.addRow("", self.font_size_slider)
         
         # Font color
         self.font_color_button = QPushButton()
-        style_layout.addRow("字体颜色:", self.font_color_button)
+        self.font_color_label = QLabel(self._t("Font Color:"))
+        style_layout.addRow(self.font_color_label, self.font_color_button)
         
         # Alignment and direction
         self.alignment_combo = QComboBox()
         self.direction_combo = QComboBox()
-        style_layout.addRow("对齐:", self.alignment_combo)
-        style_layout.addRow("方向:", self.direction_combo)
+        self.alignment_label = QLabel(self._t("Alignment:"))
+        self.direction_label = QLabel(self._t("Direction:"))
+        style_layout.addRow(self.alignment_label, self.alignment_combo)
+        style_layout.addRow(self.direction_label, self.direction_combo)
         
         layout.addWidget(self.style_edit_frame)
     
@@ -356,19 +380,19 @@ class PropertyPanel(QWidget):
         font_files.sort(key=lambda x: x[0])
         
         # Add default option
-        self.font_family_combo.addItem("默认字体", "")
+        self.font_family_combo.addItem(self._t("Default Font"), "")
         
         # Add font files
         for display_name, filename in font_files:
             self.font_family_combo.addItem(display_name, filename)
 
     def _create_action_section(self, layout):
-        self.action_frame = QGroupBox("操作")
+        self.action_frame = QGroupBox(self._t("Actions"))
         action_layout = QHBoxLayout(self.action_frame)
         action_layout.setSpacing(4)
-        self.copy_button = QPushButton("复制")
-        self.paste_button = QPushButton("粘贴")
-        self.delete_button = QPushButton("删除")
+        self.copy_button = QPushButton(self._t("Copy"))
+        self.paste_button = QPushButton(self._t("Paste"))
+        self.delete_button = QPushButton(self._t("Delete"))
         action_layout.addWidget(self.copy_button)
         action_layout.addWidget(self.paste_button)
         action_layout.addWidget(self.delete_button)
@@ -560,6 +584,159 @@ class PropertyPanel(QWidget):
         if direction_map:
             self.direction_combo.clear()
             self.direction_combo.addItems(list(direction_map.values()))
+    
+    def refresh_ui_texts(self):
+        """刷新所有UI文本（用于语言切换）"""
+        # 刷新分组框标题
+        if hasattr(self, 'info_group'):
+            self.info_group.setTitle(self._t("Region Info"))
+        if hasattr(self, 'mask_edit_frame'):
+            self.mask_edit_frame.setTitle(self._t("Mask Editing"))
+        if hasattr(self, 'text_edit_frame'):
+            self.text_edit_frame.setTitle(self._t("Text Content"))
+        if hasattr(self, 'style_edit_frame'):
+            self.style_edit_frame.setTitle(self._t("Style Settings"))
+        if hasattr(self, 'action_frame'):
+            self.action_frame.setTitle(self._t("Actions"))
+        
+        # 刷新标签
+        if hasattr(self, 'index_row_label'):
+            self.index_row_label.setText(self._t("Index:"))
+        if hasattr(self, 'bbox_row_label'):
+            self.bbox_row_label.setText(self._t("Position:"))
+        if hasattr(self, 'size_row_label'):
+            self.size_row_label.setText(self._t("Size:"))
+        if hasattr(self, 'angle_row_label'):
+            self.angle_row_label.setText(self._t("Angle:"))
+        if hasattr(self, 'mask_dilation_label'):
+            self.mask_dilation_label.setText(self._t("Dilation Offset:"))
+        if hasattr(self, 'mask_kernel_label'):
+            self.mask_kernel_label.setText(self._t("Kernel Size:"))
+        if hasattr(self, 'brush_size_label'):
+            self.brush_size_label.setText(self._t("Brush Size:"))
+        if hasattr(self, 'translator_row_label'):
+            self.translator_row_label.setText(self._t("Translator:"))
+        if hasattr(self, 'target_lang_row_label'):
+            self.target_lang_row_label.setText(self._t("Target Language:"))
+        if hasattr(self, 'font_label'):
+            self.font_label.setText(self._t("Font:"))
+        if hasattr(self, 'font_size_label'):
+            self.font_size_label.setText(self._t("Font Size:"))
+        if hasattr(self, 'font_color_label'):
+            self.font_color_label.setText(self._t("Font Color:"))
+        if hasattr(self, 'alignment_label'):
+            self.alignment_label.setText(self._t("Alignment:"))
+        if hasattr(self, 'direction_label'):
+            self.direction_label.setText(self._t("Direction:"))
+        if hasattr(self, 'original_text_label'):
+            self.original_text_label.setText(self._t("Original Text:"))
+        if hasattr(self, 'translated_text_label'):
+            self.translated_text_label.setText(self._t("Translated Text:"))
+        if hasattr(self, 'text_stats_label'):
+            self.text_stats_label.setText(self._t("Character count: 0"))
+        
+        # 刷新按钮
+        if hasattr(self, 'ocr_button'):
+            self.ocr_button.setText(self._t("Recognize"))
+        if hasattr(self, 'translate_button'):
+            self.translate_button.setText(self._t("Translate"))
+        if hasattr(self, 'update_mask_button'):
+            self.update_mask_button.setText(self._t("Update Mask"))
+        if hasattr(self, 'brush_button'):
+            self.brush_button.setText(self._t("Brush"))
+        if hasattr(self, 'eraser_button'):
+            self.eraser_button.setText(self._t("Eraser"))
+        if hasattr(self, 'select_button'):
+            self.select_button.setText(self._t("No Selection"))
+        if hasattr(self, 'insert_placeholder_button'):
+            self.insert_placeholder_button.setText(self._t("Placeholder"))
+            self.insert_placeholder_button.setToolTip(self._t("Insert placeholder ＿"))
+        if hasattr(self, 'insert_newline_button'):
+            self.insert_newline_button.setText(self._t("Newline↵"))
+            self.insert_newline_button.setToolTip(self._t("Insert newline"))
+        if hasattr(self, 'mark_horizontal_button'):
+            self.mark_horizontal_button.setText(self._t("Horizontal⇄"))
+            self.mark_horizontal_button.setToolTip(self._t("Mark selected text as horizontal display"))
+        if hasattr(self, 'copy_button'):
+            self.copy_button.setText(self._t("Copy"))
+        if hasattr(self, 'paste_button'):
+            self.paste_button.setText(self._t("Paste"))
+        if hasattr(self, 'delete_button'):
+            self.delete_button.setText(self._t("Delete"))
+        
+        # 刷新复选框
+        if hasattr(self, 'ignore_bubble_checkbox'):
+            self.ignore_bubble_checkbox.setText(self._t("Ignore Bubble"))
+        if hasattr(self, 'show_refined_mask_checkbox'):
+            self.show_refined_mask_checkbox.setText(self._t("Show Refined Mask"))
+        if hasattr(self, 'show_removed_checkbox'):
+            self.show_removed_checkbox.setText(self._t("Show Optimized Regions"))
+        
+        # 刷新字体下拉菜单的"默认字体"选项
+        if hasattr(self, 'font_family_combo') and self.font_family_combo.count() > 0:
+            # 保存当前选中的索引
+            current_index = self.font_family_combo.currentIndex()
+            current_data = self.font_family_combo.itemData(0)
+            # 如果第一项是默认字体（data为空字符串），更新其文本
+            if current_data == "":
+                self.font_family_combo.setItemText(0, self._t("Default Font"))
+            # 恢复选中的索引
+            self.font_family_combo.setCurrentIndex(current_index)
+        
+        # 刷新下拉菜单（重新填充以使用新的翻译）
+        self._refresh_combo_boxes()
+    
+    def _refresh_combo_boxes(self):
+        """刷新所有下拉菜单的选项"""
+        # 保存当前选中的索引（而不是文本，因为文本会随语言变化）
+        current_translator_index = self.translator_combo.currentIndex()
+        current_target_lang_index = self.target_language_combo.currentIndex()
+        current_alignment_index = self.alignment_combo.currentIndex()
+        current_direction_index = self.direction_combo.currentIndex()
+        
+        # 重新填充翻译器下拉菜单
+        translator_map = self.app_logic.get_display_mapping('translator')
+        if translator_map:
+            self.translator_combo.blockSignals(True)
+            self.translator_combo.clear()
+            self.translator_combo.addItems(list(translator_map.values()))
+            # 恢复选中的索引
+            if 0 <= current_translator_index < self.translator_combo.count():
+                self.translator_combo.setCurrentIndex(current_translator_index)
+            self.translator_combo.blockSignals(False)
+        
+        # 重新填充目标语言下拉菜单
+        lang_map = self.app_logic.get_display_mapping('target_lang')
+        if lang_map:
+            self.target_language_combo.blockSignals(True)
+            self.target_language_combo.clear()
+            self.target_language_combo.addItems(list(lang_map.values()))
+            # 恢复选中的索引
+            if 0 <= current_target_lang_index < self.target_language_combo.count():
+                self.target_language_combo.setCurrentIndex(current_target_lang_index)
+            self.target_language_combo.blockSignals(False)
+        
+        # 重新填充对齐下拉菜单
+        alignment_map = self.app_logic.get_display_mapping('alignment')
+        if alignment_map:
+            self.alignment_combo.blockSignals(True)
+            self.alignment_combo.clear()
+            self.alignment_combo.addItems(list(alignment_map.values()))
+            # 恢复选中的索引
+            if 0 <= current_alignment_index < self.alignment_combo.count():
+                self.alignment_combo.setCurrentIndex(current_alignment_index)
+            self.alignment_combo.blockSignals(False)
+        
+        # 重新填充方向下拉菜单
+        direction_map = self.app_logic.get_display_mapping('direction')
+        if direction_map:
+            self.direction_combo.blockSignals(True)
+            self.direction_combo.clear()
+            self.direction_combo.addItems(list(direction_map.values()))
+            # 恢复选中的索引
+            if 0 <= current_direction_index < self.direction_combo.count():
+                self.direction_combo.setCurrentIndex(current_direction_index)
+            self.direction_combo.blockSignals(False)
 
     def on_single_region_updated(self, index: int):
         """Slot to refresh the panel when a single region is updated in a targeted way."""

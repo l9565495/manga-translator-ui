@@ -21,10 +21,9 @@ class LocaleInfo:
 class I18nManager:
     """国际化管理器"""
     
-    def __init__(self, locale_dir: str = "locales", fallback_locale: str = "en_US"):
+    def __init__(self, locale_dir: str = "locales", fallback_locale: str = "zh_CN", config_language: str = "auto"):
         self.locale_dir = locale_dir
         self.fallback_locale = fallback_locale
-        self.current_locale = fallback_locale
         self.translations: Dict[str, Dict[str, str]] = {}
         self.available_locales: Dict[str, LocaleInfo] = {}
         self.logger = logging.getLogger(__name__)
@@ -35,15 +34,25 @@ class I18nManager:
         # 初始化支持的语言
         self._init_supported_locales()
         
-        # 检测系统语言
-        system_locale = self._detect_system_locale()
-        if system_locale in self.available_locales:
-            self.current_locale = system_locale
+        # 根据配置决定语言
+        if config_language == "auto":
+            # 自动检测系统语言
+            system_locale = self._detect_system_locale()
+            if system_locale and system_locale in self.available_locales:
+                self.current_locale = system_locale
+            else:
+                self.current_locale = fallback_locale
+        else:
+            # 使用配置的语言
+            if config_language in self.available_locales:
+                self.current_locale = config_language
+            else:
+                self.current_locale = fallback_locale
         
         # 加载翻译
         self._load_all_translations()
         
-        self.logger.info(f"初始化国际化管理器，当前语言: {self.current_locale}")
+        self.logger.info(f"初始化国际化管理器，配置语言: {config_language}, 当前语言: {self.current_locale}")
     
     def _init_supported_locales(self):
         """初始化支持的语言列表"""
@@ -54,12 +63,6 @@ class I18nManager:
             "ja_JP": LocaleInfo("ja_JP", "日本語", "Japanese"),
             "ko_KR": LocaleInfo("ko_KR", "한국어", "Korean"),
             "es_ES": LocaleInfo("es_ES", "Español", "Spanish"),
-            "fr_FR": LocaleInfo("fr_FR", "Français", "French"),
-            "de_DE": LocaleInfo("de_DE", "Deutsch", "German"),
-            "it_IT": LocaleInfo("it_IT", "Italiano", "Italian"),
-            "pt_BR": LocaleInfo("pt_BR", "Português", "Portuguese"),
-            "ru_RU": LocaleInfo("ru_RU", "Русский", "Russian"),
-            "ar_SA": LocaleInfo("ar_SA", "العربية", "Arabic", "rtl"),
         }
     
     def _detect_system_locale(self) -> str:
@@ -306,12 +309,19 @@ class I18nManager:
         if locale_code is None:
             locale_code = self.current_locale
         
-        # 尝试从当前语言获取翻译
-        translation = self._get_translation(key, locale_code)
+        # 检查键是否存在于当前语言的翻译中
+        locale_translations = self.translations.get(locale_code, {})
         
-        # 如果没找到，尝试从回退语言获取
-        if translation == key and locale_code != self.fallback_locale:
-            translation = self._get_translation(key, self.fallback_locale)
+        if key in locale_translations:
+            # 键存在，使用当前语言的翻译
+            translation = locale_translations[key]
+        elif locale_code != self.fallback_locale:
+            # 键不存在且不是回退语言，尝试从回退语言获取
+            fallback_translations = self.translations.get(self.fallback_locale, {})
+            translation = fallback_translations.get(key, key)
+        else:
+            # 键不存在且已经是回退语言，返回键本身
+            translation = key
         
         # 格式化翻译（支持参数替换）
         if kwargs and translation != key:
@@ -430,10 +440,10 @@ def get_i18n_manager() -> I18nManager:
         _i18n_manager = I18nManager()
     return _i18n_manager
 
-def setup_i18n(locale_dir: str = "locales", fallback_locale: str = "en_US") -> I18nManager:
+def setup_i18n(locale_dir: str = "locales", fallback_locale: str = "zh_CN", config_language: str = "auto") -> I18nManager:
     """设置国际化"""
     global _i18n_manager
-    _i18n_manager = I18nManager(locale_dir, fallback_locale)
+    _i18n_manager = I18nManager(locale_dir, fallback_locale, config_language)
     return _i18n_manager
 
 # 便捷函数
