@@ -2390,6 +2390,23 @@ class MangaTranslator:
                     # ✅ 标记成功（导出原文完成）
                     ctx.success = True
                     results.append(ctx)
+                
+                # ✅ 批次完成后立即清理内存
+                import gc
+                for image, _ in current_batch_images:
+                    if hasattr(image, 'close'):
+                        try:
+                            image.close()
+                        except:
+                            pass
+                current_batch_images = None
+                for ctx, _ in preprocessed_contexts:
+                    if hasattr(ctx, 'input'):
+                        ctx.input = None
+                preprocessed_contexts.clear()
+                translated_contexts.clear()
+                gc.collect()
+                
                 continue  # 跳过渲染，继续下一批次
             
             # 特殊情况：生成并导出模式（跳过渲染）
@@ -2416,6 +2433,23 @@ class MangaTranslator:
                     # ✅ 标记成功（导出翻译完成）
                     ctx.success = True
                     results.append(ctx)
+                
+                # ✅ 批次完成后立即清理内存
+                import gc
+                for image, _ in current_batch_images:
+                    if hasattr(image, 'close'):
+                        try:
+                            image.close()
+                        except:
+                            pass
+                current_batch_images = None
+                for ctx, _ in preprocessed_contexts:
+                    if hasattr(ctx, 'input'):
+                        ctx.input = None
+                preprocessed_contexts.clear()
+                translated_contexts.clear()
+                gc.collect()
+                
                 continue  # 跳过渲染，继续下一批次
 
             # 标准流程：渲染并保存
@@ -3968,6 +4002,21 @@ class MangaTranslator:
                     # ✅ 标记成功（导出翻译完成）
                     ctx.success = True
                     results.append(ctx)
+                
+                # ✅ 批次完成后立即清理内存
+                import gc
+                for image, _ in current_batch_images:
+                    if hasattr(image, 'close'):
+                        try:
+                            image.close()
+                        except:
+                            pass
+                current_batch_images = None
+                for ctx in preprocessed_contexts:
+                    if hasattr(ctx, 'input'):
+                        ctx.input = None
+                preprocessed_contexts.clear()
+                gc.collect()
                 
                 continue # BUG FIX: Continue to the next batch instead of returning
 
