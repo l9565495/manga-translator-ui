@@ -131,14 +131,29 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     file_service = FileService()
     all_files = []
     
+    # 分离文件和文件夹
+    folders = []
+    individual_files = []
+    
     for input_path in input_paths:
         input_path = os.path.abspath(input_path)
         if os.path.isfile(input_path):
-            all_files.append(input_path)
+            individual_files.append(input_path)
         elif os.path.isdir(input_path):
-            # 递归获取文件夹中的所有图片
-            folder_files = file_service.get_image_files_from_folder(input_path, recursive=True)
-            all_files.extend(folder_files)
+            folders.append(input_path)
+    
+    # 对文件夹进行自然排序（与UI模式保持一致）
+    folders.sort(key=file_service._natural_sort_key)
+    
+    # 按文件夹分组处理
+    for folder in folders:
+        # 递归获取文件夹中的所有图片（已经使用自然排序）
+        folder_files = file_service.get_image_files_from_folder(folder, recursive=True)
+        all_files.extend(folder_files)
+    
+    # 处理单独添加的文件（使用自然排序）
+    individual_files.sort(key=file_service._natural_sort_key)
+    all_files.extend(individual_files)
     
     if not all_files:
         print("❌ 未找到图片文件")

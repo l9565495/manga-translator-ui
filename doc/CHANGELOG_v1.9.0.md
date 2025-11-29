@@ -43,6 +43,20 @@
   - 仅保留对 RDNA 3 (RX 7000 系列) 和 RDNA 4 (RX 9000 系列) 的 GPU 支持
   - 更新了安装脚本和文档说明
 
+### overwrite 逻辑优化
+- **改进 overwrite=False 时的处理逻辑**
+  - 在翻译前预检查文件是否存在，避免重复处理
+  - 支持标准翻译模式和高质量翻译模式
+  - 导出原文模式：只检查原文 TXT 文件是否存在
+  - 导出翻译模式：只检查翻译 TXT 文件是否存在
+  - 普通翻译模式：检查输出图片文件是否存在
+  - 跳过已存在的文件，显示清晰的日志信息
+
+### 界面修复
+- **修复文件夹选择对话框样式问题**
+  - 修复了深色主题下 hover 状态文字不可见的问题
+  - 优化了文件夹选择对话框的样式和交互体验
+
 ### 文档更新
 - 更新 `requirements_amd.txt` 中的显卡支持说明
 - 更新 README.md 中的 AMD GPU 支持信息
@@ -52,11 +66,13 @@
 
 ### 代码变更
 - `manga_translator/detection/__init__.py`: 修复 YOLO 检测器调用时的参数传递
-- `manga_translator/manga_translator.py`: 添加批次间内存清理逻辑
+- `manga_translator/manga_translator.py`: 添加批次间内存清理逻辑，添加 overwrite 预检查逻辑
 - `manga_translator/mode/local.py`: CLI 模式按批次加载图片
 - `desktop_qt_ui/app_logic.py`: UI 模式按批次加载图片，添加 404 错误处理
 - `manga_translator/translators/openai_hq.py`: 检测 HTML 404 错误响应
 - `desktop_qt_ui/editor/text_renderer_backend.py`: 修复描边宽度参数映射
+- `desktop_qt_ui/editor/editor_controller.py`: 修复描边宽度参数传递
+- `desktop_qt_ui/widgets/folder_dialog.py`: 修复深色主题下 hover 状态显示问题
 - `packaging/launch.py`: 添加 `--trusted-host` 参数，注释掉 gfx101X-dgpu 和 gfx103X-dgpu 的自动检测
 - `requirements_amd.txt`: 更新显卡支持说明和示例命令
 - `README.md`: 更新 AMD GPU 支持范围说明

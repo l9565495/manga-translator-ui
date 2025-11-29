@@ -2141,12 +2141,33 @@ class MangaTranslator:
             for image, config in images_with_configs:
                 image_name = image.name if hasattr(image, 'name') else None
                 if image_name:
-                    # 检查输出文件是否已存在
-                    output_path = self._calculate_output_path(image_name, save_info)
+                    should_skip = False
+                    skip_reason = ""
                     
-                    # 检查图片文件
-                    if os.path.exists(output_path):
-                        logger.info(f"⏭️  Skipping existing file: {os.path.basename(output_path)}")
+                    # 检查导出原文/翻译的TXT文件（如果启用）
+                    if self.template and self.save_text:
+                        # 导出原文模式 - 只检查TXT文件
+                        from .utils.path_manager import get_original_txt_path
+                        txt_path = get_original_txt_path(image_name, create_dir=False)
+                        if os.path.exists(txt_path):
+                            should_skip = True
+                            skip_reason = f"existing original text file: {os.path.basename(txt_path)}"
+                    elif self.generate_and_export:
+                        # 导出翻译模式 - 只检查TXT文件
+                        from .utils.path_manager import get_translated_txt_path
+                        txt_path = get_translated_txt_path(image_name, create_dir=False)
+                        if os.path.exists(txt_path):
+                            should_skip = True
+                            skip_reason = f"existing translated text file: {os.path.basename(txt_path)}"
+                    else:
+                        # 普通翻译模式 - 检查图片文件
+                        output_path = self._calculate_output_path(image_name, save_info)
+                        if os.path.exists(output_path):
+                            should_skip = True
+                            skip_reason = f"existing file: {os.path.basename(output_path)}"
+                    
+                    if should_skip:
+                        logger.info(f"⏭️  Skipping {skip_reason}")
                         skipped_count += 1
                         # 创建一个已跳过的上下文
                         ctx = Context()
@@ -2155,35 +2176,6 @@ class MangaTranslator:
                         ctx.skipped = True
                         results.append(ctx)
                         continue
-                    
-                    # 检查导出原文/翻译的TXT文件（如果启用）
-                    if self.template and self.save_text:
-                        # 导出原文模式 - 使用path_manager获取正确路径
-                        from .utils.path_manager import get_original_txt_path
-                        txt_path = get_original_txt_path(image_name, create_dir=False)
-                        if os.path.exists(txt_path):
-                            logger.info(f"⏭️  Skipping existing original text file: {os.path.basename(txt_path)}")
-                            skipped_count += 1
-                            ctx = Context()
-                            ctx.image_name = image_name
-                            ctx.success = True
-                            ctx.skipped = True
-                            results.append(ctx)
-                            continue
-                    
-                    if self.generate_and_export:
-                        # 导出翻译模式 - 使用path_manager获取正确路径
-                        from .utils.path_manager import get_translated_txt_path
-                        txt_path = get_translated_txt_path(image_name, create_dir=False)
-                        if os.path.exists(txt_path):
-                            logger.info(f"⏭️  Skipping existing translated text file: {os.path.basename(txt_path)}")
-                            skipped_count += 1
-                            ctx = Context()
-                            ctx.image_name = image_name
-                            ctx.success = True
-                            ctx.skipped = True
-                            results.append(ctx)
-                            continue
                 
                 filtered_images.append((image, config))
             
@@ -3764,6 +3756,62 @@ class MangaTranslator:
         batch_size = self.batch_size if self.batch_size > 1 else 3  # 统一使用batch_size参数
         logger.info(f"Starting high quality translation in rolling batch mode with batch size: {batch_size}")
         results = []
+        
+        # ✅ 预检查：如果overwrite=False，过滤掉已存在的文件
+        if save_info and not save_info.get('overwrite', True):
+            filtered_images = []
+            skipped_count = 0
+            
+            for image, config in images_with_configs:
+                image_name = image.name if hasattr(image, 'name') else None
+                if image_name:
+                    should_skip = False
+                    skip_reason = ""
+                    
+                    # 检查导出原文/翻译的TXT文件（如果启用）
+                    if self.template and self.save_text:
+                        # 导出原文模式 - 只检查TXT文件
+                        from .utils.path_manager import get_original_txt_path
+                        txt_path = get_original_txt_path(image_name, create_dir=False)
+                        if os.path.exists(txt_path):
+                            should_skip = True
+                            skip_reason = f"existing original text file: {os.path.basename(txt_path)}"
+                    elif self.generate_and_export:
+                        # 导出翻译模式 - 只检查TXT文件
+                        from .utils.path_manager import get_translated_txt_path
+                        txt_path = get_translated_txt_path(image_name, create_dir=False)
+                        if os.path.exists(txt_path):
+                            should_skip = True
+                            skip_reason = f"existing translated text file: {os.path.basename(txt_path)}"
+                    else:
+                        # 普通翻译模式 - 检查图片文件
+                        output_path = self._calculate_output_path(image_name, save_info)
+                        if os.path.exists(output_path):
+                            should_skip = True
+                            skip_reason = f"existing file: {os.path.basename(output_path)}"
+                    
+                    if should_skip:
+                        logger.info(f"⏭️  Skipping {skip_reason}")
+                        skipped_count += 1
+                        # 创建一个已跳过的上下文
+                        ctx = Context()
+                        ctx.image_name = image_name
+                        ctx.success = True
+                        ctx.skipped = True
+                        results.append(ctx)
+                        continue
+                
+                filtered_images.append((image, config))
+            
+            if skipped_count > 0:
+                logger.info(f"📊 Skipped {skipped_count} existing files, processing {len(filtered_images)} remaining files")
+            
+            images_with_configs = filtered_images
+            
+            # 如果所有文件都已存在，直接返回
+            if len(images_with_configs) == 0:
+                logger.info("✅ All files already exist, nothing to process")
+                return results
         
         total_images = len(images_with_configs)
         for batch_start in range(0, total_images, batch_size):
