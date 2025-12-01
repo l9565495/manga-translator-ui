@@ -297,16 +297,32 @@ class FileListView(QTreeWidget):
             norm_path = os.path.normpath(path)
             
             if os.path.isdir(norm_path):
-                # 如果传入的是文件夹路径，扫描其中的图片
+                # 如果传入的是文件夹路径，递归扫描其中的所有图片（包括子文件夹）
                 try:
                     image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
-                    files = [
-                        os.path.join(norm_path, f)
-                        for f in os.listdir(norm_path)
-                        if os.path.splitext(f)[1].lower() in image_extensions
-                    ]
+                    files = []
+                    
+                    # 递归遍历文件夹及其子文件夹，按子文件夹顺序排序
+                    for root, dirs, filenames in os.walk(norm_path):
+                        # 忽略 manga_translator_work 目录
+                        if 'manga_translator_work' in dirs:
+                            dirs.remove('manga_translator_work')
+                        
+                        # 对子文件夹进行自然排序，确保按正确顺序遍历
+                        dirs.sort(key=natural_sort_key)
+                        
+                        # 收集当前目录的图片并排序
+                        current_files = []
+                        for f in filenames:
+                            if os.path.splitext(f)[1].lower() in image_extensions:
+                                current_files.append(os.path.join(root, f))
+                        
+                        # 对当前目录的文件进行自然排序后添加
+                        current_files.sort(key=natural_sort_key)
+                        files.extend(current_files)
+                    
                     if files:
-                        folder_groups[norm_path] = sorted(files, key=natural_sort_key)
+                        folder_groups[norm_path] = files
                 except Exception as e:
                     print(f"Error loading files from folder {norm_path}: {e}")
             else:
@@ -364,16 +380,31 @@ class FileListView(QTreeWidget):
         # 保存文件夹节点
         self.folder_nodes[folder_path] = folder_item
         
-        # 添加文件夹中的文件
+        # 递归添加文件夹中的所有文件（包括子文件夹），按子文件夹顺序排序
         try:
             image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
-            files = [
-                os.path.join(folder_path, f)
-                for f in os.listdir(folder_path)
-                if os.path.splitext(f)[1].lower() in image_extensions
-            ]
+            files = []
             
-            for file_path in sorted(files, key=natural_sort_key):
+            # 递归遍历文件夹及其子文件夹，按子文件夹顺序排序
+            for root, dirs, filenames in os.walk(folder_path):
+                # 忽略 manga_translator_work 目录
+                if 'manga_translator_work' in dirs:
+                    dirs.remove('manga_translator_work')
+                
+                # 对子文件夹进行自然排序，确保按正确顺序遍历
+                dirs.sort(key=natural_sort_key)
+                
+                # 收集当前目录的图片并排序
+                current_files = []
+                for f in filenames:
+                    if os.path.splitext(f)[1].lower() in image_extensions:
+                        current_files.append(os.path.join(root, f))
+                
+                # 对当前目录的文件进行自然排序后添加
+                current_files.sort(key=natural_sort_key)
+                files.extend(current_files)
+            
+            for file_path in files:
                 self._add_file_to_folder(file_path, folder_item)
             
             # 更新文件夹显示的文件数
@@ -413,8 +444,8 @@ class FileListView(QTreeWidget):
         # 保存文件夹节点
         self.folder_nodes[folder_path] = folder_item
         
-        # 添加文件列表
-        for file_path in sorted(files, key=natural_sort_key):
+        # 添加文件列表（保持传入的顺序，已经按子文件夹排序好了）
+        for file_path in files:
             self._add_file_to_folder(file_path, folder_item)
         
         # 更新文件夹显示的文件数

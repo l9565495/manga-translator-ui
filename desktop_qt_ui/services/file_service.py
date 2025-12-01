@@ -207,8 +207,8 @@ class FileService:
         
         return parts
     
-    def get_image_files_from_folder(self, folder_path: str, recursive: bool = False) -> List[str]:
-        """从文件夹获取所有图片文件，忽略manga_translator_work目录"""
+    def get_image_files_from_folder(self, folder_path: str, recursive: bool = True) -> List[str]:
+        """从文件夹获取所有图片文件（默认递归查找所有子文件夹），忽略manga_translator_work目录"""
         image_files = []
 
         try:
@@ -216,25 +216,36 @@ class FileService:
                 return image_files
 
             if recursive:
-                # 递归搜索，忽略manga_translator_work目录
+                # 递归搜索，按子文件夹分组排序
+                # 先收集所有子文件夹
+                subfolders = []
                 for root, dirs, files in os.walk(folder_path):
                     # 移除manga_translator_work目录，避免遍历
                     if 'manga_translator_work' in dirs:
                         dirs.remove('manga_translator_work')
-
+                    
+                    # 对dirs进行自然排序，确保os.walk按正确顺序遍历
+                    dirs.sort(key=self._natural_sort_key)
+                    
+                    # 收集当前目录的图片文件
+                    current_files = []
                     for file in files:
                         file_path = os.path.join(root, file)
                         if self.validate_image_file(file_path):
-                            image_files.append(file_path)
+                            current_files.append(file_path)
+                    
+                    # 对当前目录的文件进行自然排序
+                    current_files.sort(key=self._natural_sort_key)
+                    image_files.extend(current_files)
             else:
                 # 只搜索当前目录，忽略manga_translator_work目录
                 for file in os.listdir(folder_path):
                     file_path = os.path.join(folder_path, file)
                     if os.path.isfile(file_path) and self.validate_image_file(file_path):
                         image_files.append(file_path)
-
-            # 使用自然排序（支持数字排序）
-            image_files.sort(key=self._natural_sort_key)
+                
+                # 使用自然排序（支持数字排序）
+                image_files.sort(key=self._natural_sort_key)
 
         except Exception as e:
             self.logger.error(f"获取文件夹图片失败 {folder_path}: {e}")
