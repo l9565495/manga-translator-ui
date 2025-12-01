@@ -761,9 +761,24 @@ REM 创建命名环境
 echo 正在创建环境: %CONDA_ENV_NAME%
 call conda create -n "%CONDA_ENV_NAME%" python=3.12.* -y
 if !ERRORLEVEL! neq 0 (
-    echo [ERROR] Conda环境创建失败
-    pause
-    exit /b 1
+    echo [WARNING] Conda环境创建失败，尝试修复...
+    echo.
+    echo 检测到可能的channel配置问题，正在重置...
+    call conda config --remove-key channels >nul 2>&1
+    echo 清理索引缓存...
+    call conda clean --index-cache -y >nul 2>&1
+    echo.
+    echo 重试创建环境...
+    call conda create -n "%CONDA_ENV_NAME%" python=3.12.* -y
+    if !ERRORLEVEL! neq 0 (
+        echo [ERROR] Conda环境创建失败
+        echo.
+        echo 可能的解决方案:
+        echo 1. 手动运行: conda update -n base conda
+        echo 2. 重新安装 Miniconda
+        pause
+        exit /b 1
+    )
 )
 echo [OK] Conda环境创建完成
 
