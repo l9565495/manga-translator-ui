@@ -1314,12 +1314,18 @@ class MangaTranslator:
             
             if filtered_out_regions:
                 reference_desc = f'切割块({patch_size}x{w})' if require_rearrange else f'整图({img_w}x{img_h})'
+                filter_ratio = len(filtered_out_regions) / before_filter_count * 100 if before_filter_count > 0 else 0
+                # Info级别：只显示摘要
                 logger.info(f'合并后面积过滤: 参考={reference_desc}, 最小面积比例={config.detector.min_box_area_ratio:.4f} ({config.detector.min_box_area_ratio*100:.2f}%), '
-                           f'过滤前={before_filter_count}, 过滤后={after_filter_count}, 移除={len(filtered_out_regions)} (仅单框区域)')
-                for idx, (region, ratio, num_lines, was_rearranged) in enumerate(filtered_out_regions[:5]):
-                    logger.debug(f'  移除单框区域[{idx+1}]: 面积={region.real_area:.1f}像素, 占比={ratio*100:.3f}%, 文本行数={num_lines}, 文本="{region.text[:20]}"')
-                if len(filtered_out_regions) > 5:
-                    logger.debug(f'  ... 还有 {len(filtered_out_regions)-5} 个被过滤的单框区域未显示')
+                           f'过滤前={before_filter_count}, 过滤后={after_filter_count}, 移除={len(filtered_out_regions)} ({filter_ratio:.1f}%, 仅单框区域)')
+                # Debug级别：显示详细信息
+                if self.verbose:
+                    for idx, (region, ratio, num_lines, was_rearranged) in enumerate(filtered_out_regions):
+                        # 获取框的宽高
+                        x1, y1, x2, y2 = region.xyxy
+                        width = x2 - x1
+                        height = y2 - y1
+                        logger.debug(f'  移除单框区域[{idx+1}]: 大小={width:.0f}x{height:.0f}, 面积={region.real_area:.1f}像素, 占比={ratio*100:.3f}%, 文本="{region.text[:20]}"')
 
         new_text_regions = []
         for region in text_regions:
