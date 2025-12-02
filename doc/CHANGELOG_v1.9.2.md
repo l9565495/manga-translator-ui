@@ -150,7 +150,7 @@ Please translate the following manga text regions:
 
 ```bash
 # 拉取镜像
-docker pull your-username/manga-translator:latest-cpu
+docker pull hgmzhn/manga-translator:latest-cpu
 
 # 或使用 docker-compose
 cd packaging
