@@ -62,19 +62,30 @@ WORKDIR /app
 # 复制项目文件
 COPY . /app/
 
-# 下载预编译的 pydensecrf wheel（从 GitHub Release）
-RUN wget -q https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.9.2/pydensecrf-1.0-cp312-cp312-linux_x86_64.whl -O /tmp/pydensecrf.whl
-
 # 安装 Python 依赖
 ARG BUILD_TYPE=cpu
 RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
-        # GPU 版本：先安装预编译的 pydensecrf，然后安装其他依赖
-        pip install --no-cache-dir /tmp/pydensecrf.whl && \
+        # GPU 版本：尝试下载预编译的 pydensecrf，如果失败则从源码编译
+        if wget -q https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.9.2/pydensecrf-1.0-cp312-cp312-linux_x86_64.whl -O /tmp/pydensecrf.whl 2>/dev/null && [ -f /tmp/pydensecrf.whl ]; then \
+            echo "Using precompiled pydensecrf wheel" && \
+            pip install --no-cache-dir /tmp/pydensecrf.whl; \
+        else \
+            echo "Precompiled wheel not found, building from source" && \
+            pip install --no-cache-dir Cython numpy && \
+            pip install --no-cache-dir git+https://github.com/lucasb-eyer/pydensecrf.git; \
+        fi && \
         grep -v "pydensecrf" requirements_gpu.txt > /tmp/requirements_gpu_no_pydensecrf.txt && \
         pip install --no-cache-dir -r /tmp/requirements_gpu_no_pydensecrf.txt; \
     else \
-        # CPU 版本：先安装预编译的 pydensecrf，然后安装其他依赖
-        pip install --no-cache-dir /tmp/pydensecrf.whl && \
+        # CPU 版本：尝试下载预编译的 pydensecrf，如果失败则从源码编译
+        if wget -q https://github.com/hgmzhn/manga-translator-ui/releases/download/v1.9.2/pydensecrf-1.0-cp312-cp312-linux_x86_64.whl -O /tmp/pydensecrf.whl 2>/dev/null && [ -f /tmp/pydensecrf.whl ]; then \
+            echo "Using precompiled pydensecrf wheel" && \
+            pip install --no-cache-dir /tmp/pydensecrf.whl; \
+        else \
+            echo "Precompiled wheel not found, building from source" && \
+            pip install --no-cache-dir Cython numpy && \
+            pip install --no-cache-dir git+https://github.com/lucasb-eyer/pydensecrf.git; \
+        fi && \
         grep -v "pydensecrf" requirements_cpu.txt > /tmp/requirements_cpu_no_pydensecrf.txt && \
         pip install --no-cache-dir -r /tmp/requirements_cpu_no_pydensecrf.txt; \
     fi
