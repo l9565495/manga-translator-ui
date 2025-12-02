@@ -74,7 +74,7 @@ RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
             pip install --no-cache-dir Cython numpy && \
             pip install --no-cache-dir git+https://github.com/lucasb-eyer/pydensecrf.git; \
         fi && \
-        grep -v "pydensecrf" requirements_gpu.txt > /tmp/requirements_gpu_no_pydensecrf.txt && \
+        grep -v "^pydensecrf" requirements_gpu.txt > /tmp/requirements_gpu_no_pydensecrf.txt && \
         pip install --no-cache-dir -r /tmp/requirements_gpu_no_pydensecrf.txt; \
     else \
         # CPU 版本：尝试下载预编译的 pydensecrf，如果失败则从源码编译
@@ -86,7 +86,7 @@ RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
             pip install --no-cache-dir Cython numpy && \
             pip install --no-cache-dir git+https://github.com/lucasb-eyer/pydensecrf.git; \
         fi && \
-        grep -v "pydensecrf" requirements_cpu.txt > /tmp/requirements_cpu_no_pydensecrf.txt && \
+        grep -v "^pydensecrf" requirements_cpu.txt > /tmp/requirements_cpu_no_pydensecrf.txt && \
         pip install --no-cache-dir -r /tmp/requirements_cpu_no_pydensecrf.txt; \
     fi
 
