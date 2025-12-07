@@ -888,6 +888,196 @@ def update_repository(args):
     return False
 
 
+def check_version_info():
+    """检查版本信息"""
+    print()
+    print("正在检查版本...")
+    print("=" * 40)
+    
+    # 获取当前版本
+    version_file = PATH_ROOT / "packaging" / "VERSION"
+    try:
+        if version_file.exists():
+            current_version = version_file.read_text(encoding='utf-8').strip()
+        else:
+            current_version = "unknown"
+    except Exception:
+        current_version = "unknown"
+    
+    # fetch远程
+    try:
+        subprocess.run([git, 'fetch', 'origin'], capture_output=True, check=False)
+    except Exception:
+        pass
+    
+    # 获取远程版本
+    try:
+        result = subprocess.run(
+            [git, 'show', 'origin/main:packaging/VERSION'],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            remote_version = result.stdout.strip()
+        else:
+            remote_version = "unknown"
+    except Exception:
+        remote_version = "unknown"
+    
+    print(f"当前版本 - {current_version}")
+    print(f"远程版本 - {remote_version}")
+    
+    if current_version == remote_version:
+        print()
+        print("[信息] 当前已是最新版本")
+    elif remote_version == "unknown":
+        print()
+        print("[警告] 无法获取远程版本信息")
+    else:
+        print()
+        print("[发现新版本]")
+    
+    print("=" * 40)
+    return current_version, remote_version
+
+
+def update_code_force():
+    """强制更新代码（同步到远程）"""
+    print()
+    print("=" * 40)
+    print("更新代码 (强制同步)")
+    print("=" * 40)
+    print()
+    
+    print("[警告] 将强制同步到远程分支,本地修改将被覆盖")
+    confirm = input("是否继续更新? (y/n): ").strip().lower()
+    if confirm not in ['y', 'yes']:
+        print("取消更新")
+        return False
+    
+    print()
+    print("获取远程更新...")
+    try:
+        subprocess.run([git, 'fetch', 'origin'], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] 获取远程更新失败: {e}")
+        return False
+    
+    print()
+    print("正在强制同步到远程分支...")
+    try:
+        subprocess.run([git, 'reset', '--hard', 'origin/main'], check=True)
+        print("[OK] 代码更新完成")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] 代码更新失败: {e}")
+        return False
+
+
+def update_dependencies(args):
+    """更新依赖"""
+    print()
+    print("=" * 40)
+    print("更新/安装依赖")
+    print("=" * 40)
+    print()
+    
+    # 设置参数，让 prepare_environment 处理所有逻辑
+    args.update_deps = True
+    args.frozen = False
+    args.reinstall_torch = False
+    
+    # 检测已安装的 PyTorch 类型来决定 requirements 文件
+    req_file, pytorch_type, detail = get_requirements_file_from_env()
+    if req_file:
+        args.requirements = req_file
+        print(f"检测到 PyTorch 类型: {pytorch_type} ({detail})")
+        print(f"使用: {req_file}")
+    else:
+        args.requirements = 'auto'
+        print("未检测到 PyTorch,将进行首次安装...")
+    
+    print()
+    
+    try:
+        prepare_environment(args)
+        print()
+        print("[OK] 依赖更新完成")
+        return True
+    except Exception as e:
+        print(f"[ERROR] 依赖更新失败: {e}")
+        return False
+
+
+def maintenance_menu():
+    """维护菜单"""
+    print()
+    print("=" * 40)
+    print("漫画翻译器 - 更新维护工具")
+    print("Manga Translator UI - Update Tool")
+    print("=" * 40)
+    
+    # 创建一个简单的 args 对象用于依赖更新
+    class Args:
+        def __init__(self):
+            self.frozen = False
+            self.requirements = 'auto'
+            self.reinstall_torch = False
+            self.update_deps = False
+    
+    args = Args()
+    
+    # 首次显示版本信息
+    check_version_info()
+    
+    while True:
+        print()
+        print("请选择操作:")
+        print("[1] 更新代码 (强制同步)")
+        print("[2] 更新/安装依赖")
+        print("[3] 完整更新 (代码+依赖)")
+        print("[4] 重新检查版本")
+        print("[5] 退出")
+        print()
+        
+        choice = input("请选择 (1/2/3/4/5): ").strip()
+        
+        if choice == '1':
+            update_code_force()
+            input("\n按回车键继续...")
+            
+        elif choice == '2':
+            update_dependencies(args)
+            input("\n按回车键继续...")
+            
+        elif choice == '3':
+            print()
+            print("=" * 40)
+            print("完整更新 (代码+依赖)")
+            print("=" * 40)
+            print()
+            
+            print("[1/2] 更新代码 (强制同步)...")
+            if update_code_force():
+                print()
+                print("[2/2] 更新依赖...")
+                update_dependencies(args)
+            
+            input("\n按回车键继续...")
+            
+        elif choice == '4':
+            check_version_info()
+            
+        elif choice == '5':
+            print()
+            print("退出更新工具")
+            break
+            
+        else:
+            print("无效选项")
+
+
 def launch_ui(args):
     """启动UI界面"""
     if args.ui == 'qt':
@@ -929,8 +1119,16 @@ def main():
     parser.add_argument("--ui", choices=['qt', 'tk'], default='tk', help="选择UI框架: qt(PyQt6) 或 tk(CustomTkinter)")
     parser.add_argument("--cli", action='store_true', help="使用命令行模式")
     parser.add_argument("--verbose", action='store_true', help="显示详细日志")
+    parser.add_argument("--maintenance", action='store_true', help="启动更新维护菜单")
     
     args, unknown = parser.parse_known_args()
+    
+    # 如果是维护模式，直接进入维护菜单
+    if args.maintenance:
+        # 切换到项目根目录
+        os.chdir(PATH_ROOT)
+        maintenance_menu()
+        return
 
     # 显示版本信息
     commit = commit_hash()
