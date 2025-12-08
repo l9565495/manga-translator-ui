@@ -10,8 +10,8 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from .models import Session
-from .persistence import atomic_write_json, load_json
+from manga_translator.server.core.models import Session
+from manga_translator.server.core.persistence import atomic_write_json, load_json
 
 logger = logging.getLogger(__name__)
 

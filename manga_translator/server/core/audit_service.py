@@ -12,7 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 import shutil
 
-from .models import AuditEvent
+from manga_translator.server.core.models import AuditEvent
 
 logger = logging.getLogger(__name__)
 

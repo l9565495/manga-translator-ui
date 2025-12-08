@@ -10,8 +10,8 @@
 
 import logging
 from typing import List, Set, Dict, Any, Optional
-from .models import UserAccount
-from .group_service import get_group_service
+from manga_translator.server.core.models import UserAccount
+from manga_translator.server.core.group_service import get_group_service
 
 logger = logging.getLogger(__name__)
 

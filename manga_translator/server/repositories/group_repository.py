@@ -4,7 +4,7 @@ Repository for user group management.
 
 from typing import Optional, Dict
 from datetime import datetime, timezone
-from .base_repository import BaseJSONRepository
+from manga_translator.server.repositories.base_repository import BaseJSONRepository
 
 
 class GroupRepository(BaseJSONRepository):

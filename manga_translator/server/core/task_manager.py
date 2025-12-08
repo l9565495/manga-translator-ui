@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional, Callable, Any
 import logging
 
-from .logging_manager import add_log
+from manga_translator.server.core.logging_manager import add_log
 
 
 logger = logging.getLogger('manga_translator.server')

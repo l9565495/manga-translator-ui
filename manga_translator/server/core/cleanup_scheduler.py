@@ -10,7 +10,7 @@ from typing import Optional, Dict
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .cleanup_service import CleanupSchedulerService
+from manga_translator.server.core.cleanup_service import CleanupSchedulerService
 
 logger = logging.getLogger(__name__)
 

@@ -9,10 +9,10 @@ from typing import Optional, Dict, Any
 from fastapi import Header, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 
-from .models import Session
-from .session_service import SessionService
-from .permission_service import PermissionService
-from .account_service import AccountService
+from manga_translator.server.core.models import Session
+from manga_translator.server.core.session_service import SessionService
+from manga_translator.server.core.permission_service import PermissionService
+from manga_translator.server.core.account_service import AccountService
 
 logger = logging.getLogger(__name__)
 

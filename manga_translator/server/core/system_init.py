@@ -13,9 +13,9 @@ import asyncio
 from typing import Optional
 from datetime import datetime
 
-from .account_service import AccountService
-from .session_service import SessionService
-from .audit_service import AuditService
+from manga_translator.server.core.account_service import AccountService
+from manga_translator.server.core.session_service import SessionService
+from manga_translator.server.core.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 

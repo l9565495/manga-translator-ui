@@ -5,7 +5,7 @@
 """
 
 # 数据模型
-from .models import (
+from manga_translator.server.core.models import (
     UserPermissions,
     UserAccount,
     Session,
@@ -13,7 +13,7 @@ from .models import (
 )
 
 # 持久化工具
-from .persistence import (
+from manga_translator.server.core.persistence import (
     atomic_write_json,
     load_json,
     create_backup,
@@ -22,21 +22,21 @@ from .persistence import (
 )
 
 # 服务
-from .account_service import AccountService
-from .session_service import SessionService
-from .permission_service import PermissionService
-from .audit_service import AuditService
-from .env_service import EnvService
+from manga_translator.server.core.account_service import AccountService
+from manga_translator.server.core.session_service import SessionService
+from manga_translator.server.core.permission_service import PermissionService
+from manga_translator.server.core.audit_service import AuditService
+from manga_translator.server.core.env_service import EnvService
 
 # 系统初始化
-from .system_init import (
+from manga_translator.server.core.system_init import (
     SystemInitializer,
     init_system,
     get_system_initializer,
 )
 
 # 配置管理
-from .config_manager import (
+from manga_translator.server.core.config_manager import (
     ADMIN_CONFIG_PATH,
     SERVER_CONFIG_PATH,
     DEFAULT_ADMIN_SETTINGS,
@@ -52,7 +52,7 @@ from .config_manager import (
 )
 
 # 身份验证（旧版）
-from .auth import (
+from manga_translator.server.core.auth import (
     valid_admin_tokens,
     generate_admin_token,
     validate_admin_token,
@@ -68,7 +68,7 @@ from .auth import (
 )
 
 # 认证和授权中间件（新版）
-from .middleware import (
+from manga_translator.server.core.middleware import (
     init_middleware_services,
     get_services,
     create_error_response,
@@ -84,7 +84,7 @@ from .middleware import (
 )
 
 # 日志管理
-from .logging_manager import (
+from manga_translator.server.core.logging_manager import (
     task_logs,
     global_log_queue,
     generate_task_id,
@@ -98,7 +98,7 @@ from .logging_manager import (
 )
 
 # 任务管理
-from .task_manager import (
+from manga_translator.server.core.task_manager import (
     translation_semaphore,
     server_config,
     active_tasks,
@@ -115,7 +115,7 @@ from .task_manager import (
 )
 
 # 响应工具
-from .response_utils import (
+from manga_translator.server.core.response_utils import (
     transform_to_image,
     transform_to_json,
     transform_to_bytes,

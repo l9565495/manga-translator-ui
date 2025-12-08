@@ -9,8 +9,8 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from .models import UserAccount, UserPermissions
-from .persistence import atomic_write_json, load_json
+from manga_translator.server.core.models import UserAccount, UserPermissions
+from manga_translator.server.core.persistence import atomic_write_json, load_json
 
 logger = logging.getLogger(__name__)
 

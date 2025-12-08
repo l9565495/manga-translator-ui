@@ -9,8 +9,8 @@ from typing import Dict, Optional, Any
 from datetime import date
 from collections import defaultdict
 
-from .models import UserPermissions
-from .account_service import AccountService
+from manga_translator.server.core.models import UserPermissions
+from manga_translator.server.core.account_service import AccountService
 
 logger = logging.getLogger(__name__)
 
