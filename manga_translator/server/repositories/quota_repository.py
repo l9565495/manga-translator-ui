@@ -3,8 +3,8 @@ Repository for quota management.
 """
 
 from typing import Optional, Dict
-from .base_repository import BaseJSONRepository
-from ..models import QuotaLimit
+from manga_translator.server.repositories.base_repository import BaseJSONRepository
+from manga_translator.server.models import QuotaLimit
 
 
 class QuotaRepository(BaseJSONRepository):

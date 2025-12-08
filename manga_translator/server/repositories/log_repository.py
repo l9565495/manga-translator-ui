@@ -3,8 +3,8 @@ Repository for log management.
 """
 
 from typing import List, Optional
-from .base_repository import BaseJSONRepository
-from ..models import LogEntry
+from manga_translator.server.repositories.base_repository import BaseJSONRepository
+from manga_translator.server.models import LogEntry
 
 
 class LogRepository(BaseJSONRepository):

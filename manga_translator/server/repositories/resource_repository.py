@@ -3,8 +3,8 @@ Repository for user resource management (prompts and fonts).
 """
 
 from typing import List, Optional
-from .base_repository import BaseJSONRepository
-from ..models.resource_models import PromptResource, FontResource
+from manga_translator.server.repositories.base_repository import BaseJSONRepository
+from manga_translator.server.models.resource_models import PromptResource, FontResource
 
 
 class ResourceRepository(BaseJSONRepository):

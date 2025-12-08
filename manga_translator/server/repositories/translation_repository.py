@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..models import TranslationResult
+from manga_translator.server.models import TranslationResult
 
 
 class TranslationRepository:

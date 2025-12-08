@@ -3,8 +3,8 @@ Repository for configuration and preset management.
 """
 
 from typing import List, Optional
-from .base_repository import BaseJSONRepository
-from ..models import ConfigPreset, UserConfig
+from manga_translator.server.repositories.base_repository import BaseJSONRepository
+from manga_translator.server.models import ConfigPreset, UserConfig
 
 
 class ConfigRepository(BaseJSONRepository):

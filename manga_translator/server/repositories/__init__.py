@@ -2,14 +2,14 @@
 Data repository classes for JSON file storage.
 """
 
-from .base_repository import BaseJSONRepository
-from .resource_repository import ResourceRepository
-from .translation_repository import TranslationRepository
-from .permission_repository import PermissionRepository
-from .cleanup_repository import CleanupRepository
-from .config_repository import ConfigRepository
-from .quota_repository import QuotaRepository
-from .log_repository import LogRepository
+from manga_translator.server.repositories.base_repository import BaseJSONRepository
+from manga_translator.server.repositories.resource_repository import ResourceRepository
+from manga_translator.server.repositories.translation_repository import TranslationRepository
+from manga_translator.server.repositories.permission_repository import PermissionRepository
+from manga_translator.server.repositories.cleanup_repository import CleanupRepository
+from manga_translator.server.repositories.config_repository import ConfigRepository
+from manga_translator.server.repositories.quota_repository import QuotaRepository
+from manga_translator.server.repositories.log_repository import LogRepository
 
 __all__ = [
     'BaseJSONRepository',
