@@ -173,3 +173,77 @@ class AuditEvent:
     def to_json_line(self) -> str:
         """转换为 JSON 行（用于日志文件）"""
         return json.dumps(self.to_dict(), ensure_ascii=False)
+
+
+@dataclass
+class PromptResource:
+    """提示词资源数据模型"""
+    id: str
+    user_id: str
+    name: str
+    content: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    is_public: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'content': self.content,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_public': self.is_public
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PromptResource':
+        """从字典创建"""
+        return cls(
+            id=data['id'],
+            user_id=data['user_id'],
+            name=data['name'],
+            content=data['content'],
+            created_at=datetime.fromisoformat(data['created_at']),
+            updated_at=datetime.fromisoformat(data['updated_at']) if data.get('updated_at') else None,
+            is_public=data.get('is_public', False)
+        )
+
+
+@dataclass
+class FontResource:
+    """字体资源数据模型"""
+    id: str
+    user_id: str
+    name: str
+    file_path: str
+    created_at: datetime
+    file_size: int = 0
+    is_public: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'file_path': self.file_path,
+            'created_at': self.created_at.isoformat(),
+            'file_size': self.file_size,
+            'is_public': self.is_public
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'FontResource':
+        """从字典创建"""
+        return cls(
+            id=data['id'],
+            user_id=data['user_id'],
+            name=data['name'],
+            file_path=data['file_path'],
+            created_at=datetime.fromisoformat(data['created_at']),
+            file_size=data.get('file_size', 0),
+            is_public=data.get('is_public', False)
+        )
