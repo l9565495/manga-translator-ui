@@ -7,7 +7,6 @@ class ConfigModule {
     async load() {
         await this.loadGroups();  // 先加载用户组列表
         await this.loadServerConfig();
-        await this.loadTranslatorConfig();
         await this.loadServerFonts();
         await this.loadServerPrompts();
     }
@@ -78,7 +77,6 @@ class ConfigModule {
         document.getElementById('config-server-name').value = settings.server_name || 'Manga Translator';
         document.getElementById('config-max-concurrent').value = settings.max_concurrent_tasks || 3;
         document.getElementById('config-task-timeout').value = settings.task_timeout || 300;
-        document.getElementById('config-require-login').checked = settings.require_login !== false;
         
         // 注册设置（支持新旧两种格式）
         const registrationConfig = settings.registration || {};
@@ -115,7 +113,6 @@ class ConfigModule {
             server_name: document.getElementById('config-server-name').value,
             max_concurrent_tasks: parseInt(document.getElementById('config-max-concurrent').value) || 3,
             task_timeout: parseInt(document.getElementById('config-task-timeout').value) || 300,
-            require_login: document.getElementById('config-require-login').checked,
             // 使用新的注册配置结构
             registration: {
                 enabled: document.getElementById('config-allow-register').checked,
@@ -145,78 +142,6 @@ class ConfigModule {
         } catch (e) {
             alert('保存失败: ' + e.message);
         }
-    }
-    
-    async loadTranslatorConfig() {
-        const container = document.getElementById('translator-config-list');
-        if (!container) return;
-        
-        const ALL_TRANSLATORS = [
-            { id: 'openai', name: 'OpenAI', free: false },
-            { id: 'openai_hq', name: 'OpenAI (高质量)', free: false },
-            { id: 'gemini', name: 'Gemini', free: false },
-            { id: 'gemini_hq', name: 'Gemini (高质量)', free: false },
-            { id: 'sakura', name: 'Sakura', free: true }
-        ];
-        
-        try {
-            const resp = await fetch('/admin/settings', {
-                headers: { 'X-Session-Token': this.app.sessionToken }
-            });
-            let allowedTranslators = [];
-            if (resp.ok) {
-                const settings = await resp.json();
-                allowedTranslators = settings.allowed_translators || [];
-            }
-            
-            container.innerHTML = ALL_TRANSLATORS.map(t => `
-                <div class="translator-item" style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f9fafb;border-radius:8px;margin-bottom:8px;">
-                    <div>
-                        <strong>${t.name}</strong>
-                        <span class="badge ${t.free ? 'badge-success' : 'badge-warning'}" style="margin-left:8px;">${t.free ? '免费' : '付费'}</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="translator-${t.id}" value="${t.id}" 
-                               ${allowedTranslators.length === 0 || allowedTranslators.includes(t.id) ? 'checked' : ''}>
-                        <span class="slider"></span>
-                    </label>
-                </div>
-            `).join('');
-        } catch (e) {
-            console.error('Failed to load translator config:', e);
-        }
-    }
-    
-    async saveTranslatorConfig() {
-        const checkboxes = document.querySelectorAll('#translator-config-list input[type="checkbox"]');
-        const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
-        
-        try {
-            const resp = await fetch('/admin/settings', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-Token': this.app.sessionToken
-                },
-                body: JSON.stringify({ allowed_translators: selected })
-            });
-            
-            if (resp.ok) {
-                alert('翻译器配置已保存！');
-            } else {
-                throw new Error('保存失败');
-            }
-        } catch (e) {
-            alert('保存失败: ' + e.message);
-        }
-    }
-    
-    selectAllTranslators() {
-        document.querySelectorAll('#translator-config-list input[type="checkbox"]').forEach(cb => cb.checked = true);
-    }
-    
-    deselectAllTranslators() {
-        document.querySelectorAll('#translator-config-list input[type="checkbox"]').forEach(cb => cb.checked = false);
     }
     
     // ========== 服务器字体管理 ==========

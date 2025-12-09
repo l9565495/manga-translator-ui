@@ -76,6 +76,20 @@ python -m manga_translator -i <输入> [选项]
 | `--batch-size` | 批量处理大小 | 配置文件 |
 | `--attempts` | 翻译失败重试次数（-1=无限） | 配置文件 |
 
+### 内存管理参数（子进程模式）
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--subprocess` | 启用子进程模式（支持内存管理） | 关闭 |
+| `--memory-limit` | 进程内存限制（MB），超过后自动重启子进程，0表示不限制 | 0 |
+| `--memory-percent` | 系统内存百分比限制，系统总内存使用率超过此值时重启，0表示不限制 | 0 |
+| `--batch-per-restart` | 每处理N张图片后重启子进程释放内存，0表示不限制 | 0 |
+
+**子进程模式说明**：
+- 翻译任务在独立子进程中运行，内存可以真正释放
+- 当进程内存或系统内存超过限制时，子进程结束，主进程启动新的子进程继续
+- 需要安装 `psutil` 来监控内存：`pip install psutil`
+
 **注意**：命令行参数会覆盖配置文件中的对应设置。
 
 ---
@@ -325,6 +339,25 @@ python -m manga_translator -i manga.jpg -v
 python -m manga_translator -i page1.jpg page2.jpg page3.jpg -o ./output/
 ```
 
+### 示例 6：使用子进程模式（内存管理）
+
+```bash
+# 启用子进程模式（不设置限制则不会自动重启）
+python -m manga_translator local -i ./manga_folder/ --subprocess
+
+# 使用进程内存限制（进程内存超过6GB时重启）
+python -m manga_translator local -i ./manga_folder/ --subprocess --memory-limit 6000
+
+# 使用系统内存百分比限制（系统总内存使用率超过80%时重启）
+python -m manga_translator local -i ./manga_folder/ --subprocess --memory-percent 80
+
+# 每处理20张图片后强制重启子进程
+python -m manga_translator local -i ./manga_folder/ --subprocess --batch-per-restart 20
+
+# 组合使用：进程内存超过6GB 或 每处理50张图片后重启
+python -m manga_translator local -i ./manga_folder/ --subprocess --memory-limit 6000 --batch-per-restart 50
+```
+
 ---
 
 ## 高级用法
@@ -337,6 +370,34 @@ python -m manga_translator -i ./folder/
 ```
 
 批量大小在配置文件中设置（`cli.batch_size`）。
+
+### 子进程模式（内存管理）
+
+子进程模式适用于大批量翻译任务，可以有效管理内存：
+
+```bash
+# 基本用法（进程内存超过6GB时重启）
+python -m manga_translator local -i ./manga_folder/ --subprocess --memory-limit 6000
+
+# 完整参数示例
+python -m manga_translator local -i ./manga_folder/ -o ./output/ \
+    --subprocess \
+    --memory-limit 6000 \
+    --verbose \
+    --overwrite
+```
+
+**工作原理**：
+1. 主进程负责任务调度和进度管理
+2. 子进程执行实际翻译任务
+3. 当进程内存或系统内存超过限制时，子进程结束
+4. 主进程启动新的子进程继续处理（内存已释放）
+5. 直到所有文件处理完成
+
+**内存限制说明**：
+- `--memory-limit`：监控翻译进程自身的内存使用
+- `--memory-percent`：监控系统总内存使用率（包括所有进程）
+- 两个参数可以同时使用，任一条件触发都会重启子进程
 
 ---
 

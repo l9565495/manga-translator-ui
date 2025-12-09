@@ -374,7 +374,8 @@ class MainView(QWidget):
             # realcugan_model 将通过 upscale_ratio 动态下拉框处理
             # batch_concurrent 并发处理已隐藏
             # gimp_font 已废弃，使用 font_path 代替
-            if full_key in ["cli.load_text", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "upscale.realcugan_model", "cli.batch_concurrent", "render.gimp_font"]:
+            # translator.attempts 隐藏，始终与 cli.attempts 同步
+            if full_key in ["cli.load_text", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "upscale.realcugan_model", "cli.batch_concurrent", "render.gimp_font", "translator.attempts"]:
                 continue
 
             label_text = key
@@ -1149,8 +1150,8 @@ class MainView(QWidget):
             self, 
             self._t("Add Files"), 
             last_dir, 
-            "All Supported Files (*.png *.jpg *.jpeg *.bmp *.webp *.pdf *.epub *.cbz *.cbr *.zip);;"
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp);;"
+            "All Supported Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif *.pdf *.epub *.cbz *.cbr *.zip);;"
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif);;"
             "PDF Files (*.pdf);;"
             "EPUB Files (*.epub);;"
             "Comic Book Archives (*.cbz *.cbr *.zip)"

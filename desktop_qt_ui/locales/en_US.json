@@ -143,6 +143,7 @@
   "label_batch_concurrent": "Concurrent Batch Processing",
   "label_generate_and_export": "Export Translation",
   "label_last_output_path": "Last Output Path",
+  "label_save_to_source_dir": "Save to Source Directory",
   "label_line_spacing": "Line Spacing",
   "label_font_size": "Font Size",
   "label_YOUDAO_APP_KEY": "Youdao Translation App ID",

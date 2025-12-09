@@ -342,7 +342,7 @@ class FileListView(QTreeWidget):
     def _scan_folder_structure(self, folder_path: str):
         """在后台线程中扫描文件夹结构（不创建UI元素）"""
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
             archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
             all_extensions = image_extensions | archive_extensions
             structure = {'subdirs': [], 'files': [], 'subdir_data': {}}
@@ -727,7 +727,7 @@ class FileListView(QTreeWidget):
         if not os.path.isdir(folder_path):
             return 0
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
             archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
             all_extensions = image_extensions | archive_extensions
             count = 0
@@ -746,7 +746,7 @@ class FileListView(QTreeWidget):
     def _populate_folder_tree(self, parent_item: QTreeWidgetItem, folder_path: str):
         """递归填充文件夹树形结构"""
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
             archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
             all_extensions = image_extensions | archive_extensions
             
@@ -827,7 +827,7 @@ class FileListView(QTreeWidget):
         
         # 添加文件夹中的文件
         try:
-            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+            image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
             archive_extensions = {'.pdf', '.epub', '.cbz', '.cbr', '.zip'}
             all_extensions = image_extensions | archive_extensions
             files = [

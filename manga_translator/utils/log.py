@@ -39,7 +39,7 @@ def init_logging():
     # 强制添加 handler（不依赖 basicConfig）
     if not logging.root.handlers:
         handler = logging.StreamHandler()
-        handler.setLevel(logging.DEBUG)
+        handler.setLevel(logging.INFO)
         logging.root.addHandler(handler)
     
     # 只修改 StreamHandler（控制台），不修改 FileHandler（日志文件）
@@ -48,11 +48,11 @@ def init_logging():
         if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
             h.setFormatter(Formatter())
             h.addFilter(Filter())
-            h.setLevel(logging.DEBUG)
+            h.setLevel(logging.INFO)
     
     # Explicitly set the root logger level
-    root.setLevel(logging.DEBUG)
-    logging.getLogger().setLevel(logging.DEBUG)
+    root.setLevel(logging.INFO)
+    logging.getLogger().setLevel(logging.INFO)
 
 def set_log_level(level):
     root.setLevel(level)

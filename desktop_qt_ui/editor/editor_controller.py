@@ -68,6 +68,9 @@ class EditorController(QObject):
         
         # 用户透明度调整标志
         self._user_adjusted_alpha = False
+        
+        # 上次导出时的状态快照（用于检测是否有更改）
+        self._last_export_snapshot = None
 
         # Connect internal signals for thread-safe updates
         self._update_refined_mask.connect(self.model.set_refined_mask)
@@ -267,6 +270,62 @@ class EditorController(QObject):
     def has_unsaved_changes(self) -> bool:
         """检查是否有未保存的编辑"""
         return self.history_service.can_undo()
+    
+    def _generate_export_snapshot(self) -> dict:
+        """生成当前状态的快照，用于检测导出后是否有更改"""
+        import hashlib
+        
+        regions = self._get_regions()
+        
+        # 提取关键数据生成哈希
+        snapshot_data = []
+        for region in regions:
+            # 只关注会影响导出结果的字段
+            region_key = {
+                'translation': region.get('translation', ''),
+                'font_size': region.get('font_size'),
+                'font_color': region.get('font_color'),
+                'alignment': region.get('alignment'),
+                'direction': region.get('direction'),
+                'xyxy': region.get('xyxy'),
+                'lines': str(region.get('lines', [])),
+            }
+            snapshot_data.append(str(region_key))
+        
+        # 包含蒙版的哈希（如果有）
+        mask = self.model.get_refined_mask()
+        if mask is None:
+            mask = self.model.get_raw_mask()
+        mask_hash = ""
+        if mask is not None:
+            mask_hash = hashlib.md5(mask.tobytes()).hexdigest()
+        
+        return {
+            'regions_hash': hashlib.md5('|'.join(snapshot_data).encode()).hexdigest(),
+            'mask_hash': mask_hash,
+            'source_path': self.model.get_source_image_path(),
+        }
+    
+    def _has_changes_since_last_export(self) -> bool:
+        """检查自上次导出后是否有更改"""
+        if self._last_export_snapshot is None:
+            # 从未导出过，检查是否有撤销历史
+            return self.history_service.can_undo()
+        
+        current_snapshot = self._generate_export_snapshot()
+        
+        # 比较快照
+        if current_snapshot['source_path'] != self._last_export_snapshot['source_path']:
+            # 不同的图片，不需要比较
+            return self.history_service.can_undo()
+        
+        return (current_snapshot['regions_hash'] != self._last_export_snapshot['regions_hash'] or
+                current_snapshot['mask_hash'] != self._last_export_snapshot['mask_hash'])
+    
+    def _save_export_snapshot(self):
+        """保存当前状态快照（导出成功后调用）"""
+        self._last_export_snapshot = self._generate_export_snapshot()
+        self.logger.debug(f"Export snapshot saved: {self._last_export_snapshot}")
 
     def _clear_editor_state(self, release_image_cache: bool = False):
         """清空编辑器状态
@@ -291,6 +350,9 @@ class EditorController(QObject):
 
         # 清空历史记录
         self.history_service.clear()
+        
+        # 清空导出快照（每张图片独立）
+        self._last_export_snapshot = None
 
         # 清空缓存（使用ResourceManager）
         self.resource_manager.clear_cache()
@@ -365,13 +427,13 @@ class EditorController(QObject):
         """加载图像及其关联的区域数据，并触发后台处理"""
         self.logger.debug(f"Controller: Loading image {image_path}")
 
-        # 检查是否有未保存的编辑
-        if self.has_unsaved_changes():
+        # 检查是否有未导出的更改（基于快照比较，而不仅仅是撤销历史）
+        if self._has_changes_since_last_export():
             from PyQt6.QtWidgets import QMessageBox
             reply = QMessageBox.question(
                 None,
                 "未保存的编辑",
-                "当前图片有未保存的编辑,是否导出?",
+                "当前图片有未导出的编辑,是否导出?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel
             )
@@ -380,7 +442,7 @@ class EditorController(QObject):
                 self.logger.info("User cancelled loading new image")
                 return
             elif reply == QMessageBox.StandardButton.Yes:
-                # 导出当前图片，然后异步加载新图片
+                self.logger.info("Exporting before switching image...")
                 self.export_image()
                 # 使用QTimer延迟加载，避免阻塞UI
                 from PyQt6.QtCore import QTimer
@@ -1462,7 +1524,7 @@ class EditorController(QObject):
             None,
             "打开图片文件",
             last_dir,
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp)"
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif)"
         )
         if file_path:
             new_dir = os.path.dirname(file_path)
@@ -1524,16 +1586,25 @@ class EditorController(QObject):
             config = self.config_service.get_config()
 
             # 确定输出路径和文件名
-            output_dir = getattr(config.app, 'last_output_path', None) if hasattr(config, 'app') else None
-            if not output_dir or not os.path.exists(output_dir):
-                source_path = self.model.get_source_image_path()
-                if source_path:
-                    output_dir = os.path.dirname(source_path)
-                else:
-                    output_dir = os.getcwd()
-                self.logger.warning(f"Using fallback output directory: {output_dir}")
+            save_to_source_dir = getattr(config.cli, 'save_to_source_dir', False) if hasattr(config, 'cli') else False
+            source_path = self.model.get_source_image_path()
+            
+            if save_to_source_dir and source_path:
+                # 输出到原图所在目录的 manga_translator_work/result 子目录
+                output_dir = os.path.join(os.path.dirname(source_path), 'manga_translator_work', 'result')
+                os.makedirs(output_dir, exist_ok=True)
+                self.logger.info(f"Using source directory output: {output_dir}")
             else:
-                self.logger.info(f"Using configured output directory: {output_dir}")
+                # 原有逻辑：使用配置的输出目录
+                output_dir = getattr(config.app, 'last_output_path', None) if hasattr(config, 'app') else None
+                if not output_dir or not os.path.exists(output_dir):
+                    if source_path:
+                        output_dir = os.path.dirname(source_path)
+                    else:
+                        output_dir = os.getcwd()
+                    self.logger.warning(f"Using fallback output directory: {output_dir}")
+                else:
+                    self.logger.info(f"Using configured output directory: {output_dir}")
 
             # 生成输出文件名（保持原文件名和格式）
             source_path = self.model.get_source_image_path()
@@ -1573,6 +1644,9 @@ class EditorController(QObject):
                 self.logger.info(f"[TOAST_DEBUG] Emitting _show_toast_signal to main thread...")
                 self._show_toast_signal.emit(f"导出成功\n{output_path}", 5000, True, output_path)
                 self.logger.info(f"[TOAST_DEBUG] Signal emitted successfully")
+                
+                # 保存导出快照，用于检测后续是否有更改
+                self._save_export_snapshot()
                 
                 # 导出成功后释放内存
                 self.resource_manager.release_memory_after_export()

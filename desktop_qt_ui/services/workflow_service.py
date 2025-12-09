@@ -316,7 +316,7 @@ def generate_original_text(
             image_dir = os.path.dirname(work_dir)
             image_name = json_basename.replace('_translations.json', '')
             # 尝试常见图片扩展名
-            for ext in ['.jpg', '.png', '.jpeg', '.webp']:
+            for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
                 image_path = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(image_path):
                     output_path = get_original_txt_path(image_path)
@@ -415,7 +415,7 @@ def generate_translated_text(
             image_dir = os.path.dirname(work_dir)
             image_name = json_basename.replace('_translations.json', '')
             # 尝试常见图片扩展名
-            for ext in ['.jpg', '.png', '.jpeg', '.webp']:
+            for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
                 image_path = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(image_path):
                     output_path = get_translated_txt_path(image_path)
@@ -780,7 +780,7 @@ def auto_detect_and_update_translations(
             import glob
             
             # 常见图片格式
-            image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tiff', '*.webp']
+            image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tiff', '*.webp', '*.avif']
             image_files = []
             
             for ext in image_extensions:
@@ -1174,7 +1174,7 @@ def batch_update_directory_translations(
 
             # 尝试常见图片扩展名
             image_path = None
-            for ext in ['.jpg', '.png', '.jpeg', '.webp']:
+            for ext in ['.jpg', '.png', '.jpeg', '.webp', '.avif']:
                 candidate = os.path.join(image_dir, image_name + ext)
                 if os.path.exists(candidate):
                     image_path = candidate

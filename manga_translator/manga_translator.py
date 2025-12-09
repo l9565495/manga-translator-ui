@@ -300,6 +300,7 @@ class MangaTranslator:
                 - output_folder: 输出文件夹
                 - input_folders: 输入文件夹集合
                 - format: 输出格式（可选）
+                - save_to_source_dir: 是否输出到原图目录的 manga_translator_work/result 子目录
                 
         Returns:
             str: 计算后的输出文件完整路径
@@ -307,23 +308,31 @@ class MangaTranslator:
         output_folder = save_info.get('output_folder')
         input_folders = save_info.get('input_folders', set())
         output_format = save_info.get('format')
+        save_to_source_dir = save_info.get('save_to_source_dir', False)
         
         file_path = image_path
-        final_output_dir = output_folder
         parent_dir = os.path.normpath(os.path.dirname(file_path))
         
-        # 计算相对路径以保持文件夹结构
-        for folder in input_folders:
-            if parent_dir.startswith(folder):
-                relative_path = os.path.relpath(parent_dir, folder)
-                # Normalize path and avoid adding '.' as a directory component
-                if relative_path == '.':
-                    final_output_dir = os.path.join(output_folder, os.path.basename(folder))
-                else:
-                    final_output_dir = os.path.join(output_folder, os.path.basename(folder), relative_path)
-                # Normalize to use consistent separators
-                final_output_dir = os.path.normpath(final_output_dir)
-                break
+        # 检查是否启用了"输出到原图目录"模式
+        if save_to_source_dir:
+            # 输出到原图所在目录的 manga_translator_work/result 子目录
+            final_output_dir = os.path.join(parent_dir, 'manga_translator_work', 'result')
+        else:
+            # 原有逻辑：使用配置的输出目录
+            final_output_dir = output_folder
+            
+            # 计算相对路径以保持文件夹结构
+            for folder in input_folders:
+                if parent_dir.startswith(folder):
+                    relative_path = os.path.relpath(parent_dir, folder)
+                    # Normalize path and avoid adding '.' as a directory component
+                    if relative_path == '.':
+                        final_output_dir = os.path.join(output_folder, os.path.basename(folder))
+                    else:
+                        final_output_dir = os.path.join(output_folder, os.path.basename(folder), relative_path)
+                    # Normalize to use consistent separators
+                    final_output_dir = os.path.normpath(final_output_dir)
+                    break
         
         os.makedirs(final_output_dir, exist_ok=True)
         

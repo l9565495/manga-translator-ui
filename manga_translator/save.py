@@ -46,7 +46,7 @@ def save_result(result: Image.Image, dest: str, ctx: Context):
 # -- Format Implementations
 
 class ImageFormat(ExportFormat):
-    SUPPORTED_FORMATS = ['png', 'webp']
+    SUPPORTED_FORMATS = ['png', 'webp', 'avif']
 
     def _save(self, result: Image.Image, dest: str, ctx: Context):
         result.save(dest)

@@ -135,6 +135,7 @@
   "label_batch_concurrent": "Procesamiento de lotes concurrente",
   "label_generate_and_export": "Exportar traducción",
   "label_last_output_path": "Última ruta de salida",
+  "label_save_to_source_dir": "Guardar en directorio de origen",
   "label_line_spacing": "Espaciado de línea",
   "label_font_size": "Tamaño de fuente",
   "label_YOUDAO_APP_KEY": "ID de aplicación Youdao Translate",

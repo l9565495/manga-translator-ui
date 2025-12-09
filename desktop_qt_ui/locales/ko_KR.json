@@ -135,6 +135,7 @@
   "label_batch_concurrent": "동시 배치 처리",
   "label_generate_and_export": "번역 내보내기",
   "label_last_output_path": "마지막 출력 경로",
+  "label_save_to_source_dir": "원본 이미지 디렉토리에 저장",
   "label_line_spacing": "줄 간격",
   "label_font_size": "글꼴 크기",
   "label_YOUDAO_APP_KEY": "Youdao 번역 애플리케이션 ID",

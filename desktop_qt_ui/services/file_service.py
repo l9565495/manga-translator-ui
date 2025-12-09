@@ -29,7 +29,7 @@ class FileService:
         self.config_service = get_config_service()
         # 支持的图片格式
         self.supported_image_extensions = {
-            '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.tiff', '.tif'
+            '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp', '.avif', '.tiff', '.tif'
         }
         # 支持的压缩包/文档格式
         self.supported_archive_extensions = {

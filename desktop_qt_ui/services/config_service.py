@@ -428,7 +428,6 @@ class ConfigService(QObject):
             
             # 重新加载环境变量到os.environ，使其立即生效
             load_dotenv(self.env_path, override=True)
-            self.logger.info(f"保存环境变量: {key}={value}")
             return True
 
         except Exception as e:

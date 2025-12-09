@@ -11,7 +11,7 @@
   "kernel_size": 3,
   "mask_dilation_offset": 70,
   "translator": {
-    "translator": "openai",
+    "translator": "openai_hq",
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "gpt_config": "examples/gpt_config-example.yaml",
@@ -48,7 +48,7 @@
     "min_box_area_ratio": 0
   },
   "inpainter": {
-    "inpainter": "lama_large",
+    "inpainter": "lama_mpe",
     "inpainting_size": 2048,
     "inpainting_precision": "fp32",
     "inpainting_split_ratio": 3.0
@@ -99,7 +99,7 @@
     "use_gpu_limited": false,
     "context_size": 3,
     "format": "不指定",
-    "overwrite": true,
+    "overwrite": false,
     "skip_no_text": false,
     "save_text": true,
     "load_text": false,
@@ -110,6 +110,7 @@
     "generate_and_export": false,
     "colorize_only": false,
     "upscale_only": false,
-    "inpaint_only": false
+    "inpaint_only": false,
+    "save_to_source_dir": false
   }
 }

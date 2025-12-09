@@ -1299,22 +1299,16 @@ def render(
             h_ext = int((w / r_orig - h) // 2) if r_orig > 0 else 0
             if h_ext >= 0:
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                # Center vertically when enabled
-                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
-                    box[h_ext:h_ext+h, 0:w] = temp_box
-                else:
-                    box[0:h, 0:w] = temp_box
+                # 垂直方向不居中，贴顶部
+                box[0:h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
         else:
             w_ext = int((h * r_orig - w) // 2)
             if w_ext >= 0:
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                # Center horizontally when enabled
-                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
-                    box[0:h, w_ext:w_ext+w] = temp_box
-                else:
-                    box[0:h, 0:w] = temp_box
+                # 横排文本默认水平居中
+                box[0:h, w_ext:w_ext+w] = temp_box
             else:
                 box = temp_box.copy()
     else:
@@ -1322,18 +1316,15 @@ def render(
             h_ext = int(w / (2 * r_orig) - h / 2) if r_orig > 0 else 0
             if h_ext >= 0:
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                # Center vertically when enabled
-                if config and config.render.center_text_in_bubble and config.render.disable_auto_wrap:
-                    box[h_ext:h_ext+h, 0:w] = temp_box
-                else:
-                    box[0:h, 0:w] = temp_box
+                # 竖排文本保持原逻辑
+                box[0:h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
         else:
             w_ext = int((h * r_orig - w) / 2)
             if w_ext >= 0:
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)
-                # Center horizontally (always active for vertical text)
+                # 竖排文本水平居中
                 box[0:h, w_ext:w_ext+w] = temp_box
             else:
                 box = temp_box.copy()

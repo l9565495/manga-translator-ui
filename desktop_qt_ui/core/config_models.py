@@ -124,6 +124,7 @@ class CliSettings(BaseModel):
     colorize_only: bool = False
     upscale_only: bool = False  # 仅超分模式
     inpaint_only: bool = False  # 仅输出修复图片模式
+    save_to_source_dir: bool = False  # 输出到原图目录的 manga_translator_work/result 子目录
 
 class AppSection(BaseModel):
     last_open_dir: str = '.'

@@ -128,38 +128,46 @@ class MainAppLogic(QObject):
             output_format = config.cli.format
             save_quality = config.cli.save_quality
             output_folder = config.app.last_output_path
-
-            if not output_folder:
-                self.logger.error(self._t("log_output_dir_not_set"))
-                self.state_manager.set_status_message(self._t("error_output_dir_not_set"))
-                return
+            save_to_source_dir = config.cli.save_to_source_dir
 
             original_path = result['original_path']
             base_filename = os.path.basename(original_path)
 
-            # 检查文件是否来自文件夹或压缩包
-            source_folder = self.file_to_folder_map.get(original_path)
-
-            if source_folder:
-                # 检查是否来自压缩包
-                if self.file_service.is_archive_file(source_folder):
-                    # 文件来自压缩包，使用压缩包名称（不含扩展名）作为输出子目录
-                    archive_name = os.path.splitext(os.path.basename(source_folder))[0]
-                    final_output_folder = os.path.join(output_folder, archive_name)
-                else:
-                    # 文件来自文件夹，保持相对路径结构
-                    parent_dir = os.path.normpath(os.path.dirname(original_path))
-                    relative_path = os.path.relpath(parent_dir, source_folder)
-                    
-                    # Normalize path and avoid adding '.' as a directory component
-                    if relative_path == '.':
-                        final_output_folder = os.path.join(output_folder, os.path.basename(source_folder))
-                    else:
-                        final_output_folder = os.path.join(output_folder, os.path.basename(source_folder), relative_path)
-                final_output_folder = os.path.normpath(final_output_folder)
+            # 检查是否启用了"输出到原图目录"模式
+            if save_to_source_dir:
+                # 输出到原图所在目录的 manga_translator_work/result 子目录
+                source_dir = os.path.dirname(original_path)
+                final_output_folder = os.path.join(source_dir, 'manga_translator_work', 'result')
             else:
-                # 文件是单独添加的，直接保存到输出目录
-                final_output_folder = output_folder
+                # 原有逻辑：使用配置的输出目录
+                if not output_folder:
+                    self.logger.error(self._t("log_output_dir_not_set"))
+                    self.state_manager.set_status_message(self._t("error_output_dir_not_set"))
+                    return
+
+                # 检查文件是否来自文件夹或压缩包
+                source_folder = self.file_to_folder_map.get(original_path)
+
+                if source_folder:
+                    # 检查是否来自压缩包
+                    if self.file_service.is_archive_file(source_folder):
+                        # 文件来自压缩包，使用压缩包名称（不含扩展名）作为输出子目录
+                        archive_name = os.path.splitext(os.path.basename(source_folder))[0]
+                        final_output_folder = os.path.join(output_folder, archive_name)
+                    else:
+                        # 文件来自文件夹，保持相对路径结构
+                        parent_dir = os.path.normpath(os.path.dirname(original_path))
+                        relative_path = os.path.relpath(parent_dir, source_folder)
+                        
+                        # Normalize path and avoid adding '.' as a directory component
+                        if relative_path == '.':
+                            final_output_folder = os.path.join(output_folder, os.path.basename(source_folder))
+                        else:
+                            final_output_folder = os.path.join(output_folder, os.path.basename(source_folder), relative_path)
+                    final_output_folder = os.path.normpath(final_output_folder)
+                else:
+                    # 文件是单独添加的，直接保存到输出目录
+                    final_output_folder = output_folder
 
             # 确定文件扩展名
             if output_format and output_format != self._t("format_not_specified"):
@@ -588,6 +596,7 @@ class MainAppLogic(QObject):
                     "batch_concurrent": self._t("label_batch_concurrent"),
                     "generate_and_export": self._t("label_generate_and_export"),
                     "last_output_path": self._t("label_last_output_path"),
+                    "save_to_source_dir": self._t("label_save_to_source_dir"),
                     "line_spacing": self._t("label_line_spacing"),
                     "font_size": self._t("label_font_size"),
                     "OPENAI_API_KEY": self._t("label_OPENAI_API_KEY"),
@@ -1006,7 +1015,7 @@ class MainAppLogic(QObject):
             }
         
         all_files = []
-        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
         
         try:
             items = os.listdir(folder_path)
@@ -1077,7 +1086,7 @@ class MainAppLogic(QObject):
         
         # 处理压缩包文件
         if archive_files:
-            from utils.archive_extractor import extract_images_from_archive
+            from desktop_qt_ui.utils.archive_extractor import extract_images_from_archive
             for archive_path in archive_files:
                 try:
                     self._ui_log(f"正在解压: {os.path.basename(archive_path)}")
@@ -1398,7 +1407,7 @@ class MainAppLogic(QObject):
             # 清理压缩包解压的临时文件
             if hasattr(self, 'archive_to_temp_map') and self.archive_to_temp_map:
                 try:
-                    from utils.archive_extractor import cleanup_archive_temp
+                    from desktop_qt_ui.utils.archive_extractor import cleanup_archive_temp
                     for archive_path in list(self.archive_to_temp_map.keys()):
                         cleanup_archive_temp(archive_path)
                     self.archive_to_temp_map.clear()
@@ -1572,6 +1581,7 @@ class TranslationWorker(QObject):
         self._is_running = True
         self._current_task = None  # 保存当前运行的异步任务
         self.i18n = get_i18n_manager()
+        self.logger = get_logger(__name__)
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -2041,7 +2051,8 @@ class TranslationWorker(QObject):
                 'output_folder': self.output_folder,
                 'format': output_format,
                 'overwrite': self.config_dict.get('cli', {}).get('overwrite', True),
-                'input_folders': input_folders
+                'input_folders': input_folders,
+                'save_to_source_dir': self.config_dict.get('cli', {}).get('save_to_source_dir', False)
             }
 
             # 确定翻译流程模式

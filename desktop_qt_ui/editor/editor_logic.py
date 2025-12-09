@@ -35,8 +35,8 @@ class EditorLogic(QObject):
             None, 
             "添加文件到编辑器", 
             last_dir, 
-            "All Supported Files (*.png *.jpg *.jpeg *.bmp *.webp *.pdf *.epub *.cbz *.cbr *.zip);;"
-            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp);;"
+            "All Supported Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif *.pdf *.epub *.cbz *.cbr *.zip);;"
+            "Image Files (*.png *.jpg *.jpeg *.bmp *.webp *.avif);;"
             "PDF Files (*.pdf);;"
             "EPUB Files (*.epub);;"
             "Comic Book Archives (*.cbz *.cbr *.zip)"
@@ -96,7 +96,7 @@ class EditorLogic(QObject):
             
             # 如果是第一次添加，自动加载第一个图片
             if is_first_add:
-                image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+                image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
                 try:
                     for root, dirs, files in os.walk(folder_path):
                         for f in sorted(files):
@@ -122,7 +122,7 @@ class EditorLogic(QObject):
         for path in paths:
             if os.path.isfile(path):
                 # 验证是否是图片文件
-                image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp'}
+                image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif'}
                 if os.path.splitext(path)[1].lower() in image_extensions:
                     files_to_add.append(path)
             elif os.path.isdir(path):

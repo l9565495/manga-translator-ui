@@ -135,6 +135,7 @@
   "label_batch_concurrent": "並行バッチ処理",
   "label_generate_and_export": "翻訳をエクスポート",
   "label_last_output_path": "最後の出力パス",
+  "label_save_to_source_dir": "元画像のディレクトリに保存",
   "label_line_spacing": "行間",
   "label_font_size": "フォントサイズ",
   "label_YOUDAO_APP_KEY": "Youdao翻訳アプリケーションID",

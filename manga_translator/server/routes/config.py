@@ -419,7 +419,8 @@ async def get_config_options(
         ],
         'font_path': all_font_paths,
         'high_quality_prompt_path': all_prompt_paths,
-        'layout_mode': ['default', 'smart_scaling', 'strict', 'fixed_font', 'disable_all', 'balloon_fill']
+        'layout_mode': ['default', 'smart_scaling', 'strict', 'fixed_font', 'disable_all', 'balloon_fill'],
+        'format': ['png', 'webp', 'jpg', 'avif']
     }
 
 

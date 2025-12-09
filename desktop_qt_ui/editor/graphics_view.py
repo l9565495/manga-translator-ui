@@ -1547,10 +1547,12 @@ class GraphicsView(QGraphicsView):
         # GraphicsView -> QSplitter -> EditorView
         # 需要向上查找两级才能找到 EditorView
         parent = self.parent()
-        if parent:
-            editor_view = parent.parent()
-            if editor_view and hasattr(editor_view, 'controller'):
-                return editor_view.controller
+        # 向上遍历查找 EditorView
+        current = parent
+        while current:
+            if hasattr(current, 'controller'):
+                return current.controller
+            current = current.parent() if hasattr(current, 'parent') and callable(current.parent) else None
         return None
 
     def _ocr_selected_regions(self):
@@ -1590,6 +1592,7 @@ class GraphicsView(QGraphicsView):
 
     def _add_text_box(self):
         """添加新的文本框"""
+        print("[_add_text_box] 被调用")
         controller = self._get_controller()
         if controller:
             controller.enter_drawing_mode()

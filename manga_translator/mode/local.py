@@ -2,17 +2,23 @@
 # -*- coding: utf-8 -*-
 """
 命令行翻译工具 - 直接使用 UI 层的翻译逻辑
+支持子进程模式进行内存管理和断点续传
 """
 import os
 import sys
 import argparse
 import asyncio
+import multiprocessing
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
 ROOT_DIR = Path(__file__).parent.parent.parent  # 上两级目录
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / 'desktop_qt_ui'))
+
+# 内存管理默认值
+DEFAULT_MEMORY_THRESHOLD_MB = 8000  # 默认8GB
+DEFAULT_BATCH_SIZE_PER_RESTART = 50  # 每处理N张图片后检查
 
 
 def parse_args():
@@ -31,6 +37,15 @@ def parse_args():
   # 使用自定义配置
   python -m manga_translator local -i manga.jpg --config my_config.json
   
+  # 启用子进程模式（支持内存管理，每50张图片重启子进程释放内存）
+  python -m manga_translator local -i ./manga_folder/ --subprocess
+  
+  # 自定义内存管理参数（每20张图片重启）
+  python -m manga_translator local -i ./manga_folder/ --subprocess --batch-per-restart 20
+  
+  # 从断点继续（需要配合 --subprocess）
+  python -m manga_translator local -i ./manga_folder/ --subprocess --resume
+  
   # 详细日志
   python -m manga_translator local -i manga.jpg -v
         """
@@ -46,6 +61,18 @@ def parse_args():
                         help='显示详细日志')
     parser.add_argument('--overwrite', action='store_true',
                         help='覆盖已存在的文件')
+    
+    # 内存管理参数
+    parser.add_argument('--subprocess', action='store_true',
+                        help='启用子进程模式（支持内存管理和断点续传）')
+    parser.add_argument('--memory-limit', type=int, default=DEFAULT_MEMORY_THRESHOLD_MB,
+                        help=f'绝对内存限制（MB），超过后自动重启子进程（默认：{DEFAULT_MEMORY_THRESHOLD_MB}，0表示不限制）')
+    parser.add_argument('--memory-percent', type=int, default=80,
+                        help='内存百分比限制，超过系统总内存的这个百分比时重启（默认：80）')
+    parser.add_argument('--batch-per-restart', type=int, default=DEFAULT_BATCH_SIZE_PER_RESTART,
+                        help=f'每处理N张图片后重启子进程释放内存（默认：{DEFAULT_BATCH_SIZE_PER_RESTART}）')
+    parser.add_argument('--resume', action='store_true',
+                        help='从上次中断的位置继续（需要配合 --subprocess 使用）')
     
     return parser.parse_args()
 
@@ -430,39 +457,134 @@ async def run_local_mode(args):
     """运行 local 模式的入口函数"""
     # 延迟导入配置服务
     from desktop_qt_ui.services.config_service import ConfigService
+    from desktop_qt_ui.services.file_service import FileService
     
     # 初始化配置服务
     config_service = ConfigService(str(ROOT_DIR))
     
     # 如果指定了配置文件，加载它
-    if hasattr(args, 'config') and args.config:
-        if not config_service.load_config_file(args.config):
-            print(f"❌ 无法加载配置文件: {args.config}")
+    config_path = getattr(args, 'config', None)
+    if config_path:
+        if not config_service.load_config_file(config_path):
+            print(f"❌ 无法加载配置文件: {config_path}")
             sys.exit(1)
     
-    # 运行翻译
-    try:
-        await translate_files(
-            args.input,
-            args.output if hasattr(args, 'output') else None,
-            config_service,
-            verbose=args.verbose if hasattr(args, 'verbose') else False,
-            overwrite=args.overwrite if hasattr(args, 'overwrite') else False,
-            args=args
-        )
-    except KeyboardInterrupt:
-        print("\n\n⚠️  用户取消")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\n❌ 错误: {e}")
-        if hasattr(args, 'verbose') and args.verbose:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
+    # 检查是否使用子进程模式
+    use_subprocess = getattr(args, 'subprocess', False)
+    verbose = getattr(args, 'verbose', False)
+    overwrite = getattr(args, 'overwrite', False)
+    
+    if use_subprocess:
+        # 子进程模式
+        print("\n🔧 启用子进程模式（支持内存管理）")
+        
+        # 收集文件
+        file_service = FileService()
+        all_files = []
+        input_paths = args.input
+        
+        folders = []
+        individual_files = []
+        
+        for input_path in input_paths:
+            input_path = os.path.abspath(input_path)
+            if os.path.isfile(input_path):
+                individual_files.append(input_path)
+            elif os.path.isdir(input_path):
+                folders.append(input_path)
+        
+        folders.sort(key=file_service._natural_sort_key)
+        for folder in folders:
+            folder_files = file_service.get_image_files_from_folder(folder, recursive=True)
+            all_files.extend(folder_files)
+        
+        individual_files.sort(key=file_service._natural_sort_key)
+        all_files.extend(individual_files)
+        
+        if not all_files:
+            print("❌ 未找到图片文件")
+            sys.exit(1)
+        
+        print(f"📁 找到 {len(all_files)} 个图片文件")
+        
+        # 确定输出目录
+        output_dir = getattr(args, 'output', None)
+        if not output_dir:
+            config = config_service.get_config()
+            if config.app.last_output_path:
+                output_dir = config.app.last_output_path
+            else:
+                first_input = input_paths[0]
+                if os.path.isdir(first_input):
+                    output_dir = first_input.rstrip('/\\') + '-translated'
+                else:
+                    output_dir = os.path.dirname(first_input)
+        
+        output_dir = os.path.abspath(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"📤 输出目录: {output_dir}")
+        
+        # 导入子进程管理器
+        from .subprocess_manager import translate_with_subprocess
+        
+        try:
+            config_dict = config_service.get_config().dict()
+            
+            success_count, failed_count = await translate_with_subprocess(
+                all_files=all_files,
+                output_dir=output_dir,
+                config_dict=config_dict,
+                config_path=config_path,
+                verbose=verbose,
+                overwrite=overwrite,
+                memory_limit_mb=getattr(args, 'memory_limit', DEFAULT_MEMORY_THRESHOLD_MB),
+                memory_limit_percent=getattr(args, 'memory_percent', 80),
+                batch_per_restart=getattr(args, 'batch_per_restart', DEFAULT_BATCH_SIZE_PER_RESTART)
+            )
+            
+            print(f"\n{'='*60}")
+            print(f"✅ 成功: {success_count}")
+            print(f"❌ 失败: {failed_count}")
+            print(f"📊 总计: {len(all_files)}")
+            print(f"💾 输出目录: {output_dir}")
+            print(f"{'='*60}")
+            
+        except KeyboardInterrupt:
+            print("\n\n⚠️  用户取消")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n❌ 错误: {e}")
+            if verbose:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
+    else:
+        # 原有的直接模式
+        try:
+            await translate_files(
+                args.input,
+                args.output if hasattr(args, 'output') else None,
+                config_service,
+                verbose=verbose,
+                overwrite=overwrite,
+                args=args
+            )
+        except KeyboardInterrupt:
+            print("\n\n⚠️  用户取消")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n❌ 错误: {e}")
+            if verbose:
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
 
 
 def main():
     """主函数（用于直接运行）"""
+    # Windows 下需要这个来支持子进程
+    multiprocessing.freeze_support()
+    
     args = parse_args()
     asyncio.run(run_local_mode(args))
 

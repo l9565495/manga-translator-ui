@@ -214,6 +214,7 @@
   "Index:": "索引：",
   "label_realcugan_model": "Real-CUGAN模型",
   "label_last_output_path": "最后輸出路徑",
+  "label_save_to_source_dir": "輸出到原圖目錄",
   "Add new associated shape for selected text box": "为選取的文字方塊增加新的關聯形狀",
   "Name ↑": "名稱 ↑",
   "label_font_color": "字型顏色",

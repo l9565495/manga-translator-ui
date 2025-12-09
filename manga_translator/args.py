@@ -53,11 +53,20 @@ def create_parser():
     local_parser.add_argument('--use-gpu', action='store_true', default=None,
                              help='使用 GPU 加速（覆盖配置文件）')
     local_parser.add_argument('--format', default=None,
-                             help='输出格式：png/jpg/webp（覆盖配置文件）')
+                             help='输出格式：png/jpg/webp/avif（覆盖配置文件）')
     local_parser.add_argument('--batch-size', type=int, default=None,
                              help='批量处理大小（覆盖配置文件）')
     local_parser.add_argument('--attempts', type=int, default=None,
                              help='翻译失败重试次数，-1表示无限重试（覆盖配置文件）')
+    # 内存管理参数（子进程模式）
+    local_parser.add_argument('--subprocess', action='store_true',
+                             help='启用子进程模式（支持内存管理和断点续传）')
+    local_parser.add_argument('--memory-limit', type=int, default=0,
+                             help='绝对内存限制（MB），超过后自动重启子进程，0表示不限制（默认：0）')
+    local_parser.add_argument('--memory-percent', type=int, default=0,
+                             help='内存百分比限制，超过系统总内存的这个百分比时重启，0表示不限制（默认：0）')
+    local_parser.add_argument('--batch-per-restart', type=int, default=0,
+                             help='每处理N张图片后重启子进程释放内存，0表示不限制（默认：0）')
     
     # ===== WebSocket 模式 =====
     ws_parser = subparsers.add_parser('ws', help='WebSocket 模式')

@@ -14,7 +14,7 @@ from pathlib import Path
 ARCHIVE_EXTENSIONS = {'.pdf', '.epub', '.cbz', '.cbr', '.cb7', '.zip'}
 
 # 支持的图片格式
-IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.gif', '.tiff', '.tif'}
+IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.avif', '.gif', '.tiff', '.tif'}
 
 
 def is_archive_file(file_path: str) -> bool:
