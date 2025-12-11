@@ -1,5 +1,8 @@
 
 import time
+import logging
+import traceback
+import functools
 from typing import List
 
 import numpy as np
@@ -20,6 +23,31 @@ from editor.desktop_ui_geometry import (
     handle_vertex_edit,
     handle_edge_edit,
 )
+
+
+def safe_qt_method(default_return=None):
+    """
+    装饰器：捕获Qt方法中的所有异常，防止闪退
+    包括Python异常、C++异常、RuntimeError等
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except (RuntimeError, AttributeError) as e:
+                # Qt对象已被删除或无效
+                logging.debug(f"[{func.__name__}] Qt对象无效: {e}")
+                return default_return
+            except Exception as e:
+                # 捕获所有其他异常
+                logging.error(
+                    f"[{func.__name__}] 发生异常: {e}\n"
+                    f"堆栈跟踪:\n{traceback.format_exc()}"
+                )
+                return default_return
+        return wrapper
+    return decorator
 
 
 class TransparentPixmapItem(QGraphicsPixmapItem):
@@ -47,6 +75,9 @@ class RegionTextItem(QGraphicsItemGroup):
 
         # 图像项引用，用于坐标转换
         self._image_item = None
+        
+        # 防止回调重入的标志（在回调执行期间阻止update_from_data）
+        self._in_callback = False
 
         # 使用 desktop-ui 的几何管理器
         self.desktop_geometry = DesktopUIGeometry(region_data)
@@ -193,8 +224,12 @@ class RegionTextItem(QGraphicsItemGroup):
             if self._is_dragging:
                 return
             
-            # 安全检查：确保item仍在场景中
-            if not self.scene():
+            # 【防止循环更新】如果正在执行回调，跳过更新
+            if self._in_callback:
+                return
+            
+            # 安全检查：确保item仍在场景中和对象有效
+            if not self.scene() or not hasattr(self, 'region_data'):
                 return
             
             # 保存旧的场景边界矩形（在改变几何之前）
@@ -220,7 +255,7 @@ class RegionTextItem(QGraphicsItemGroup):
             self.rotation_angle = self.desktop_geometry.angle
             self.visual_center = QPointF(self.desktop_geometry.center[0], self.desktop_geometry.center[1])
 
-            # 在修改位置和旋转之前调用 prepareGeometryChange()
+            # 在修改几何之前调用一次 prepareGeometryChange()
             self.prepareGeometryChange()
             self._shape_path = None  # 清除 shape 缓存
 
@@ -237,10 +272,6 @@ class RegionTextItem(QGraphicsItemGroup):
 
             # 更新白框和绿框
             self._update_frames_from_geometry(self.desktop_geometry)
-
-            # 再次调用 prepareGeometryChange() 确保 shape() 缓存被清除
-            self.prepareGeometryChange()
-            self._shape_path = None
 
             # 恢复选中状态
             if was_selected != self.isSelected():
@@ -259,45 +290,30 @@ class RegionTextItem(QGraphicsItemGroup):
 
         except (RuntimeError, AttributeError) as e:
             # Item可能在更新过程中被删除
-            print(f"[RegionTextItem] Warning: update_from_data failed: {e}")
+            import logging
+            logging.debug(f"[RegionTextItem] update_from_data: Item deleted or invalid: {e}")
+        except Exception as e:
+            # 捕获所有其他异常，防止闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] update_from_data unexpected error: {e}\n{traceback.format_exc()}")
 
     def itemChange(self, change, value):
-        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
-            self.prepareGeometryChange()
-            self._shape_path = None
-            if value:
-                # 变换原点始终是局部坐标的(0,0)
-                self.setTransformOriginPoint(QPointF(0, 0))
-        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
-            # 位置改变后，更新模型数据
-            if hasattr(self, '_on_geometry_change_callback') and self._on_geometry_change_callback:
-                # 获取新的场景坐标中心
-                scene_center = self.scenePos()
-                
-                # 转换为图像坐标
-                img_x, img_y = self._scene_to_image_coords(scene_center)
-                
-                # 更新visual_center（这是模型坐标中的中心）
-                self.visual_center = QPointF(img_x, img_y)
-                
-                # 更新region_data
-                new_region_data = self.region_data.copy()
-                
-                # 重新计算模型坐标的polygons
-                model_polygons = []
-                for poly_local in self.polygons:
-                    model_line = []
-                    for p in poly_local:
-                        # local坐标 + center = model坐标
-                        model_x = p.x() + self.visual_center.x()
-                        model_y = p.y() + self.visual_center.y()
-                        model_line.append([model_x, model_y])
-                    model_polygons.append(model_line)
-                
-                new_region_data['polygons'] = model_polygons
-                
-                # 调用回调更新controller
-                self._on_geometry_change_callback(self.region_index, new_region_data)
+        try:
+            if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
+                self.prepareGeometryChange()
+                self._shape_path = None
+                if value:
+                    # 变换原点始终是局部坐标的(0,0)
+                    self.setTransformOriginPoint(QPointF(0, 0))
+            # 注意：不处理 ItemPositionHasChanged！
+            # 位置更新由 mouseReleaseEvent 在用户拖动结束时处理
+            # 在这里处理会导致循环：update_from_data → setPos → ItemPositionHasChanged → 回调 → 循环
+        except Exception as e:
+            # 捕获itemChange中的异常，防止闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] itemChange error: {e}\n{traceback.format_exc()}")
         
         return super().itemChange(change, value)
 
@@ -327,177 +343,219 @@ class RegionTextItem(QGraphicsItemGroup):
         self._update_white_frame_from_green_box()
 
     def _get_core_polygon_path(self) -> QPainterPath:
-        path = QPainterPath()
-        path.setFillRule(Qt.FillRule.WindingFill)  # 设置填充规则
-        seen_polygons = set()
+        try:
+            path = QPainterPath()
+            path.setFillRule(Qt.FillRule.WindingFill)  # 设置填充规则
+            seen_polygons = set()
 
-        # 调试:记录是否打印过日志
-        should_log = False
-        if hasattr(self, '_last_path_log_time'):
-            import time
-            current_time = time.time()
-            if current_time - self._last_path_log_time >= 1.0:
+            # 调试:记录是否打印过日志
+            should_log = False
+            if hasattr(self, '_last_path_log_time'):
+                import time
+                current_time = time.time()
+                if current_time - self._last_path_log_time >= 1.0:
+                    should_log = True
+                    self._last_path_log_time = current_time
+            else:
                 should_log = True
-                self._last_path_log_time = current_time
-        else:
-            should_log = True
-            self._last_path_log_time = 0
+                self._last_path_log_time = 0
 
-        for i, poly in enumerate(self.polygons):
-            if not poly.isEmpty():
-                polygon_tuple = tuple((p.x(), p.y()) for p in poly)
-                if polygon_tuple not in seen_polygons:
-                    path.addPolygon(poly)
-                    path.closeSubpath()  # 确保路径闭合
-                    seen_polygons.add(polygon_tuple)
-        return path
+            for i, poly in enumerate(self.polygons):
+                if not poly.isEmpty():
+                    polygon_tuple = tuple((p.x(), p.y()) for p in poly)
+                    if polygon_tuple not in seen_polygons:
+                        path.addPolygon(poly)
+                        path.closeSubpath()  # 确保路径闭合
+                        seen_polygons.add(polygon_tuple)
+            return path
+        except Exception as e:
+            # 如果路径计算失败，返回空路径
+            import logging
+            logging.error(f"[RegionTextItem] _get_core_polygon_path error: {e}")
+            return QPainterPath()
 
     def _get_stable_center(self) -> QPointF:
         """返回稳定的视觉中心点"""
         return self.visual_center
 
     def _get_handle_info(self) -> dict:
-        lod = self.scene().views()[0].transform().m11() if self.scene() and self.scene().views() else 1.0
-        handle_size = 10.0 / lod
-        center_point = QPointF(0, 0)  # 在局部坐标系中,中心点就是(0,0)
+        try:
+            lod = self.scene().views()[0].transform().m11() if self.scene() and self.scene().views() else 1.0
+            handle_size = 10.0 / lod
+            center_point = QPointF(0, 0)  # 在局部坐标系中,中心点就是(0,0)
 
-        # 旋转手柄应该绑定在白框上方，而不是蓝框
-        if self._white_frame_rect_local is not None:
-            # 使用白框计算旋转手柄位置
-            left, top, right, bottom = self._white_frame_rect_local
-            center_x = (left + right) / 2
-            base_rot_handle_pos = QPointF(center_x, top - 40.0 / lod)
-        else:
-            # 如果没有白框，退回到蓝框
-            all_points = [p for poly in self.polygons for p in poly]
-            if all_points:
-                min_x = min(p.x() for p in all_points)
-                max_x = max(p.x() for p in all_points)
-                min_y = min(p.y() for p in all_points)
-                max_y = max(p.y() for p in all_points)
-                center_x = (min_x + max_x) / 2
-                base_rot_handle_pos = QPointF(center_x, min_y - 40.0 / lod)
-            else:
-                base_rot_handle_pos = QPointF(0, -40.0 / lod)
-
-        # 控制调试输出频率：每秒最多输出一次
-        current_time = time.time()
-        if current_time - self._last_debug_time >= 1.0:
+            # 旋转手柄应该绑定在白框上方，而不是蓝框
             if self._white_frame_rect_local is not None:
+                # 使用白框计算旋转手柄位置
                 left, top, right, bottom = self._white_frame_rect_local
+                center_x = (left + right) / 2
+                base_rot_handle_pos = QPointF(center_x, top - 40.0 / lod)
+            else:
+                # 如果没有白框，退回到蓝框
+                all_points = [p for poly in self.polygons for p in poly]
+                if all_points:
+                    min_x = min(p.x() for p in all_points)
+                    max_x = max(p.x() for p in all_points)
+                    min_y = min(p.y() for p in all_points)
+                    max_y = max(p.y() for p in all_points)
+                    center_x = (min_x + max_x) / 2
+                    base_rot_handle_pos = QPointF(center_x, min_y - 40.0 / lod)
+                else:
+                    base_rot_handle_pos = QPointF(0, -40.0 / lod)
 
-            self._last_debug_time = current_time
+            # 控制调试输出频率：每秒最多输出一次
+            current_time = time.time()
+            if current_time - self._last_debug_time >= 1.0:
+                if self._white_frame_rect_local is not None:
+                    left, top, right, bottom = self._white_frame_rect_local
 
-        # 不需要再旋转,因为Qt会自动处理item的旋转变换
-        return {
-            'lod': lod,
-            'handle_size': handle_size,
-            'pen_width': 1.5 / lod,
-            'center': center_point,
-            'rot_pos': base_rot_handle_pos,
-            'vertex_pos': [p for poly in self.polygons for p in poly]
-        }
+                self._last_debug_time = current_time
+
+            # 不需要再旋转,因为Qt会自动处理item的旋转变换
+            return {
+                'lod': lod,
+                'handle_size': handle_size,
+                'pen_width': 1.5 / lod,
+                'center': center_point,
+                'rot_pos': base_rot_handle_pos,
+                'vertex_pos': [p for poly in self.polygons for p in poly]
+            }
+        except Exception as e:
+            # 返回默认值，防止闪退
+            import logging
+            logging.error(f"[RegionTextItem] _get_handle_info error: {e}")
+            return {
+                'lod': 1.0,
+                'handle_size': 10.0,
+                'pen_width': 1.5,
+                'center': QPointF(0, 0),
+                'rot_pos': QPointF(0, -40),
+                'vertex_pos': []
+            }
 
     def shape(self) -> QPainterPath:
-        # 使用缓存的 shape 路径
-        if self._shape_path is not None:
-            return self._shape_path
+        try:
+            # 使用缓存的 shape 路径
+            if self._shape_path is not None:
+                return self._shape_path
 
-        path = self._get_core_polygon_path()
-        if self.isSelected():
-            handle_info = self._get_handle_info()
-            handle_size = handle_info['handle_size']
-            for p in handle_info['vertex_pos']:
-                path.addEllipse(p, handle_size / 2, handle_size / 2)
-            rot_pos = handle_info['rot_pos']
-            path.addEllipse(rot_pos, handle_size / 2, handle_size / 2)
-            path.moveTo(handle_info['center'])
-            path.lineTo(rot_pos)
+            path = self._get_core_polygon_path()
+            if self.isSelected():
+                handle_info = self._get_handle_info()
+                handle_size = handle_info['handle_size']
+                for p in handle_info['vertex_pos']:
+                    path.addEllipse(p, handle_size / 2, handle_size / 2)
+                rot_pos = handle_info['rot_pos']
+                path.addEllipse(rot_pos, handle_size / 2, handle_size / 2)
+                path.moveTo(handle_info['center'])
+                path.lineTo(rot_pos)
 
-            # 添加白框区域(局部坐标)
-            if self._show_white_box and self._white_frame_rect_local is not None:
-                left, top, right, bottom = self._white_frame_rect_local
+                # 添加白框区域(局部坐标)
+                if self._show_white_box and self._white_frame_rect_local is not None:
+                    left, top, right, bottom = self._white_frame_rect_local
 
-                # 添加白框矩形区域
-                white_rect = QRectF(left, top, right - left, bottom - top)
-                path.addRect(white_rect)
+                    # 添加白框矩形区域
+                    white_rect = QRectF(left, top, right - left, bottom - top)
+                    path.addRect(white_rect)
 
-                # 添加白框手柄区域
-                handle_size = 20  # 与 _get_white_frame_handle_at 中的检测范围一致
-                corner_points = [
-                    QPointF(left, top), QPointF(right, top),
-                    QPointF(right, bottom), QPointF(left, bottom)
-                ]
-                edge_points = [
-                    QPointF((left + right)/2, top), QPointF(right, (top + bottom)/2),
-                    QPointF((left + right)/2, bottom), QPointF(left, (top + bottom)/2)
-                ]
+                    # 添加白框手柄区域
+                    handle_size = 20  # 与 _get_white_frame_handle_at 中的检测范围一致
+                    corner_points = [
+                        QPointF(left, top), QPointF(right, top),
+                        QPointF(right, bottom), QPointF(left, bottom)
+                    ]
+                    edge_points = [
+                        QPointF((left + right)/2, top), QPointF(right, (top + bottom)/2),
+                        QPointF((left + right)/2, bottom), QPointF(left, (top + bottom)/2)
+                    ]
 
-                # 添加手柄碰撞区域(局部坐标,Qt自动处理旋转)
-                for p in corner_points + edge_points:
-                    path.addEllipse(p.x() - handle_size//2, p.y() - handle_size//2, handle_size, handle_size)
+                    # 添加手柄碰撞区域(局部坐标,Qt自动处理旋转)
+                    for p in corner_points + edge_points:
+                        path.addEllipse(p.x() - handle_size//2, p.y() - handle_size//2, handle_size, handle_size)
         
-        self._shape_path = path
-        return path
+            self._shape_path = path
+            return path
+        except Exception as e:
+            # 如果shape计算失败，返回一个空路径避免闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] shape calculation error: {e}\n{traceback.format_exc()}")
+            return QPainterPath()
 
     def boundingRect(self) -> QRectF:
-        return self.shape().boundingRect().adjusted(-10, -10, 10, 10)
+        try:
+            return self.shape().boundingRect().adjusted(-10, -10, 10, 10)
+        except Exception as e:
+            # 如果boundingRect计算失败，返回一个默认矩形避免闪退
+            import logging
+            logging.error(f"[RegionTextItem] boundingRect error: {e}")
+            return QRectF(0, 0, 100, 100)
 
     def paint(self, painter, option, widget=None):
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        is_selected = option.state & QStyle.StateFlag.State_Selected
+        try:
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            is_selected = option.state & QStyle.StateFlag.State_Selected
 
-        # 只绘制几何形状 (多边形)
-        if self._polygons_visible:
-            for i, poly in enumerate(self.polygons):
-                if is_selected:
-                    painter.setPen(self.pen_selected)
-                    painter.setBrush(self.brush_selected)
-                else:
-                    painter.setPen(self.pen)
-                    painter.setBrush(self.brush)
-                painter.drawPolygon(poly)
+            # 只绘制几何形状 (多边形)
+            if self._polygons_visible:
+                for i, poly in enumerate(self.polygons):
+                    if is_selected:
+                        painter.setPen(self.pen_selected)
+                        painter.setBrush(self.brush_selected)
+                    else:
+                        painter.setPen(self.pen)
+                        painter.setBrush(self.brush)
+                    painter.drawPolygon(poly)
 
-        # 文本渲染现在由 GraphicsView 的 drawForeground 处理
-        # if self._text_visible:
-        #     self._render_wysiwyg_text(painter)
+            # 文本渲染现在由 GraphicsView 的 drawForeground 处理
+            # if self._text_visible:
+            #     self._render_wysiwyg_text(painter)
 
-        # 绘制绿框（自动渲染区域）- 只要有数据就显示
-        if self._show_green_box and self._dst_points_local is not None and self._polygons_visible:
-            self._draw_green_box(painter)
-        
-        # 绘制白框（手动调整边界）- 选中时显示
-        if is_selected and self._show_white_box and self._polygons_visible and self._white_frame_rect_local is not None:
-            self._draw_white_box(painter)
+            # 绘制绿框（自动渲染区域）- 只要有数据就显示
+            if self._show_green_box and self._dst_points_local is not None and self._polygons_visible:
+                self._draw_green_box(painter)
+            
+            # 绘制白框（手动调整边界）- 选中时显示
+            if is_selected and self._show_white_box and self._polygons_visible and self._white_frame_rect_local is not None:
+                self._draw_white_box(painter)
 
-        # 如果被选中，绘制交互手柄
-        if is_selected:
-            handle_info = self._get_handle_info()
-            handle_size = handle_info['handle_size']
-            pen_width = handle_info['pen_width']
-            center_point = handle_info['center']
-            rot_handle_pos = handle_info['rot_pos']
+            # 如果被选中，绘制交互手柄
+            if is_selected:
+                handle_info = self._get_handle_info()
+                handle_size = handle_info['handle_size']
+                pen_width = handle_info['pen_width']
+                center_point = handle_info['center']
+                rot_handle_pos = handle_info['rot_pos']
 
-            painter.setBrush(QBrush(QColor("blue")))
-            painter.setPen(QPen(QColor("white"), pen_width))
-            for p in handle_info['vertex_pos']:
-                # 使用正确的drawEllipse参数：中心点减去半径
-                painter.drawEllipse(int(p.x() - handle_size / 2), int(p.y() - handle_size / 2), 
+                painter.setBrush(QBrush(QColor("blue")))
+                painter.setPen(QPen(QColor("white"), pen_width))
+                for p in handle_info['vertex_pos']:
+                    # 使用正确的drawEllipse参数：中心点减去半径
+                    painter.drawEllipse(int(p.x() - handle_size / 2), int(p.y() - handle_size / 2), 
+                                      int(handle_size), int(handle_size))
+                
+                painter.setPen(QPen(QColor("red"), pen_width * 1.5))
+                painter.drawLine(center_point, rot_handle_pos)
+                painter.setBrush(QBrush(QColor("red")))
+                painter.setPen(QPen(QColor("white"), pen_width))
+                painter.drawEllipse(int(rot_handle_pos.x() - handle_size / 2), int(rot_handle_pos.y() - handle_size / 2),
                                   int(handle_size), int(handle_size))
-            
-            painter.setPen(QPen(QColor("red"), pen_width * 1.5))
-            painter.drawLine(center_point, rot_handle_pos)
-            painter.setBrush(QBrush(QColor("red")))
-            painter.setPen(QPen(QColor("white"), pen_width))
-            painter.drawEllipse(int(rot_handle_pos.x() - handle_size / 2), int(rot_handle_pos.y() - handle_size / 2),
-                              int(handle_size), int(handle_size))
-            
-            # 绘制白框手柄（如果显示白框）
-            if self._show_white_box and self._white_frame_rect_local is not None and self._polygons_visible:
-                self._draw_white_box_handles(painter)
+                
+                # 绘制白框手柄（如果显示白框）
+                if self._show_white_box and self._white_frame_rect_local is not None and self._polygons_visible:
+                    self._draw_white_box_handles(painter)
 
-        painter.restore()
+            painter.restore()
+        except Exception as e:
+            # 捕获绘制异常，防止闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] paint error: {e}\n{traceback.format_exc()}")
+            try:
+                painter.restore()
+            except:
+                pass
 
     def hoverMoveEvent(self, event: QGraphicsSceneMouseEvent):
         try:
@@ -557,7 +615,13 @@ class RegionTextItem(QGraphicsItemGroup):
             super().hoverMoveEvent(event)
         except (RuntimeError, AttributeError) as e:
             # Item可能已被删除
-            pass
+            import logging
+            logging.debug(f"[RegionTextItem] hoverMoveEvent: Item deleted or invalid: {e}")
+        except Exception as e:
+            # 捕获所有其他异常，防止闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] hoverMoveEvent unexpected error: {e}\n{traceback.format_exc()}")
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
         try:
@@ -698,82 +762,99 @@ class RegionTextItem(QGraphicsItemGroup):
                 return
         except (RuntimeError, AttributeError) as e:
             # Item可能已被删除
-            print(f"[RegionTextItem] Warning: mousePressEvent failed: {e}")
+            import logging
+            logging.debug(f"[RegionTextItem] mousePressEvent: Item deleted or invalid: {e}")
+        except Exception as e:
+            # 捕获所有其他异常，防止闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] mousePressEvent unexpected error: {e}\n{traceback.format_exc()}")
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
-        if self._interaction_mode == 'none':
-            super().mouseMoveEvent(event)
-            return
-
-        if self._interaction_mode == 'rotate':
-            center_scene = self.mapToScene(self._drag_start_center)
-            new_pos_scene = event.scenePos()
-            new_vec_scene = new_pos_scene - center_scene
-            new_angle_rad = np.arctan2(new_vec_scene.y(), new_vec_scene.x())
-            angle_delta_rad = new_angle_rad - self._drag_start_angle_rad
-            angle_delta_deg = np.degrees(angle_delta_rad)
-            self.setRotation(self._drag_start_rotation + angle_delta_deg)
-            event.accept()
-            return
-
-        if self._interaction_mode == 'move':
-            super().mouseMoveEvent(event)
-            event.accept()
-            return
-
-        if self._interaction_mode in ['vertex', 'edge']:
-            poly_idx, handle_idx = self._drag_handle_indices
-            if not hasattr(self, '_drag_start_geometry'):
+        try:
+            if self._interaction_mode == 'none':
+                super().mouseMoveEvent(event)
                 return
 
-            # 使用场景坐标（等于世界坐标），Qt会自动处理旋转
-            scene_pos = event.scenePos()
-            mouse_x = scene_pos.x()
-            mouse_y = scene_pos.y()
+            if self._interaction_mode == 'rotate':
+                center_scene = self.mapToScene(self._drag_start_center)
+                new_pos_scene = event.scenePos()
+                new_vec_scene = new_pos_scene - center_scene
+                new_angle_rad = np.arctan2(new_vec_scene.y(), new_vec_scene.x())
+                angle_delta_rad = new_angle_rad - self._drag_start_angle_rad
+                angle_delta_deg = np.degrees(angle_delta_rad)
+                self.setRotation(self._drag_start_rotation + angle_delta_deg)
+                event.accept()
+                return
 
-            try:
-                if self._interaction_mode == 'vertex':
-                    new_geometry = handle_vertex_edit(
-                        geometry=self._drag_start_geometry,
-                        poly_index=poly_idx,
-                        vertex_index=handle_idx,
-                        mouse_x=mouse_x,
-                        mouse_y=mouse_y
-                    )
-                elif self._interaction_mode == 'edge':
-                    new_geometry = handle_edge_edit(
-                        geometry=self._drag_start_geometry,
-                        poly_index=poly_idx,
-                        edge_index=handle_idx,
-                        mouse_x=mouse_x,
-                        mouse_y=mouse_y
-                    )
-                else:
+            if self._interaction_mode == 'move':
+                super().mouseMoveEvent(event)
+                event.accept()
+                return
+
+            if self._interaction_mode in ['vertex', 'edge']:
+                poly_idx, handle_idx = self._drag_handle_indices
+                if not hasattr(self, '_drag_start_geometry'):
                     return
 
-                # Convert the new geometry back to region_data format and update the item
-                new_region_data = new_geometry.to_region_data()
-                self.update_from_data(new_region_data)
+                # 使用场景坐标（等于世界坐标），Qt会自动处理旋转
+                scene_pos = event.scenePos()
+                mouse_x = scene_pos.x()
+                mouse_y = scene_pos.y()
 
-                # Also update the frames based on the new geometry
-                self._update_frames_from_geometry(new_geometry)
-                self.update()
+                try:
+                    if self._interaction_mode == 'vertex':
+                        new_geometry = handle_vertex_edit(
+                            geometry=self._drag_start_geometry,
+                            poly_index=poly_idx,
+                            vertex_index=handle_idx,
+                            mouse_x=mouse_x,
+                            mouse_y=mouse_y
+                        )
+                    elif self._interaction_mode == 'edge':
+                        new_geometry = handle_edge_edit(
+                            geometry=self._drag_start_geometry,
+                            poly_index=poly_idx,
+                            edge_index=handle_idx,
+                            mouse_x=mouse_x,
+                            mouse_y=mouse_y
+                        )
+                    else:
+                        return
 
-            except Exception as e:
+                    # Convert the new geometry back to region_data format and update the item
+                    new_region_data = new_geometry.to_region_data()
+                    self.update_from_data(new_region_data)
 
+                    # Also update the frames based on the new geometry
+                    self._update_frames_from_geometry(new_geometry)
+                    self.update()
+
+                except Exception as e:
+                    import logging
+                    logging.error(f"[RegionTextItem] Error in vertex/edge edit: {e}", exc_info=True)
+                    return
+
+                event.accept()
+                return
+            
+            # 处理白框编辑
+            if self._interaction_mode in ['white_corner', 'white_edge']:
+                self._handle_white_frame_edit(event)
+                event.accept()
                 return
 
+            super().mouseMoveEvent(event)
             event.accept()
-            return
-        
-        # 处理白框编辑
-        if self._interaction_mode in ['white_corner', 'white_edge']:
-            self._handle_white_frame_edit(event)
-            event.accept()
-            return
-
-        super().mouseMoveEvent(event)
-        event.accept()
+        except (RuntimeError, AttributeError) as e:
+            # Item可能已被删除
+            import logging
+            logging.debug(f"[RegionTextItem] mouseMoveEvent: Item deleted or invalid: {e}")
+        except Exception as e:
+            # 捕获所有其他异常，防止闪退
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] mouseMoveEvent unexpected error: {e}\n{traceback.format_exc()}")
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         try:
@@ -838,8 +919,13 @@ class RegionTextItem(QGraphicsItemGroup):
                     # 调用父类方法
                     super().mouseReleaseEvent(event)
                     
-                    # 【最后】调用 callback，之后不再访问 self
-                    callback(region_index, new_region_data)
+                    # 【防止循环回调】设置标志
+                    self._in_callback = True
+                    try:
+                        # 【最后】调用 callback，之后不再访问 self
+                        callback(region_index, new_region_data)
+                    finally:
+                        self._in_callback = False
                     return
 
                 elif current_mode == 'rotate':
@@ -864,8 +950,13 @@ class RegionTextItem(QGraphicsItemGroup):
                     
                     super().mouseReleaseEvent(event)
                     
-                    # 最后调用 callback
-                    callback(region_index, new_region_data)
+                    # 【防止循环回调】设置标志
+                    self._in_callback = True
+                    try:
+                        # 最后调用 callback
+                        callback(region_index, new_region_data)
+                    finally:
+                        self._in_callback = False
                     return
 
                 elif current_mode in ['vertex', 'edge']:
@@ -885,8 +976,13 @@ class RegionTextItem(QGraphicsItemGroup):
                     
                     super().mouseReleaseEvent(event)
                     
-                    # 最后调用 callback
-                    callback(region_index, final_region_data)
+                    # 【防止循环回调】设置标志
+                    self._in_callback = True
+                    try:
+                        # 最后调用 callback
+                        callback(region_index, final_region_data)
+                    finally:
+                        self._in_callback = False
                     return
 
                 elif current_mode in ['white_corner', 'white_edge']:
@@ -915,8 +1011,13 @@ class RegionTextItem(QGraphicsItemGroup):
                     
                     super().mouseReleaseEvent(event)
                     
-                    # 最后调用 callback
-                    callback(region_index, final_region_data)
+                    # 【防止循环回调】设置标志
+                    self._in_callback = True
+                    try:
+                        # 最后调用 callback
+                        callback(region_index, final_region_data)
+                    finally:
+                        self._in_callback = False
                     return
 
             super().mouseReleaseEvent(event)
@@ -928,7 +1029,9 @@ class RegionTextItem(QGraphicsItemGroup):
         except Exception as e:
             self._interaction_mode = 'none'
             self._is_dragging = False
-            print(f"[RegionTextItem] Error in mouseReleaseEvent: {e}")
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] mouseReleaseEvent error: {e}\n{traceback.format_exc()}")
 
     def _get_handle_at(self, pos: QPointF) -> (str, tuple):
         handle_info = self._get_handle_info()
@@ -1048,7 +1151,6 @@ class RegionTextItem(QGraphicsItemGroup):
             ])
 
 
-        self._update_white_frame_from_green_box()
         self._update_white_frame_from_green_box()
         self.prepareGeometryChange()
         self._shape_path = None
@@ -1227,24 +1329,22 @@ class RegionTextItem(QGraphicsItemGroup):
     
     def _handle_white_frame_edit(self, event: QGraphicsSceneMouseEvent):
         """使用 desktop-ui 的白框编辑逻辑"""
-        if not hasattr(self, '_drag_start_geometry') or self._drag_handle_indices is None:
-            return
-
-        # 使用场景坐标（等于世界坐标），Qt会自动处理旋转
-        scene_pos = event.scenePos()
-        mouse_x = scene_pos.x()
-        mouse_y = scene_pos.y()
-
-        # 确定动作类型
-        if self._interaction_mode == 'white_corner':
-            action_type = 'white_frame_corner_edit'
-        elif self._interaction_mode == 'white_edge':
-            action_type = 'white_frame_edge_edit'
-        else:
-            return
-
-        # 使用 desktop-ui 的白框编辑函数
         try:
+            if not hasattr(self, '_drag_start_geometry') or self._drag_handle_indices is None:
+                return
+
+            # 使用场景坐标（等于世界坐标），Qt会自动处理旋转
+            scene_pos = event.scenePos()
+            mouse_x = scene_pos.x()
+            mouse_y = scene_pos.y()
+
+            # 确定动作类型
+            if self._interaction_mode == 'white_corner':
+                action_type = 'white_frame_corner_edit'
+            elif self._interaction_mode == 'white_edge':
+                action_type = 'white_frame_edge_edit'
+            else:
+                return
             new_geometry = handle_white_frame_edit(
                 geometry=self._drag_start_geometry,
                 action_type=action_type,
@@ -1293,7 +1393,9 @@ class RegionTextItem(QGraphicsItemGroup):
                 self.scene().update(update_rect)
 
         except Exception as e:
-
+            import logging
+            import traceback
+            logging.error(f"[RegionTextItem] _handle_white_frame_edit error: {e}\n{traceback.format_exc()}")
             return
     
     def _update_frames_from_geometry(self, geometry: DesktopUIGeometry):

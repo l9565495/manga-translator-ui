@@ -374,6 +374,14 @@ class EditorController(QObject):
             if hasattr(gv, '_dst_points_cache'):
                 gv._dst_points_cache = []
         
+        # 关闭加载线程池（如果存在）
+        if hasattr(self, '_load_executor'):
+            try:
+                self._load_executor.shutdown(wait=False)
+                del self._load_executor
+            except Exception:
+                pass
+        
         # 强制垃圾回收
         gc.collect()
         

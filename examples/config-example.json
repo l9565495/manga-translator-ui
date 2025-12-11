@@ -48,7 +48,7 @@
     "min_box_area_ratio": 0
   },
   "inpainter": {
-    "inpainter": "lama_mpe",
+    "inpainter": "lama_large",
     "inpainting_size": 2048,
     "inpainting_precision": "fp32",
     "inpainting_split_ratio": 3.0
@@ -99,7 +99,7 @@
     "use_gpu_limited": false,
     "context_size": 3,
     "format": "不指定",
-    "overwrite": false,
+    "overwrite": true,
     "skip_no_text": false,
     "save_text": true,
     "load_text": false,

@@ -123,6 +123,10 @@ class ConcurrentPipeline:
                 else:
                     ctx.upscaled = ctx.img_colorized
                 
+                # ✅ 关键修复：将upscaled重新加载为img_rgb（与标准流程一致）
+                # 这样后续的检测、OCR、修复、渲染都基于upscaled
+                ctx.img_rgb, ctx.img_alpha = load_image(ctx.upscaled)
+                
                 # 检测（在线程池中执行，避免阻塞事件循环）
                 loop = asyncio.get_event_loop()
                 detection_func = functools.partial(
@@ -450,6 +454,7 @@ class ConcurrentPipeline:
                     ctx.result = dump_image(ctx.input, ctx.upscaled, ctx.img_alpha)
                 else:
                     # 渲染（在线程池中执行）
+                    # img_rgb和img_inpainted已经在修复阶段更新为upscaled版本
                     loop = asyncio.get_event_loop()
                     render_func = functools.partial(
                         asyncio.run,

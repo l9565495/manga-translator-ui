@@ -212,6 +212,10 @@ class RealCUGANUpscaler(OfflineUpscaler):
         device = next(self.model.parameters()).device
         
         for img in image_batch:
+            # 确保输入是 PIL Image
+            if isinstance(img, np.ndarray):
+                img = Image.fromarray(img)
+            
             # Use tiling only if tile_size > 0
             if self.tile_size > 0:
                 output_img = self._process_with_tiles(img, device, self.tile_size)

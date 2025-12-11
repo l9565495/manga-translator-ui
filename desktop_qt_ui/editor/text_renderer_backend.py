@@ -5,7 +5,7 @@ import logging
 import cv2
 import numpy as np
 from manga_translator.config import Config, RenderConfig
-from manga_translator.rendering import qt_renderer
+from manga_translator.rendering import text_render
 from manga_translator.rendering.text_render import (
     auto_add_horizontal_tags,
     set_font,
@@ -131,9 +131,9 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
             except:
                 region_count = 1
 
-        # 使用新的 Qt 渲染器
+        # 使用 freetype 渲染器（稳定可靠）
         if text_block.horizontal:
-            rendered_surface = qt_renderer.put_text_horizontal(
+            rendered_surface = text_render.put_text_horizontal(
                 font_size, 
                 text_block.get_translation_for_rendering(), 
                 render_w, 
@@ -149,7 +149,7 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
                 region_count=region_count
             )
         else:
-            rendered_surface = qt_renderer.put_text_vertical(
+            rendered_surface = text_render.put_text_vertical(
                 font_size, 
                 text_block.get_translation_for_rendering(), 
                 render_h, 
@@ -245,7 +245,8 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
             # Convert RGBA to BGRA for QImage Format_ARGB32
             bgra_image = warped_image.copy()
             bgra_image[:, :, [0, 2]] = bgra_image[:, :, [2, 0]]  # Swap R and B channels
-            final_image = QImage(bgra_image.data, w, h, w * 4, QImage.Format.Format_ARGB32)
+            # 【关键修复】使用.copy()确保QImage拥有自己的内存，防止numpy数组被回收后崩溃
+            final_image = QImage(bgra_image.data, w, h, w * 4, QImage.Format.Format_ARGB32).copy()
             final_pixmap = QPixmap.fromImage(final_image)
             # 返回pixmap和它在屏幕(视图)上的绘制位置
             return (final_pixmap, QPointF(x_s, y_s))

@@ -3323,12 +3323,26 @@ class MangaTranslator:
                                 
                                 upscaled_size = None
                                 # 使用超分后的图片尺寸（如果有超分），否则使用上色后的图片尺寸
+                                # 注意：需要处理 PIL Image 和 numpy array 两种情况
+                                from PIL import Image as PILImage
                                 if hasattr(ctx, 'upscaled') and ctx.upscaled is not None:
-                                    upscaled_size = ctx.upscaled.shape[:2]  # (height, width)
+                                    if isinstance(ctx.upscaled, PILImage.Image):
+                                        w, h = ctx.upscaled.size
+                                        upscaled_size = (h, w)  # 转换为 (height, width)
+                                    else:
+                                        upscaled_size = ctx.upscaled.shape[:2]  # numpy: (height, width)
                                 elif hasattr(ctx, 'img_colorized') and ctx.img_colorized is not None:
-                                    upscaled_size = ctx.img_colorized.shape[:2]
+                                    if isinstance(ctx.img_colorized, PILImage.Image):
+                                        w, h = ctx.img_colorized.size
+                                        upscaled_size = (h, w)
+                                    else:
+                                        upscaled_size = ctx.img_colorized.shape[:2]
                                 elif hasattr(ctx, 'img_rgb') and ctx.img_rgb is not None:
-                                    upscaled_size = ctx.img_rgb.shape[:2]
+                                    if isinstance(ctx.img_rgb, PILImage.Image):
+                                        w, h = ctx.img_rgb.size
+                                        upscaled_size = (h, w)
+                                    else:
+                                        upscaled_size = ctx.img_rgb.shape[:2]
                                 
                                 img_data = {
                                     'image': ctx.input if hasattr(ctx, 'input') else None,

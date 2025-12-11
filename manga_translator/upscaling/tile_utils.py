@@ -3,13 +3,13 @@ Tile-based image processing utilities for upscaling
 Simple external tiling to reduce memory usage
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Union
 from PIL import Image
 import numpy as np
 
 
 def split_image_into_tiles(
-    image: Image.Image,
+    image: Union[Image.Image, np.ndarray],
     tile_size: int = 512,
     overlap: int = 16
 ) -> List[Tuple[Image.Image, Tuple[int, int, int, int]]]:
@@ -17,7 +17,7 @@ def split_image_into_tiles(
     Split image into overlapping tiles
     
     Args:
-        image: Input PIL image
+        image: Input PIL image or numpy array (H, W, C)
         tile_size: Size of each tile (width and height)
         overlap: Overlap between tiles to avoid seam artifacts
     
@@ -25,6 +25,10 @@ def split_image_into_tiles(
         List of (tile_image, (x, y, w, h)) tuples
         where (x, y, w, h) is the position in original image
     """
+    # 如果是 numpy 数组，转换为 PIL Image
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    
     width, height = image.size
     tiles = []
     

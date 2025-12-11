@@ -209,16 +209,31 @@ def draw_text_boxes_on_image(image, text_regions: List[Any], text_order: List[in
         color = colors[idx % len(colors)]
         
         # 获取文本框坐标并转换
+        # 边框向外扩展，避免粗边框覆盖文字内容
+        expand = lw  # 向外扩展的像素数（等于线宽）
+        
         if hasattr(region, 'xyxy'):
             x1, y1, x2, y2 = region.xyxy
             x1, x2 = x1 * scale_x, x2 * scale_x
             y1, y2 = y1 * scale_y, y2 * scale_y
-            box_x1, box_y1, box_x2, box_y2 = int(x1), int(y1), int(x2), int(y2)
+            # 向外扩展边框
+            box_x1, box_y1 = int(x1) - expand, int(y1) - expand
+            box_x2, box_y2 = int(x2) + expand, int(y2) + expand
             cv2.rectangle(canvas, (box_x1, box_y1), (box_x2, box_y2), color, lw)
         elif hasattr(region, 'min_rect'):
             pts = region.min_rect.astype(np.float64)
             pts[:, 0] *= scale_x
             pts[:, 1] *= scale_y
+            # 计算中心点，向外扩展多边形
+            center_x = pts[:, 0].mean()
+            center_y = pts[:, 1].mean()
+            for i in range(len(pts)):
+                dx = pts[i, 0] - center_x
+                dy = pts[i, 1] - center_y
+                dist = np.sqrt(dx*dx + dy*dy)
+                if dist > 0:
+                    pts[i, 0] += (dx / dist) * expand
+                    pts[i, 1] += (dy / dist) * expand
             pts = pts.astype(np.int32)
             cv2.polylines(canvas, [pts], True, color, lw)
             box_x1, box_y1 = int(pts[:, 0].min()), int(pts[:, 1].min())

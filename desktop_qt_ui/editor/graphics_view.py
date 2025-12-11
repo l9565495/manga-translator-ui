@@ -219,6 +219,14 @@ class GraphicsView(QGraphicsView):
             self._is_drawing_geometry = False
             self._is_drawing_textbox = False
             self._last_edited_region_index = None
+            
+            # 关闭线程池（如果存在）
+            if hasattr(self, '_render_executor'):
+                try:
+                    self._render_executor.shutdown(wait=False)
+                    del self._render_executor
+                except Exception:
+                    pass
         except (RuntimeError, AttributeError) as e:
             # 清理过程中可能遇到已删除的对象
             print(f"[View] Warning: Error during clear_all_state: {e}")
@@ -275,7 +283,8 @@ class GraphicsView(QGraphicsView):
         h, w = mask_array.shape[:2]
         color_mask = np.zeros((h, w, 4), dtype=np.uint8)
         color_mask[mask_array > 128] = [255, 0, 0, 128]
-        q_image = QImage(color_mask.data, w, h, w * 4, QImage.Format.Format_ARGB32)
+        # 【关键修复】使用.copy()确保QImage拥有自己的内存，防止numpy数组被回收后崩溃
+        q_image = QImage(color_mask.data, w, h, w * 4, QImage.Format.Format_ARGB32).copy()
         pixmap = QPixmap.fromImage(q_image)
 
         if target_item is None or target_item.scene() is None:
@@ -347,7 +356,8 @@ class GraphicsView(QGraphicsView):
         h, w = removed_mask.shape
         color_mask = np.zeros((h, w, 4), dtype=np.uint8)
         color_mask[removed_mask > 128] = [0, 0, 255, 128]  # Blue for removed parts
-        q_image = QImage(color_mask.data, w, h, w * 4, QImage.Format.Format_ARGB32)
+        # 【关键修复】使用.copy()确保QImage拥有自己的内存
+        q_image = QImage(color_mask.data, w, h, w * 4, QImage.Format.Format_ARGB32).copy()
         pixmap = QPixmap.fromImage(q_image)
 
         if self._removed_mask_item is None:
@@ -923,12 +933,11 @@ class GraphicsView(QGraphicsView):
                 if item.scene() is not None:
                     item.update_text_pixmap(QPixmap(), QPointF(0, 0))
                     item.set_dst_points(None)
-        except Exception as e:
-            print(f"[View] Error in _update_single_region_text_visual for index {index}: {e}")
-                
         except (RuntimeError, AttributeError) as e:
             # Item可能在渲染过程中被删除
             print(f"[View] Warning: Text visual update failed for index {index}: {e}")
+        except Exception as e:
+            print(f"[View] Error in _update_single_region_text_visual for index {index}: {e}")
 
     def recalculate_render_data(self):
         """

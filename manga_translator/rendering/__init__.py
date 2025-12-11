@@ -13,14 +13,7 @@ from .text_render_eng import render_textblock_list_eng
 from .text_render_pillow_eng import render_textblock_list_eng as render_textblock_list_eng_pillow
 from .ballon_extractor import extract_ballon_region
 
-# 尝试导入 Qt 渲染器（可选）
-try:
-    from .qt_renderer import get_qt_renderer, QT_AVAILABLE
-    QT_RENDERER_AVAILABLE = QT_AVAILABLE
-except ImportError:
-    QT_RENDERER_AVAILABLE = False
-    get_qt_renderer = None
-    logger.info("Qt 渲染器不可用（PyQt6 未安装），将使用默认的 freetype 渲染器")
+# 只使用 freetype 渲染器（稳定可靠）
 from ..utils import (
     BASE_PATH,
     TextBlock,
@@ -1294,94 +1287,35 @@ def render(
     if render_horizontally:
         text_to_render = re.sub(r'<H>(.*?)</H>', r'\1', text_to_render, flags=re.IGNORECASE | re.DOTALL)
 
-    # 根据 renderer 选择渲染引擎
-    # default 使用 Qt 渲染器，freetype 使用原 freetype 渲染器
-    use_qt_renderer = False
-    if config and hasattr(config.render, 'renderer'):
-        renderer_choice = config.render.renderer
-        if renderer_choice == 'default':
-            # default 优先使用 Qt 渲染器
-            if QT_RENDERER_AVAILABLE:
-                use_qt_renderer = True
-                logger.debug("使用 Qt 渲染器（default）")
-            else:
-                logger.warning("Qt 渲染器不可用（PyQt6 未安装），回退到 freetype 渲染器")
-        elif renderer_choice == 'freetype':
-            # 明确选择 freetype
-            use_qt_renderer = False
-            logger.debug("使用 freetype 渲染器")
+    # 使用 freetype 渲染器（稳定可靠）
+    if render_horizontally:
+        temp_box = text_render.put_text_horizontal(
+            region.font_size,
+            text_to_render,
+            round(norm_h[0]),
+            round(norm_v[0]),
+            region.alignment,
+            region.direction == 'hl',
+            fg,
+            bg,
+            region.target_lang,
+            hyphenate,
+            line_spacing,
+            config,
+            len(region.lines)  # Pass region count
+        )
     else:
-        # 没有配置时，默认尝试使用 Qt
-        if QT_RENDERER_AVAILABLE:
-            use_qt_renderer = True
-            logger.debug("使用 Qt 渲染器（默认）")
-
-    # 根据选择的渲染器进行渲染
-    if use_qt_renderer:
-        # 使用 Qt 渲染器
-        from .qt_renderer import put_text_horizontal as qt_put_text_horizontal
-        from .qt_renderer import put_text_vertical as qt_put_text_vertical
-        
-        if render_horizontally:
-            temp_box = qt_put_text_horizontal(
-                region.font_size,
-                text_to_render,
-                round(norm_h[0]),
-                round(norm_v[0]),
-                region.alignment,
-                region.direction == 'hl',
-                fg,
-                bg,
-                region.target_lang,
-                hyphenate,
-                line_spacing,
-                config,
-                len(region.lines),
-                rich_text_html=rich_text_html  # 传递富文本 HTML
-            )
-        else:
-            temp_box = qt_put_text_vertical(
-                region.font_size,
-                text_to_render,
-                round(norm_v[0]),
-                region.alignment,
-                fg,
-                bg,
-                line_spacing,
-                config,
-                len(region.lines),
-                rich_text_html=rich_text_html  # 传递富文本 HTML
-            )
-    else:
-        # 使用默认的 freetype 渲染器
-        if render_horizontally:
-            temp_box = text_render.put_text_horizontal(
-                region.font_size,
-                text_to_render,
-                round(norm_h[0]),
-                round(norm_v[0]),
-                region.alignment,
-                region.direction == 'hl',
-                fg,
-                bg,
-                region.target_lang,
-                hyphenate,
-                line_spacing,
-                config,
-                len(region.lines)  # Pass region count
-            )
-        else:
-            temp_box = text_render.put_text_vertical(
-                region.font_size,
-                text_to_render,
-                round(norm_v[0]),
-                region.alignment,
-                fg,
-                bg,
-                line_spacing,
-                config,
-                len(region.lines)  # Pass region count
-            )
+        temp_box = text_render.put_text_vertical(
+            region.font_size,
+            text_to_render,
+            round(norm_v[0]),
+            region.alignment,
+            fg,
+            bg,
+            line_spacing,
+            config,
+            len(region.lines)  # Pass region count
+        )
     
     if temp_box is None:
         logger.warning(f"[RENDER SKIPPED] Text rendering returned None. Text: '{region.translation[:100]}...'")
