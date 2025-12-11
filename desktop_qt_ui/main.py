@@ -152,6 +152,14 @@ def main():
     
     logging.info(f"UI日志文件: {log_file_path}")
 
+    # --- 崩溃捕获 (faulthandler) ---
+    # 启用 faulthandler 以捕获 C++ 级别的崩溃 (Segmentation Fault 等)
+    # 将崩溃信息直接写入同一个日志文件
+    import faulthandler
+    # 使用 file_handler 的流对象
+    faulthandler.enable(file=file_handler.stream, all_threads=True)
+    logging.info("已启用崩溃捕获 (faulthandler)，崩溃信息将记录在此文件中")
+
     # --- 环境设置 ---
     # Windows特殊处理：必须在创建QApplication之前设置AppUserModelID
     if sys.platform == 'win32':

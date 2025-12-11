@@ -282,6 +282,12 @@ class ExportService:
             if 'translation' not in region_copy:
                 region_copy['translation'] = region_copy.get('text', '')
             
+            # 保留富文本信息（如果存在）
+            # rich_text 字段包含 HTML 格式的文本，保存了字体大小、颜色、粗体、斜体等格式
+            # 如果没有富文本格式，该字段为空字符串或不存在
+            if 'rich_text' not in region_copy:
+                region_copy['rich_text'] = ''
+            
             # 确保lines字段存在且格式正确
             if 'lines' not in region_copy:
                 self.logger.warning(f"Region missing 'lines' field: {region_copy}")

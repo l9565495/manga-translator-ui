@@ -102,6 +102,9 @@ class RegionTextItem(QGraphicsItemGroup):
         self._show_white_box = True
         self._dst_points_local = None  # 局部坐标
         self._white_frame_rect_local = None  # 局部坐标 [left, top, right, bottom]
+        
+        # 缓存 shape 路径以优化性能
+        self._shape_path = None
 
         # 计算初始的绿框和白框(局部坐标)
         all_points = [p for poly in self.polygons for p in poly]
@@ -116,11 +119,22 @@ class RegionTextItem(QGraphicsItemGroup):
         # 调试输出控制：记录上次输出时间
         self._last_debug_time = 0
     
+    def set_image_item(self, item):
+        """显式设置图像项引用"""
+        self._image_item = item
+
     def _get_image_item(self):
         """获取图像项用于坐标转换"""
-        if self._image_item is None and self.scene():
+        if self._image_item:
+            return self._image_item
+            
+        if self.scene():
             for item in self.scene().items():
                 if isinstance(item, QGraphicsPixmapItem) and hasattr(item, 'pixmap'):
+                    # 简单的启发式：假设最底层的PixmapItem是背景图
+                    # 或者依靠ZValue? GraphicsView中image是2, mask是10+
+                    # 但这里不能假设ZValue。
+                    # 暂时保持原逻辑作为fallback
                     self._image_item = item
                     break
         return self._image_item
@@ -208,6 +222,7 @@ class RegionTextItem(QGraphicsItemGroup):
 
             # 在修改位置和旋转之前调用 prepareGeometryChange()
             self.prepareGeometryChange()
+            self._shape_path = None  # 清除 shape 缓存
 
             self.setPos(self.visual_center)
             self.setRotation(self.rotation_angle)
@@ -225,6 +240,7 @@ class RegionTextItem(QGraphicsItemGroup):
 
             # 再次调用 prepareGeometryChange() 确保 shape() 缓存被清除
             self.prepareGeometryChange()
+            self._shape_path = None
 
             # 恢复选中状态
             if was_selected != self.isSelected():
@@ -248,28 +264,21 @@ class RegionTextItem(QGraphicsItemGroup):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
             self.prepareGeometryChange()
+            self._shape_path = None
             if value:
                 # 变换原点始终是局部坐标的(0,0)
                 self.setTransformOriginPoint(QPointF(0, 0))
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             # 位置改变后，更新模型数据
-            print(f"[DRAG_DEBUG] ItemPositionHasChanged triggered for region {self.region_index}")
-            print(f"[DRAG_DEBUG] New position: {value}")
-            print(f"[DRAG_DEBUG] Has callback: {hasattr(self, '_on_geometry_change_callback') and self._on_geometry_change_callback is not None}")
-            
             if hasattr(self, '_on_geometry_change_callback') and self._on_geometry_change_callback:
                 # 获取新的场景坐标中心
                 scene_center = self.scenePos()
-                print(f"[DRAG_DEBUG] Scene center: {scene_center}")
                 
                 # 转换为图像坐标
                 img_x, img_y = self._scene_to_image_coords(scene_center)
-                print(f"[DRAG_DEBUG] Image coords: ({img_x}, {img_y})")
-                print(f"[DRAG_DEBUG] Old visual_center: {self.visual_center}")
                 
                 # 更新visual_center（这是模型坐标中的中心）
                 self.visual_center = QPointF(img_x, img_y)
-                print(f"[DRAG_DEBUG] New visual_center: {self.visual_center}")
                 
                 # 更新region_data
                 new_region_data = self.region_data.copy()
@@ -286,13 +295,9 @@ class RegionTextItem(QGraphicsItemGroup):
                     model_polygons.append(model_line)
                 
                 new_region_data['polygons'] = model_polygons
-                print(f"[DRAG_DEBUG] Calling callback with new polygons")
                 
                 # 调用回调更新controller
                 self._on_geometry_change_callback(self.region_index, new_region_data)
-                print(f"[DRAG_DEBUG] Callback completed")
-            else:
-                print(f"[DRAG_DEBUG] No callback to call")
         
         return super().itemChange(change, value)
 
@@ -394,6 +399,10 @@ class RegionTextItem(QGraphicsItemGroup):
         }
 
     def shape(self) -> QPainterPath:
+        # 使用缓存的 shape 路径
+        if self._shape_path is not None:
+            return self._shape_path
+
         path = self._get_core_polygon_path()
         if self.isSelected():
             handle_info = self._get_handle_info()
@@ -427,7 +436,8 @@ class RegionTextItem(QGraphicsItemGroup):
                 # 添加手柄碰撞区域(局部坐标,Qt自动处理旋转)
                 for p in corner_points + edge_points:
                     path.addEllipse(p.x() - handle_size//2, p.y() - handle_size//2, handle_size, handle_size)
-
+        
+        self._shape_path = path
         return path
 
     def boundingRect(self) -> QRectF:
@@ -577,44 +587,61 @@ class RegionTextItem(QGraphicsItemGroup):
             current_selection = view.model.get_selection()
             is_selected = self.region_index in current_selection
             
-            # === 处理选择逻辑 ===
-            # 临时禁用 Qt 的自动选择，避免与我们的手动选择冲突
-            was_selectable = bool(self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-            if was_selectable:
-                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            # === 先检测手柄，避免选择逻辑干扰手柄操作 ===
+            handle, indices = self._get_handle_at(local_pos)
             
-            if ctrl_pressed:
-                # Ctrl+点击：切换选择
-                if is_selected:
-                    # 取消选择
-                    new_selection = [idx for idx in current_selection if idx != self.region_index]
-                else:
-                    # 添加到选择
-                    new_selection = current_selection + [self.region_index]
-                view.model.set_selection(new_selection)
-                
-                # 恢复 selectable 标志
-                if was_selectable:
-                    self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                
-                event.accept()
-                return  # Ctrl+点击只处理选择，不进入拖动模式
-            else:
-                # 普通点击（无 Ctrl）
+            # 如果点击的是手柄，确保 item 被选中（但不改变其他选择）
+            if handle:
                 if not is_selected:
-                    # 点击未选中的：单选
-                    view.model.set_selection([self.region_index])
+                    # 点击手柄时，如果未选中，则选中它（单选，除非按了 Ctrl）
+                    if ctrl_pressed:
+                        # Ctrl+手柄：添加到选择
+                        view.model.set_selection(current_selection + [self.region_index])
+                    else:
+                        # 普通手柄点击：单选
+                        view.model.set_selection([self.region_index])
+                    is_selected = True
+                
+                # 继续处理手柄操作（跳到后面的手柄处理逻辑）
+            else:
+                # 没有点击手柄，处理选择逻辑
+                # 临时禁用 Qt 的自动选择，避免与我们的手动选择冲突
+                was_selectable = bool(self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+                if was_selectable:
+                    self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+                
+                if ctrl_pressed:
+                    # Ctrl+点击：切换选择
+                    if is_selected:
+                        # 取消选择
+                        new_selection = [idx for idx in current_selection if idx != self.region_index]
+                    else:
+                        # 添加到选择
+                        new_selection = current_selection + [self.region_index]
+                    view.model.set_selection(new_selection)
                     
                     # 恢复 selectable 标志
                     if was_selectable:
                         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                     
                     event.accept()
-                    return
-                # 点击已选中的：继续处理拖动/编辑（不改变选择）
-                # 恢复 selectable 标志
-                if was_selectable:
-                    self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                    return  # Ctrl+点击只处理选择，不进入拖动模式
+                else:
+                    # 普通点击（无 Ctrl）
+                    if not is_selected:
+                        # 点击未选中的：单选
+                        view.model.set_selection([self.region_index])
+                        
+                        # 恢复 selectable 标志
+                        if was_selectable:
+                            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                        
+                        event.accept()
+                        return
+                    # 点击已选中的：继续处理拖动/编辑（不改变选择）
+                    # 恢复 selectable 标志
+                    if was_selectable:
+                        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
             
             # === 处理拖动/编辑逻辑（仅当已选中时） ===
             if is_selected:
@@ -634,7 +661,7 @@ class RegionTextItem(QGraphicsItemGroup):
                 self.setTransformOriginPoint(QPointF(0, 0))
                 # --- End Snapshot ---
 
-                handle, indices = self._get_handle_at(local_pos)
+                # handle 已经在前面检测过了
                 if handle:
                     self._interaction_mode = handle
                     self._drag_handle_indices = indices
@@ -938,7 +965,8 @@ class RegionTextItem(QGraphicsItemGroup):
                         return 'edge', (poly_idx, edge_idx)
 
         # 优先级4: 白框手柄（最后检查，避免误触）
-        if self.isSelected() and self._show_white_box and self._white_frame_rect_local is not None:
+        # 注意：不检查 isSelected()，因为在 mousePressEvent 中可能还未设置选中状态
+        if self._show_white_box and self._white_frame_rect_local is not None:
             white_handle_result = self._get_white_frame_handle_at(pos)
             if white_handle_result[0] is not None:
                 return white_handle_result
@@ -999,6 +1027,7 @@ class RegionTextItem(QGraphicsItemGroup):
             self._dst_points_local = None
             self._white_frame_rect_local = None
             self.prepareGeometryChange()
+            self._shape_path = None
             self.update()
             return
 
@@ -1020,7 +1049,9 @@ class RegionTextItem(QGraphicsItemGroup):
 
 
         self._update_white_frame_from_green_box()
+        self._update_white_frame_from_green_box()
         self.prepareGeometryChange()
+        self._shape_path = None
         self.update()
 
     def _update_white_frame_from_green_box(self):
@@ -1110,6 +1141,7 @@ class RegionTextItem(QGraphicsItemGroup):
         """设置白框的边界矩形"""
         self._white_frame_rect_local = rect
         self.prepareGeometryChange()  # 通知Qt几何将变化
+        self._shape_path = None
         self.update()
     
     def _draw_white_box_handles(self, painter):
@@ -1232,6 +1264,7 @@ class RegionTextItem(QGraphicsItemGroup):
 
             # 通知Qt几何即将改变（必须在改变前调用）
             self.prepareGeometryChange()
+            self._shape_path = None
 
             self.visual_center = QPointF(new_geometry.center[0], new_geometry.center[1])
             self.setPos(self.visual_center)

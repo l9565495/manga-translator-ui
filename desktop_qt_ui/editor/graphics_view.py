@@ -515,30 +515,49 @@ class GraphicsView(QGraphicsView):
     def _perform_render_update(self):
         """执行实际的渲染更新，由防抖计时器调用。"""
         try:
-            # Clear old region items safely - 使用副本遍历
-            items_to_remove = list(self._region_items)
-            for item in items_to_remove:
+            # Reuse existing items to improve performance and stability
+            regions = self.model.get_regions()
+            current_items = self._region_items
+            
+            # 1. Remove excess items
+            while len(current_items) > len(regions):
+                item = current_items.pop()
                 try:
                     if item and hasattr(item, 'scene') and item.scene():
                         self.scene.removeItem(item)
                 except (RuntimeError, AttributeError):
-                    # Item already deleted or invalid, ignore
                     pass
-            self._region_items.clear()
-
-            # Add a new item for each REGION
-            regions = self.model.get_regions()
-            for i, region_data in enumerate(regions):
+            
+            # 2. Create new items if needed
+            while len(current_items) < len(regions):
+                i = len(current_items)
+                region_data = regions[i]
                 if not region_data.get('lines'):
-                    continue
+                    # Placeholder or skip? If we skip, indices might mismatch.
+                    # Better to create it but maybe hide it if invalid?
+                    # For now, assume valid or handle in update.
+                    pass
+                
                 item = RegionTextItem(
                     region_data,
                     i,
                     geometry_callback=self._on_region_geometry_changed,
                 )
+                item.set_image_item(self._image_item)
                 item.setZValue(100)
                 self.scene.addItem(item)
-                self._region_items.append(item)
+                current_items.append(item)
+            
+            # 3. Update all items with new data
+            for i, region_data in enumerate(regions):
+                if i < len(current_items):
+                    item = current_items[i]
+                    # Ensure image item reference is up to date
+                    item.set_image_item(self._image_item)
+                    # Update index (crucial if items were shifted)
+                    item.region_index = i
+                    # Update content
+                    item.update_from_data(region_data)
 
             # After updating items, recalculate all rendering data (异步执行)
             # _update_text_visuals 会在 recalculate_render_data 完成后自动调用

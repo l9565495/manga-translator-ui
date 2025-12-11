@@ -57,7 +57,8 @@ def hex2rgb(h):
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 class Renderer(str, Enum):
-    default = "default"
+    default = "default"  # Qt 渲染器（参考 BallonsTranslator，需要 PyQt6）
+    freetype = "freetype"  # 原 freetype 渲染器
     manga2Eng = "manga2eng"
     manga2EngPillow = "manga2eng_pillow"
     none = "none"

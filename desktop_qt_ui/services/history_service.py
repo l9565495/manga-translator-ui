@@ -1,125 +1,113 @@
 
 """
 编辑器历史管理器
-支持撤销/重做操作，使用命令模式。
+现在使用 Qt 原生的 QUndoStack 处理撤销/重做，只保留剪贴板功能。
 """
+import copy
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
-# Import the new Command base class
-from editor.commands import Command
+from PyQt6.QtGui import QUndoStack
 
 
-class EditorHistory:
-    """编辑器历史管理器，存储可执行的命令对象。"""
-    
-    def __init__(self, max_history: int = 50):
-        self.max_history = max_history
-        self.history: List[Command] = []
-        self.current_index = -1
-        self.logger = logging.getLogger(__name__)
-
-    def add_command(self, command: Command):
-        """添加一个新执行的命令到历史记录中。"""
-        # 如果当前不在历史记录的末尾（即已经执行过撤销），
-        # 则丢弃当前索引之后的所有“可重做”记录。
-        if self.current_index < len(self.history) - 1:
-            self.history = self.history[:self.current_index + 1]
-        
-        self.history.append(command)
-        self.current_index += 1
-        
-        # 保持历史记录不超过最大长度
-        if len(self.history) > self.max_history:
-            self.history.pop(0)
-            self.current_index -= 1
-        
-        self.logger.debug(f"Command executed and added to history: {command.description}")
-    
-    def can_undo(self) -> bool:
-        return self.current_index >= 0
-    
-    def can_redo(self) -> bool:
-        return self.current_index < len(self.history) - 1
-    
-    def undo(self) -> Optional[Command]:
-        """获取用于撤销的命令。"""
-        if not self.can_undo():
-            return None
-        command = self.history[self.current_index]
-        self.current_index -= 1
-        self.logger.info(f"Preparing to undo command: {command.description} (current_index now: {self.current_index})")
-        return command
-    
-    def redo(self) -> Optional[Command]:
-        """获取用于重做的命令。"""
-        if not self.can_redo():
-            return None
-        self.current_index += 1
-        action = self.history[self.current_index]
-        self.logger.debug(f"Preparing to redo command: {action.description}")
-        return action
-
-    def clear(self):
-        self.history.clear()
-        self.current_index = -1
-        self.logger.debug("Cleared command history")
-
-class EditorStateManager:
-    """编辑器状态管理器，使用命令模式处理操作。"""
+class ClipboardManager:
+    """剪贴板管理器，处理内部数据的复制粘贴。"""
     
     def __init__(self):
-        self.history = EditorHistory()
         self.clipboard_data = None
         self.logger = logging.getLogger(__name__)
-        
-    def execute_command(self, command: Command):
-        """执行一个命令，并将其添加到历史记录中。"""
-        if command is None:
-            return
-        command.execute()
-        self.history.add_command(command)
-
-    def undo(self):
-        """撤销上一个操作。"""
-        command = self.history.undo()
-        if command:
-            command.undo()
-            return command # Return for controller to know what was undone
-    
-    def redo(self):
-        """重做上一个被撤销的操作。"""
-        command = self.history.redo()
-        if command:
-            command.execute()
-            return command # Return for controller to know what was redone
-    
-    def can_undo(self) -> bool:
-        return self.history.can_undo()
-    
-    def can_redo(self) -> bool:
-        return self.history.can_redo()
     
     def copy_to_clipboard(self, data: Any):
-        import copy
+        """复制数据到内部剪贴板。"""
         self.clipboard_data = copy.deepcopy(data)
         self.logger.debug("Data copied to internal clipboard")
     
     def paste_from_clipboard(self) -> Any:
-        import copy
+        """从内部剪贴板粘贴数据。"""
         if self.clipboard_data is not None:
             return copy.deepcopy(self.clipboard_data)
         return None
     
+    def has_data(self) -> bool:
+        """检查剪贴板是否有数据。"""
+        return self.clipboard_data is not None
+
+
+class EditorStateManager:
+    """
+    编辑器状态管理器。
+    
+    现在使用 Qt 原生的 QUndoStack 处理撤销/重做，
+    只保留剪贴板功能作为额外服务。
+    """
+    
+    def __init__(self):
+        # 使用 Qt 原生的 QUndoStack
+        self.undo_stack = QUndoStack()
+        self.undo_stack.setUndoLimit(50)  # 限制历史记录数量
+        
+        # 保留剪贴板功能
+        self.clipboard = ClipboardManager()
+        
+        self.logger = logging.getLogger(__name__)
+        
+        # 连接信号用于调试
+        self.undo_stack.canUndoChanged.connect(
+            lambda can: self.logger.debug(f"Can undo changed: {can}")
+        )
+        self.undo_stack.canRedoChanged.connect(
+            lambda can: self.logger.debug(f"Can redo changed: {can}")
+        )
+    
+    def push_command(self, command):
+        """
+        推送命令到撤销栈。
+        Qt 的 push() 会自动调用 command.redo()。
+        """
+        self.undo_stack.push(command)
+    
+    def undo(self):
+        """撤销上一个操作。"""
+        self.undo_stack.undo()
+    
+    def redo(self):
+        """重做上一个被撤销的操作。"""
+        self.undo_stack.redo()
+    
+    def can_undo(self) -> bool:
+        """检查是否可以撤销。"""
+        return self.undo_stack.canUndo()
+    
+    def can_redo(self) -> bool:
+        """检查是否可以重做。"""
+        return self.undo_stack.canRedo()
+    
+    def copy_to_clipboard(self, data: Any):
+        """复制数据到内部剪贴板。"""
+        self.clipboard.copy_to_clipboard(data)
+    
+    def paste_from_clipboard(self) -> Any:
+        """从内部剪贴板粘贴数据。"""
+        return self.clipboard.paste_from_clipboard()
+    
     def clear(self):
         """清除历史记录。"""
-        self.history.clear()
-        self.logger.debug("Cleared editor state manager history")
+        self.undo_stack.clear()
+        self.logger.debug("Cleared undo stack")
     
     @property
     def undo_stack_size(self) -> int:
         """获取撤销栈的大小，用于检查是否有未保存的修改。"""
-        return self.history.current_index + 1
+        return self.undo_stack.index()
+    
+    def create_undo_action(self, parent, text: str = "撤销"):
+        """创建撤销动作（用于菜单/工具栏）。"""
+        return self.undo_stack.createUndoAction(parent, text)
+    
+    def create_redo_action(self, parent, text: str = "重做"):
+        """创建重做动作（用于菜单/工具栏）。"""
+        return self.undo_stack.createRedoAction(parent, text)
+
 
 # --- Singleton Pattern ---
 _history_service_instance: Optional[EditorStateManager] = None
@@ -130,4 +118,3 @@ def get_history_service() -> EditorStateManager:
     if _history_service_instance is None:
         _history_service_instance = EditorStateManager()
     return _history_service_instance
-

@@ -5,10 +5,9 @@ import logging
 import cv2
 import numpy as np
 from manga_translator.config import Config, RenderConfig
+from manga_translator.rendering import qt_renderer
 from manga_translator.rendering.text_render import (
     auto_add_horizontal_tags,
-    put_text_horizontal,
-    put_text_vertical,
     set_font,
 )
 from manga_translator.utils import TextBlock
@@ -132,10 +131,35 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
             except:
                 region_count = 1
 
+        # 使用新的 Qt 渲染器
         if text_block.horizontal:
-            rendered_surface = put_text_horizontal(font_size, text_block.get_translation_for_rendering(), render_w, render_h, text_block.alignment, text_block.direction == 'hl', fg_color, bg_color, text_block.target_lang, hyphenate, line_spacing_from_params, config=config_obj, region_count=region_count)
+            rendered_surface = qt_renderer.put_text_horizontal(
+                font_size, 
+                text_block.get_translation_for_rendering(), 
+                render_w, 
+                render_h, 
+                text_block.alignment, 
+                text_block.direction == 'hl', 
+                fg_color, 
+                bg_color, 
+                text_block.target_lang, 
+                hyphenate, 
+                line_spacing_from_params, 
+                config=config_obj, 
+                region_count=region_count
+            )
         else:
-            rendered_surface = put_text_vertical(font_size, text_block.get_translation_for_rendering(), render_h, text_block.alignment, fg_color, bg_color, line_spacing_from_params, config=config_obj, region_count=region_count)
+            rendered_surface = qt_renderer.put_text_vertical(
+                font_size, 
+                text_block.get_translation_for_rendering(), 
+                render_h, 
+                text_block.alignment, 
+                fg_color, 
+                bg_color, 
+                line_spacing_from_params, 
+                config=config_obj, 
+                region_count=region_count
+            )
 
         if rendered_surface is None or rendered_surface.size == 0:
             logger.warning(f"[EDITOR RENDER SKIPPED] Rendered surface is None or empty. Text: '{text_block.translation[:50] if hasattr(text_block, 'translation') else 'N/A'}...'")

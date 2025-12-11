@@ -10,7 +10,7 @@ import torch
 from PIL import Image
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 
-from editor.commands import Command, UpdateRegionCommand
+from editor.commands import UpdateRegionCommand
 from services import (
     get_async_service,
     get_config_service,
@@ -1172,22 +1172,21 @@ class EditorController(QObject):
         )
         self.execute_command(command)
 
-    def execute_command(self, command: Command):
-        """执行命令并更新UI"""
+    def execute_command(self, command):
+        """执行命令并更新UI - 使用 Qt 的 QUndoStack"""
         if command:
-            self.history_service.execute_command(command)
+            # Qt 的 push() 会自动调用 command.redo()
+            self.history_service.push_command(command)
             self._update_undo_redo_buttons()
 
     def undo(self):
-        command = self.history_service.undo()
-        if command:
-            command.undo()
+        """撤销操作 - 使用 Qt 的 QUndoStack"""
+        self.history_service.undo()
         self._update_undo_redo_buttons()
 
     def redo(self):
-        command = self.history_service.redo()
-        if command:
-            command.execute()
+        """重做操作 - 使用 Qt 的 QUndoStack"""
+        self.history_service.redo()
         self._update_undo_redo_buttons()
 
     @pyqtSlot(int, list)
