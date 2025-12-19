@@ -606,6 +606,9 @@ def detect_installed_pytorch_version():
         return "CPU", "CPU-only"
     except (ImportError, AttributeError):
         return None, "未安装"
+    except OSError as e:
+        # PyTorch 安装损坏（缺少 DLL 等）
+        return None, f"安装损坏: {e}"
 
 
 def get_requirements_file_from_env():
