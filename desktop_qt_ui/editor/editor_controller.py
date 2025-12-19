@@ -246,7 +246,20 @@ class EditorController(QObject):
             return
 
         for index, text in translations.items():
+            # 更新model中的数据
             self.model.update_region_data(index, 'translation', text)
+            
+            # 同步更新ResourceManager中的数据
+            # ResourceManager使用region_id，需要通过索引获取对应的region_id
+            try:
+                all_regions = self.resource_manager.get_all_regions()
+                if index < len(all_regions):
+                    # 获取对应索引的region_id
+                    region_resource = all_regions[index]
+                    self.resource_manager.update_region(region_resource.region_id, {'translation': text})
+            except Exception as e:
+                # 静默失败，不影响主流程
+                self.logger.warning(f"Failed to update region {index} in ResourceManager: {e}")
 
         # 一次性通知视图更新
         self.model.regions_changed.emit(self.model.get_regions())
@@ -1660,8 +1673,8 @@ class EditorController(QObject):
                     original_ext = os.path.splitext(source_path)[1].lower()
                     output_filename = f"{base_name}{original_ext}" if original_ext else f"{base_name}.png"
             else:
-                import datetime
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_filename = f"exported_image_{timestamp}.png"
 
             output_path = os.path.join(output_dir, output_filename)

@@ -337,7 +337,7 @@
   "label_attempts": "重试次数",
   "label_center_text_in_bubble": "AI断句时文本居中",
   "Delete": "刪除",
-  "label_high_quality_prompt_path": "高质量翻譯提示词",
+  "label_high_quality_prompt_path": "自定義提示詞",
   "lang_KOR": "韩语",
   "log_config_export_failed": "匯出設定失敗: {error}",
   "Not Selected": "未選擇",

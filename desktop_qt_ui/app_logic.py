@@ -307,7 +307,8 @@ class MainAppLogic(QObject):
                 f for f in os.listdir(dict_dir)
                 if f.lower().endswith('.json') and f not in [
                     'system_prompt_hq.json',
-                    'system_prompt_line_break.json'
+                    'system_prompt_line_break.json',
+                    'glossary_extraction_prompt.json'
                 ]
             ])
             return prompt_files
@@ -521,6 +522,7 @@ class MainAppLogic(QObject):
                     "no_text_lang_skip": self._t("label_no_text_lang_skip"),
                     "gpt_config": self._t("label_gpt_config"),
                     "high_quality_prompt_path": self._t("label_high_quality_prompt_path"),
+                    "extract_glossary": self._t("label_extract_glossary"),
                     "use_mocr_merge": self._t("label_use_mocr_merge"),
                     "ocr": self._t("label_ocr"),
                     "use_hybrid_ocr": self._t("label_use_hybrid_ocr"),
@@ -2063,6 +2065,37 @@ class TranslationWorker(QObject):
                 'save_to_source_dir': self.config_dict.get('cli', {}).get('save_to_source_dir', False)
             }
 
+            # Filter out existing files if overwrite is False
+            original_files = self.files
+            skipped_files = []
+            files_to_process = []
+            
+            if not save_info['overwrite']:
+                self.log_received.emit("--- Checking for existing files...")
+                for file_path in self.files:
+                    try:
+                        # Use internal method to calculate output path
+                        output_path = translator._calculate_output_path(file_path, save_info)
+                        if os.path.exists(output_path):
+                            skipped_files.append(file_path)
+                            results.append({'success': True, 'original_path': file_path, 'image_data': None, 'skipped': True})
+                        else:
+                            files_to_process.append(file_path)
+                    except Exception as e:
+                        # If check fails, assume it needs processing
+                        files_to_process.append(file_path)
+                
+                if skipped_files:
+                    self.log_received.emit(self._t("⏭️ Skipped {count} existing files.", count=len(skipped_files)))
+                    # Update files list to only include those needing processing
+                    self.files = files_to_process
+                else:
+                    self.log_received.emit("--- No existing files found, processing all.")
+            
+            # Update total count for progress bar logic
+            total_original_count = len(original_files)
+            skipped_count = len(skipped_files)
+            
             # 确定翻译流程模式
             workflow_mode = self._t("Normal Translation")
             workflow_tip = ""
@@ -2088,43 +2121,49 @@ class TranslationWorker(QObject):
             # 检查是否启用并发模式
             batch_concurrent = self.config_dict.get('cli', {}).get('batch_concurrent', False)
             
-            if is_hq or (len(self.files) > 1 and batch_size > 1):
+            if is_hq or (len(self.files) > 0 and batch_size > 1):
                 self.log_received.emit(f"--- 开始批量处理 ({'高质量模式' if is_hq else '批量模式'})")
 
                 # 输出批量处理信息
+                # total_images is the number of files to process
                 total_images = len(self.files)
                 
                 # 如果启用并发模式，不分批加载（并发流水线内部会按需加载）
                 if batch_concurrent:
-                    self.log_received.emit(self._t("📊 Concurrent pipeline mode: {total} images", total=total_images))
+                    self.log_received.emit(self._t("📊 Concurrent pipeline mode: {total} images (Total: {orig})", total=total_images, orig=total_original_count))
                     self.log_received.emit(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
                     self.log_received.emit(self._t("📁 Output directory: {dir}", dir=self.output_folder))
                     if workflow_tip:
                         self.log_received.emit(workflow_tip)
                     self.log_received.emit(self._t("🚀 Starting translation..."))
                     
-                    # 初始化进度条
-                    self.progress.emit(0, total_images, "")
+                    # 初始化进度条 (start from skipped_count)
+                    self.progress.emit(skipped_count, total_original_count, "")
                     
-                    # 并发模式：直接传递所有文件路径，不预加载图片
-                    images_with_configs = [(file_path, config) for file_path in self.files]
-                    
-                    # 调用翻译（并发流水线会自动处理）
-                    all_contexts = await translator.translate_batch(
-                        images_with_configs,
-                        save_info=save_info,
-                        global_offset=0,
-                        global_total=total_images
-                    )
+                    if total_images > 0:
+                        # 并发模式：直接传递所有文件路径，不预加载图片
+                        images_with_configs = [(file_path, config) for file_path in self.files]
+                        
+                        # 调用翻译（并发流水线会自动处理）
+                        all_contexts = await translator.translate_batch(
+                            images_with_configs,
+                            save_info=save_info,
+                            global_offset=skipped_count,
+                            global_total=total_original_count
+                        )
+                    else:
+                        all_contexts = []
                 else:
                     # 非并发模式：前端分批加载（用于内存管理）
                     frontend_batch_size = 10  # 每次最多加载10张图片到内存
-                    total_frontend_batches = (total_images + frontend_batch_size - 1) // frontend_batch_size
+                    # Calculate batches based on remaining files
+                    total_frontend_batches = (total_images + frontend_batch_size - 1) // frontend_batch_size if total_images > 0 else 0
                     
                     # 计算后端总批次数（用于显示统一的进度）
+                    # Note: This is an estimation for logging purposes
                     backend_total_batches = (total_images + batch_size - 1) // batch_size if batch_size > 0 else total_images
                     
-                    self.log_received.emit(self._t("📊 Batch processing mode: {total} images in {batches} batches", total=total_images, batches=backend_total_batches))
+                    self.log_received.emit(self._t("📊 Batch processing mode: {total} images in {batches} batches (Total: {orig})", total=total_images, batches=backend_total_batches, orig=total_original_count))
                     self.log_received.emit(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
                     self.log_received.emit(self._t("📁 Output directory: {dir}", dir=self.output_folder))
                     if workflow_tip:
@@ -2134,10 +2173,10 @@ class TranslationWorker(QObject):
                     self.log_received.emit(self._t("🚀 Starting translation..."))
                     
                     # 初始化进度条
-                    self.progress.emit(0, total_images, "")
+                    self.progress.emit(skipped_count, total_original_count, "")
                     
                     all_contexts = []
-                    processed_images_count = 0  # 已处理的图片总数
+                    processed_images_count = skipped_count  # Start count from skipped files
                     
                     for frontend_batch_num in range(total_frontend_batches):
                         if not self._is_running: raise asyncio.CancelledError("Task stopped by user.")
@@ -2173,7 +2212,7 @@ class TranslationWorker(QObject):
                                 images_with_configs, 
                                 save_info=save_info,
                                 global_offset=processed_images_count,  # 传递已处理的图片数
-                                global_total=total_images  # 传递总图片数
+                                global_total=total_original_count  # 传递总图片数
                             )
                             all_contexts.extend(batch_contexts)
                             processed_images_count += len(images_with_configs)
@@ -2234,24 +2273,24 @@ class TranslationWorker(QObject):
                 total_files = len(self.files)
 
                 # 输出顺序处理信息
-                self.log_received.emit(self._t("📊 Sequential processing mode: {total} images", total=total_files))
+                self.log_received.emit(self._t("📊 Sequential processing mode: {total} images (Total: {orig})", total=total_files, orig=total_original_count))
                 self.log_received.emit(self._t("🔧 Translation workflow: {mode}", mode=workflow_mode))
                 self.log_received.emit(self._t("📁 Output directory: {dir}", dir=self.output_folder))
                 if workflow_tip:
                     self.log_received.emit(workflow_tip)
 
                 # 初始化进度条
-                self.progress.emit(0, total_files, "")
+                self.progress.emit(skipped_count, total_original_count, "")
                 
                 success_count = 0
                 for i, file_path in enumerate(self.files):
                     if not self._is_running:
                         raise asyncio.CancelledError("Task stopped by user.")
 
-                    current_num = i + 1
+                    current_num = skipped_count + i + 1
                     # 更新进度条（显示图片数量）
-                    self.progress.emit(current_num, total_files, "")
-                    self.log_received.emit(f"🔄 [{current_num}/{total_files}] 正在处理：{os.path.basename(file_path)}")
+                    self.progress.emit(current_num, total_original_count, "")
+                    self.log_received.emit(f"🔄 [{current_num}/{total_original_count}] 正在处理：{os.path.basename(file_path)}")
 
                     try:
                         # 使用二进制模式读取以避免Windows路径编码问题

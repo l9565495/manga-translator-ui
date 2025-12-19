@@ -84,7 +84,8 @@ def main():
         def __init__(self, stream=sys.stdout):
             super().__init__()
             self.stream = stream
-            self.log_queue = queue.Queue()
+            # 限制队列大小为1000，避免日志过多导致内存占用
+            self.log_queue = queue.Queue(maxsize=1000)
             self.running = True
             self.thread = threading.Thread(target=self._worker, daemon=True)
             self.thread.start()

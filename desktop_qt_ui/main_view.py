@@ -837,6 +837,10 @@ class MainView(QWidget):
             self._log_buffer = []
             self._log_timer = None
         
+        # 限制缓冲区大小，避免日志过多导致卡顿
+        if len(self._log_buffer) >= 200:
+            self._flush_log_buffer()
+        
         self._log_buffer.append(message.strip())
         
         # 如果定时器未启动，启动50ms后批量更新
@@ -861,6 +865,19 @@ class MainView(QWidget):
         self.log_box.appendPlainText('\n'.join(self._log_buffer))
         self._log_buffer.clear()
         self._log_timer = None
+        
+        # 限制日志框的最大行数，避免过多日志导致卡顿
+        max_lines = 5000
+        current_lines = self.log_box.document().blockCount()
+        if current_lines > max_lines:
+            cursor = self.log_box.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            # 删除超出部分的行数
+            lines_to_remove = current_lines - max_lines
+            for _ in range(lines_to_remove):
+                cursor.select(cursor.SelectionType.BlockUnderCursor)
+                cursor.removeSelectedText()
+                cursor.deleteChar()  # 删除换行符
         
         # 只有之前在底部时才自动滚动到底部
         if at_bottom:

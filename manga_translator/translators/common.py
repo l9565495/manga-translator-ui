@@ -455,21 +455,24 @@ class CommonTranslator(InfererModule):
 
         return prompt
 
-    def _build_user_prompt_for_hq(self, batch_data: List, ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_unified_user_prompt(self, batch_data: List[Dict], ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "", is_image_mode: bool = True) -> str:
         """
-        统一的用户提示词构建方法（高质量多模态翻译）
-        适用于 openai_hq.py 和 gemini_hq.py
+        统一的用户提示词构建方法（支持多模态和纯文本）
+        Unified user prompt builder for both multimodal and text-only modes.
 
         Args:
-            batch_data: 批次数据列表，包含图片和原文
-            ctx: 上下文对象（可选）
-            prev_context: 历史上下文（可选）
-            retry_attempt: 重试次数（可选，用于避免缓存）
-            retry_reason: 重试原因（可选）
+            batch_data: List of dicts, each containing 'original_texts' and optional 'text_regions'.
+            ctx: Context object.
+            prev_context: Previous context string.
+            retry_attempt: Retry attempt count.
+            retry_reason: Reason for retry.
+            is_image_mode: Whether to include image-specific descriptions.
 
         Returns:
-            构建好的用户提示词字符串
+            Constructed user prompt string.
         """
+        import json
+        
         # 检查是否开启AI断句
         enable_ai_break = False
         if ctx and hasattr(ctx, 'config') and ctx.config and hasattr(ctx.config, 'render'):
@@ -484,45 +487,77 @@ class CommonTranslator(InfererModule):
         # 添加多页上下文（如果有）
         if prev_context:
             prompt += f"{prev_context}\n\n---\n\n"
-            self.logger.info(f"[HQ历史上下文] 长度: {len(prev_context)} 字符")
-            self.logger.info(f"[HQ历史上下文内容]\n{prev_context[:500]}...")
+            self.logger.info(f"[Context] Length: {len(prev_context)} chars")
         else:
-            self.logger.info(f"[HQ历史上下文] 无历史上下文（可能是第一张图片或context_size=0）")
+            self.logger.info(f"[Context] None")
 
-        prompt += "Please translate the following manga text regions. I'm providing multiple images with their text regions in reading order:\n\n"
-
-        # 添加图片信息
-        for i, data in enumerate(batch_data):
-            prompt += f"=== Image {i+1} ===\n"
-            prompt += f"Text regions ({len(data['original_texts'])} regions):\n"
-            for j, text in enumerate(data['original_texts']):
-                prompt += f"  {j+1}. {text}\n"
-            prompt += "\n"
+        if is_image_mode:
+            prompt += "Please translate the following manga text regions. I'm providing multiple images with their text regions in reading order:\n\n"
+            # 添加图片信息
+            for i, data in enumerate(batch_data):
+                prompt += f"=== Image {i+1} ===\n"
+                prompt += f"Text regions ({len(data['original_texts'])} regions):\n"
+                for j, text in enumerate(data['original_texts']):
+                    prompt += f"  {j+1}. {text}\n"
+                prompt += "\n"
+        else:
+            prompt += "Please translate the following manga text regions:\n\n"
 
         prompt += "All texts to translate (JSON Array):\n"
         input_data = []
         text_index = 1
         for img_idx, data in enumerate(batch_data):
+            # 获取 text_regions 用于 AI 断句
+            text_regions = data.get('text_regions', [])
+            
             for region_idx, text in enumerate(data['original_texts']):
-                text_to_translate = text.replace('\n', ' ').replace('\ufffd', '')
+                # 预处理文本：移除换行符
+                text_clean = text.replace('\n', ' ').replace('\ufffd', '')
+                
                 item = {
                     "id": text_index,
-                    "text": text_to_translate
+                    "text": text_clean
                 }
-                # 只有开启AI断句时才添加区域信息
-                if enable_ai_break and data.get('text_regions') and region_idx < len(data['text_regions']):
-                    region = data['text_regions'][region_idx]
-                    region_count = len(region.lines) if hasattr(region, 'lines') else 1
+                
+                # AI 断句逻辑：获取 original_region_count
+                if enable_ai_break:
+                    region_count = 1
+                    # 尝试从 text_regions 获取
+                    if text_regions and region_idx < len(text_regions):
+                        region = text_regions[region_idx]
+                        if hasattr(region, 'lines') and region.lines is not None:
+                            region_count = len(region.lines)
+                        elif isinstance(region, dict) and 'lines' in region:
+                            region_count = len(region['lines'])
+                    
+                    # 如果获取失败（比如纯文本模式下 text_regions 为空），回退到数换行符
+                    if region_count == 1 and text:
+                        newline_count = text.count('\n')
+                        if newline_count > 0:
+                            region_count = newline_count + 1
+                    
                     item["original_region_count"] = region_count
                 
                 input_data.append(item)
                 text_index += 1
 
         prompt += json.dumps(input_data, ensure_ascii=False, indent=2)
-
-        prompt += "\n\nCRITICAL: Provide translations in the exact same order as the input array. Your output must be a JSON array of strings corresponding to the IDs."
+        prompt += "\n\nCRITICAL: Provide translations in the exact same order as the input array. Follow the OUTPUT FORMAT specified in the System Prompt."
 
         return prompt
+
+    def _build_user_prompt_for_hq(self, batch_data: List, ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "") -> str:
+        """Alias for backward compatibility (HQ mode)"""
+        return self._build_unified_user_prompt(batch_data, ctx, prev_context, retry_attempt, retry_reason, is_image_mode=True)
+
+    def _build_user_prompt_for_texts(self, texts: List[str], ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "") -> str:
+        """Alias for text mode: wraps texts into batch_data"""
+        # 构造伪 batch_data
+        batch_data = [{
+            'original_texts': texts,
+            'text_regions': getattr(ctx, 'text_regions', []) if ctx else []
+        }]
+        return self._build_unified_user_prompt(batch_data, ctx, prev_context, retry_attempt, retry_reason, is_image_mode=False)
 
     def _validate_br_markers(self, translations: List[str], queries: List[str] = None, ctx=None, batch_indices: List[int] = None, batch_data: List = None, split_level: int = 0) -> bool:
         """
@@ -646,20 +681,20 @@ class CommonTranslator(InfererModule):
         Returns:
             (is_valid, error_message)
         """
-        import string
-
-        # 1. 检查数量匹配
+        # 1. 检查数量匹配 (这是必须的，不能跳过)
         if len(translations) != len(queries):
             return False, f"Translation count mismatch: expected {len(queries)}, got {len(translations)}"
 
-        # 2. 检查空翻译（原文不为空但译文为空）
-        empty_translation_errors = []
-        for i, (source, translation) in enumerate(zip(queries, translations)):
-            if source.strip() and not translation.strip():
-                empty_translation_errors.append(i + 1)
+        import string
 
-        if empty_translation_errors:
-            return False, f"Empty translation detected at positions: {empty_translation_errors}"
+        # 2. 检查空翻译（原文不为空但译文为空）- 已禁用
+        # empty_translation_errors = []
+        # for i, (source, translation) in enumerate(zip(queries, translations)):
+        #     if source.strip() and not translation.strip():
+        #         empty_translation_errors.append(i + 1)
+        # 
+        # if empty_translation_errors:
+        #     return False, f"Empty translation detected at positions: {empty_translation_errors}"
 
         # 3. 检查合并翻译（原文是正常文本但译文只有标点）
         for i, (source, translation) in enumerate(zip(queries, translations)):
@@ -669,12 +704,14 @@ class CommonTranslator(InfererModule):
             if is_translation_simple and not is_source_simple:
                 return False, f"Detected potential merged translation at position {i+1}"
 
-        # 4. 检查可疑符号（模型幻觉）
-        SUSPICIOUS_SYMBOLS = ["ହ", "ି", "ഹ"]
-        for symbol in SUSPICIOUS_SYMBOLS:
-            for translation in translations:
-                if symbol in translation:
-                    return False, f"Suspicious symbol '{symbol}' detected in translation"
+        # 4. 检查可疑符号（模型幻觉）- 已禁用
+        # SUSPICIOUS_SYMBOLS = ["ହ", "ି", "ഹ"]
+        # for symbol in SUSPICIOUS_SYMBOLS:
+        #     for translation in translations:
+        #         if symbol in translation:
+        #             return False, f"Suspicious symbol '{symbol}' detected in translation"
+
+        return True, ""
 
         return True, ""
 
@@ -1004,163 +1041,314 @@ class OfflineTranslator(CommonTranslator, ModelWrapper):
     async def unload(self, device: str):
         return await super().unload()
 
-def parse_json_or_text_response(result_text: str) -> List[str]:
+def parse_hq_response(result_text: str) -> Tuple[List[str], List[Dict[str, str]]]:
     """
-    解析LLM返回的文本，支持JSON列表格式或按行分割格式
-    Parse LLM response text, supporting both JSON list format and line-separated format
+    专门解析HQ翻译器的响应，支持提取翻译和新术语
+    Parse HQ translator response, supporting extraction of translations and new terms
     
-    Args:
-        result_text: LLM返回的原始文本
-        
     Returns:
-        解析后的翻译列表
+        (translations, new_terms)
     """
     import json
     import logging
-    
-    logger = logging.getLogger('manga_translator')
-    
-    result_text = result_text.strip()
-    if not result_text:
-        return []
-    
-    # 保存原始文本用于调试
-    original_text = result_text
-    
     import re
     
-    # 清理可能的Markdown代码块（更强健的处理）
+    logger = logging.getLogger('manga_translator')
+    original_text = result_text # Keep for logging
+    result_text = result_text.strip()
+    if not result_text:
+        return [], []
+
+    # 1. 清理Markdown
     if "```" in result_text:
-        # 匹配 ```json ... ``` 或 ``` ... ```
         code_block_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', result_text, re.DOTALL)
         if code_block_match:
             result_text = code_block_match.group(1).strip()
         else:
-            # 如果没有匹配到完整的代码块，尝试简单清理
             lines = result_text.split('\n')
-            # 移除第一行（如果是 ```json 或 ```）
-            if lines[0].strip().startswith("```"):
-                lines = lines[1:]
-            # 移除最后一行（如果是 ```）
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
+            if lines[0].strip().startswith("```"): lines = lines[1:]
+            if lines and lines[-1].strip() == "```": lines = lines[:-1]
             result_text = "\n".join(lines).strip()
-    
-    # 直接查找第一个 [ 或 {，去掉前面的所有内容（更通用的清理方式）
+
+    # 2. 查找JSON起始 (清理前缀)
     first_bracket = result_text.find('[')
     first_brace = result_text.find('{')
-    
-    # 找到第一个JSON起始符号的位置
     json_start = -1
-    if first_bracket != -1 and first_brace != -1:
-        json_start = min(first_bracket, first_brace)
-    elif first_bracket != -1:
-        json_start = first_bracket
-    elif first_brace != -1:
-        json_start = first_brace
+    if first_bracket != -1 and first_brace != -1: json_start = min(first_bracket, first_brace)
+    elif first_bracket != -1: json_start = first_bracket
+    elif first_brace != -1: json_start = first_brace
     
-    # 如果找到了JSON起始符号，且前面有其他内容，则去掉前面的内容
     if json_start > 0:
-        removed_prefix = result_text[:json_start].strip()
         result_text = result_text[json_start:].strip()
-        if removed_prefix:
-            logger.debug(f"移除了JSON前的内容: {removed_prefix[:50]}...")
-    
+
     translations = []
+    new_terms = []
+    
+    parsed_json = None
+    
+    # === 策略1: 标准 JSON 解析 ===
     try:
-        # 尝试作为JSON解析
         parsed_json = json.loads(result_text)
-        if isinstance(parsed_json, list):
-            # 如果是列表，判断是字符串列表还是对象列表
-            if not parsed_json:
-                return []
+    except json.JSONDecodeError:
+        # === 策略2: 宽松 JSON5 解析 ===
+        try:
+            import json5
+            parsed_json = json5.loads(result_text)
+            logger.info("Using json5 for parsing")
+        except (ImportError, Exception):
+            parsed_json = None
+
+    # 如果JSON解析成功，提取数据
+    if parsed_json is not None:
+        try:
+            # 情况1: Object format {"translations": [...], "new_terms": [...]}
+            if isinstance(parsed_json, dict):
+                # 提取翻译
+                trans_list = parsed_json.get("translations")
+                if not trans_list and "t" in parsed_json: trans_list = parsed_json.get("t") # 兼容简写
+                if not trans_list: trans_list = [] # 确保不为None
+
+                if isinstance(trans_list, list):
+                    if trans_list and isinstance(trans_list[0], dict):
+                         # Sort by ID if possible
+                        try: trans_list.sort(key=lambda x: int(x.get('id', 0)))
+                        except: pass
+                        for item in trans_list:
+                            text = item.get('translation') or item.get('text') or list(item.values())[0]
+                            translations.append(str(text) if text is not None else "")
+                    else:
+                        translations = [str(x) for x in trans_list]
+                
+                # 提取术语
+                terms_list = parsed_json.get("new_terms") or parsed_json.get("glossary")
+                if isinstance(terms_list, list):
+                    new_terms = terms_list
             
-            if isinstance(parsed_json[0], dict):
-                # 对象列表 [{"id": 1, "translation": "..."}]
-                # 尝试按 ID 排序 (假设 ID 是数字)
-                try:
-                    parsed_json.sort(key=lambda x: int(x.get('id', 0)))
-                except Exception:
-                    pass # 如果 ID 不是数字或排序失败，保持原序
-                
-                translations = []
-                for item in parsed_json:
-                    # 优先取 translation，其次 text，最后取第一个值
-                    text = item.get('translation')
-                    if text is None:
-                        text = item.get('text')
-                    if text is None and item:
-                        text = list(item.values())[0]
-                    
-                    translations.append(str(text) if text is not None else "")
-            else:
-                # 字符串列表 ["...", "..."]
-                translations = [str(item) for item in parsed_json]
-        else:
-            raise ValueError("JSON parsed but not a list")
-    except (json.JSONDecodeError, ValueError) as e:
-        # 如果不是JSON或解析失败，记录详细错误信息
-        logger.debug(f"JSON解析失败: {e}")
-        logger.debug(f"尝试解析的文本: {result_text[:200]}...")
-        
-        # 检查是否看起来像JSON但解析失败（可能是格式问题）
-        stripped_text = result_text.strip()
-        if stripped_text.startswith('[') or stripped_text.startswith('{'):
-            logger.warning("响应看起来像JSON但解析失败，尝试修复常见格式问题")
+            # 情况2: Array format [{"id":..., "translation":...}]
+            elif isinstance(parsed_json, list):
+                if parsed_json:
+                    if isinstance(parsed_json[0], dict):
+                        try: parsed_json.sort(key=lambda x: int(x.get('id', 0)))
+                        except: pass
+                        for item in parsed_json:
+                            text = item.get('translation') or item.get('text') or list(item.values())[0]
+                            translations.append(str(text) if text is not None else "")
+                    else:
+                        translations = [str(x) for x in parsed_json]
             
-            # 尝试修复常见的JSON格式问题
-            try:
-                # 1. 尝试使用更宽松的JSON解析器（json5）
-                try:
-                    import json5
-                    parsed_json = json5.loads(result_text)
-                    if isinstance(parsed_json, list) and parsed_json:
-                        logger.info("使用json5成功解析")
-                        if isinstance(parsed_json[0], dict):
-                            translations = [str(item.get('translation') or item.get('text') or list(item.values())[0]) for item in parsed_json]
-                        else:
-                            translations = [str(item) for item in parsed_json]
-                        return translations
-                except ImportError:
-                    pass
-                
-                # 2. 尝试提取JSON对象中的id和translation字段（使用正则表达式，保持顺序）
-                import re
-                # 匹配 {"id": 数字, "translation": "内容"} 格式
-                object_pattern = r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"translation"\s*:\s*"([^"]*(?:\\.[^"]*)*)"\s*\}'
-                matches = re.findall(object_pattern, result_text)
-                
-                if matches:
-                    logger.info(f"使用正则表达式提取到{len(matches)}条翻译（带id）")
-                    # 按id排序
-                    sorted_matches = sorted(matches, key=lambda x: int(x[0]))
-                    translations = [match[1].replace('\\"', '"').replace('\\n', '\n') for match in sorted_matches]
-                    return translations
-                
-                # 如果上面的模式不匹配，尝试只提取translation字段（不考虑id）
-                translation_pattern = r'"translation"\s*:\s*"([^"]*(?:\\.[^"]*)*)"'
-                matches = re.findall(translation_pattern, result_text)
-                if matches:
-                    logger.warning(f"使用正则表达式提取到{len(matches)}条翻译（无id，可能顺序不正确）")
-                    translations = [match.replace('\\"', '"').replace('\\n', '\n') for match in matches]
-                    return translations
-                
-                # 3. 如果以上都失败，记录错误并返回空列表触发重试
-                logger.error(f"JSON修复失败，原始响应: {original_text[:500]}")
-                return []
-                
-            except Exception as repair_error:
-                logger.error(f"JSON修复过程出错: {repair_error}")
-                return []
+            return translations, new_terms
+
+        except Exception as e:
+             logger.warning(f"JSON structure parsing failed, falling back to regex: {e}")
+
+    # === 策略3: 正则表达式暴力提取 ===
+    logger.warning("JSON parsing failed, falling back to Regex extraction")
+    
+    # 3.1 尝试提取带ID的对象: {"id": 1, "translation": "..."}
+    object_pattern = r'\{\s*"id"\s*:\s*(\d+)\s*,\s*"translation"\s*:\s*"([^"]*(?:\\.[^"]*)*)"\s*\}'
+    matches = re.findall(object_pattern, result_text)
+    
+    if matches:
+        logger.info(f"Regex extracted {len(matches)} translations with IDs")
+        sorted_matches = sorted(matches, key=lambda x: int(x[0]))
+        translations = [match[1].replace('\\"', '"').replace('\\n', '\n') for match in sorted_matches]
         
-        # 只有当响应明确不是JSON格式时，才回退到按行分割
-        for line in result_text.split('\n'):
+        # 尝试提取术语 (简单正则)
+        # 假设 new_terms 在后面，格式类似 {"original": "...", ...}
+        # 这里的正则很难完美匹配嵌套结构，只能尽力而为
+        term_pattern = r'\{\s*"original"\s*:\s*"([^"]+)"\s*,\s*"translation"\s*:\s*"([^"]+)"\s*,\s*"category"\s*:\s*"([^"]+)"\s*\}'
+        term_matches = re.findall(term_pattern, result_text)
+        for tm in term_matches:
+            new_terms.append({"original": tm[0], "translation": tm[1], "category": tm[2]})
+            
+        return translations, new_terms
+
+    # 3.2 尝试只提取 translation 字段
+    translation_pattern = r'"translation"\s*:\s*"([^"]*(?:\\.[^"]*)*)"'
+    matches = re.findall(translation_pattern, result_text)
+    if matches:
+         logger.warning(f"Regex extracted {len(matches)} translations (no IDs)")
+         translations = [match.replace('\\"', '"').replace('\\n', '\n') for match in matches]
+         return translations, []
+
+    # 3.3 最后的兜底：按行分割 (仅当不像JSON时)
+    if not result_text.startswith('{') and not result_text.startswith('['):
+         for line in result_text.split('\n'):
             line = line.strip()
             if line:
-                # 移除编号（如"1. "）
                 line = re.sub(r'^\d+\.\s*', '', line)
-                # 替换换行符占位
                 line = line.replace('\\n', '\n').replace('↵', '\n')
                 translations.append(line)
-    
+
+    return translations, new_terms
+
+def parse_json_or_text_response(result_text: str) -> List[str]:
+    """
+    解析LLM返回的文本，支持JSON列表格式或按行分割格式
+    Wrapper around parse_hq_response for backward compatibility
+    """
+    translations, _ = parse_hq_response(result_text)
     return translations
+
+
+def get_custom_prompt_content(file_path: str) -> str:
+    """
+    读取自定义提示词文件内容
+    Read custom prompt file content
+    """
+    import os
+    try:
+        if not os.path.exists(file_path):
+            return ""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Error reading prompt file {file_path}: {e}")
+        return ""
+
+def save_custom_prompt_content(file_path: str, content: str) -> bool:
+    """
+    保存自定义提示词文件内容
+    Save custom prompt file content
+    """
+    import os
+    try:
+        # 确保存储目录存在
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return True
+    except Exception as e:
+        print(f"Error saving prompt file {file_path}: {e}")
+        return False
+
+def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, str]]) -> bool:
+    """
+    将新提取的术语合并到提示词文件中
+    Merge newly extracted terms into the prompt file
+    
+    Args:
+        file_path: 提示词文件路径
+        new_terms: 新术语列表 [{"original": "...", "translation": "...", "category": "..."}]
+    """
+    import json
+    import os
+    
+    if not new_terms:
+        return False
+
+    try:
+        # 读取现有文件
+        data = {}
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    pass # 如果文件损坏或为空，从头开始
+        
+        # 确保结构完整
+        if "glossary" not in data or not isinstance(data["glossary"], dict):
+            # 如果旧格式是列表，或者没有 glossary，初始化为新的分类结构
+            data["glossary"] = {
+                "Person": [], "Location": [], "Org": [], "Item": [], "Skill": [], "Creature": []
+            }
+        
+        glossary = data["glossary"]
+        # 确保所有标准分类键都存在
+        valid_keys_map = {
+            "person": "Person", 
+            "location": "Location", 
+            "org": "Org", 
+            "organization": "Org",
+            "item": "Item", 
+            "skill": "Skill", 
+            "creature": "Creature"
+        }
+        
+        # 确保标准键存在于 glossary 中
+        for key in set(valid_keys_map.values()):
+            if key not in glossary:
+                glossary[key] = []
+
+        modified = False
+        
+        for term in new_terms:
+            raw_category = term.get("category", "Item")
+            original = term.get("original")
+            translation = term.get("translation")
+            
+            if not original or not translation:
+                continue
+
+            # 映射 Category 到标准 Key
+            target_key = "Item" # Default fallback
+            if raw_category:
+                normalized_cat = raw_category.lower()
+                if normalized_cat in valid_keys_map:
+                    target_key = valid_keys_map[normalized_cat]
+                else:
+                    # 尝试模糊匹配或直接使用 Title Case
+                    for k in valid_keys_map.values():
+                        if k.lower() == normalized_cat:
+                            target_key = k
+                            break
+            
+            # 检查是否已存在 (根据 original 去重)
+            exists = False
+            if target_key in glossary:
+                for existing_term in glossary[target_key]:
+                    if existing_term.get("original") == original:
+                        exists = True
+                        break
+            else:
+                glossary[target_key] = []
+            
+            if not exists:
+                glossary[target_key].append({
+                    "original": original,
+                    "translation": translation
+                })
+                modified = True
+                print(f"[Glossary] Added new term: {original} -> {translation} ({target_key})")
+        
+        if modified:
+            # 确保存储目录存在
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+            
+    except Exception as e:
+        print(f"Error merging glossary: {e}")
+        return False
+    
+    return False
+
+def get_glossary_extraction_prompt(target_lang: str) -> str:
+    """
+    获取术语提取的追加提示词
+    Get the additional prompt for glossary extraction
+    """
+    from ..utils import BASE_PATH
+    import os
+    import json
+    
+    try:
+        prompt_path = os.path.join(BASE_PATH, 'dict', 'glossary_extraction_prompt.json')
+        if not os.path.exists(prompt_path):
+            return ""
+            
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        prompt = data.get('glossary_extraction_prompt', '')
+        if prompt:
+            # Replace placeholder with target language
+            # We assume the caller passes the full language name if possible, or we map it here if needed
+            # For simplicity, we just use what's passed
+            prompt = prompt.replace("{{{target_lang}}}", target_lang)
+            return prompt
+    except Exception as e:
+        print(f"Error loading glossary extraction prompt: {e}")
+        return ""

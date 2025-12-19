@@ -329,6 +329,40 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         os.makedirs(final_output_dir, exist_ok=True)
         print(f"✅ 创建输出目录: {final_output_dir}")
     
+    # 过滤掉已存在的文件（如果 overwrite=False）
+    skipped_count = 0
+    if not overwrite:
+        print(f"🔍 检查已存在的文件...")
+        filtered_file_paths = []
+        for file_path, config in file_paths_with_configs:
+            try:
+                # 使用内部方法计算输出路径
+                output_path = translator._calculate_output_path(file_path, save_info)
+                if os.path.exists(output_path):
+                    skipped_count += 1
+                    if verbose:
+                        print(f"⏭️  跳过已存在: {os.path.basename(file_path)}")
+                else:
+                    filtered_file_paths.append((file_path, config))
+            except Exception as e:
+                # 如果检查失败，默认保留
+                filtered_file_paths.append((file_path, config))
+        
+        if skipped_count > 0:
+            print(f"⏭️  跳过 {skipped_count} 个已存在的文件")
+            file_paths_with_configs = filtered_file_paths
+        else:
+            print("✨ 没有发现已存在的输出文件")
+            
+    if not file_paths_with_configs:
+        print("✅ 所有文件都已跳过，无需处理")
+        print(f"\n{'='*60}")
+        print(f"✅ 成功（跳过）: {skipped_count}")
+        print(f"❌ 失败: 0")
+        print(f"📊 总计: {len(all_files)}")
+        print(f"{'='*60}")
+        return
+
     batch_size = cli_config.get('batch_size', 3)
     total_images = len(file_paths_with_configs)
     total_batches = (total_images + batch_size - 1) // batch_size if batch_size > 0 else 1
@@ -520,7 +554,10 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     
     # 总结
     print(f"\n{'='*60}")
-    print(f"✅ 成功: {success_count}")
+    if skipped_count > 0:
+        print(f"✅ 成功: {success_count} (另有 {skipped_count} 个已跳过)")
+    else:
+        print(f"✅ 成功: {success_count}")
     print(f"❌ 失败: {failed_count}")
     print(f"📊 总计: {len(all_files)}")
     print(f"{'='*60}")
@@ -613,6 +650,57 @@ async def run_local_mode(args):
         os.makedirs(output_dir, exist_ok=True)
         print(f"📤 输出目录: {output_dir}")
         
+        # 预过滤已存在的文件
+        skipped_count = 0
+        if not overwrite:
+            print("🔍 预检查已存在的文件...")
+            try:
+                from manga_translator import MangaTranslator
+                config_dict = config_service.get_config().dict()
+                cli_config = config_dict.get('cli', {})
+                output_format = cli_config.get('format')
+                if not output_format or output_format == "不指定":
+                    output_format = None
+
+                save_info = {
+                    'output_folder': output_dir,
+                    'format': output_format,
+                    'overwrite': overwrite,
+                    'input_folders': set()
+                }
+                
+                temp_translator = MangaTranslator(params=cli_config)
+                
+                filtered_files = []
+                for file_path in all_files:
+                    try:
+                        output_path = temp_translator._calculate_output_path(file_path, save_info)
+                        if os.path.exists(output_path):
+                            skipped_count += 1
+                            if verbose:
+                                print(f"⏭️  跳过已存在: {os.path.basename(file_path)}")
+                        else:
+                            filtered_files.append(file_path)
+                    except:
+                        filtered_files.append(file_path)
+                
+                if skipped_count > 0:
+                    print(f"⏭️  跳过 {skipped_count} 个已存在的文件")
+                    all_files = filtered_files
+                else:
+                    print("✨ 没有发现已存在的输出文件")
+            except Exception as e:
+                print(f"⚠️ 预检查失败，将全部处理: {e}")
+        
+        if not all_files:
+            print("✅ 所有文件都已跳过，无需处理")
+            print(f"\n{'='*60}")
+            print(f"✅ 成功（跳过）: {skipped_count}")
+            print(f"❌ 失败: 0")
+            print(f"📊 总计: {skipped_count}")
+            print(f"{'='*60}")
+            sys.exit(0)
+
         # 导入子进程管理器
         from .subprocess_manager import translate_with_subprocess
         
@@ -632,9 +720,14 @@ async def run_local_mode(args):
             )
             
             print(f"\n{'='*60}")
-            print(f"✅ 成功: {success_count}")
-            print(f"❌ 失败: {failed_count}")
-            print(f"📊 总计: {len(all_files)}")
+            if skipped_count > 0:
+                print(f"✅ 成功: {success_count} (另有 {skipped_count} 个已跳过)")
+                print(f"❌ 失败: {failed_count}")
+                print(f"📊 总计: {len(all_files) + skipped_count}")
+            else:
+                print(f"✅ 成功: {success_count}")
+                print(f"❌ 失败: {failed_count}")
+                print(f"📊 总计: {len(all_files)}")
             print(f"💾 输出目录: {output_dir}")
             print(f"{'='*60}")
             

@@ -7,7 +7,7 @@ import httpx
 import openai
 from openai import AsyncOpenAI
 
-from .common import CommonTranslator, VALID_LANGUAGES, parse_json_or_text_response
+from .common import CommonTranslator, VALID_LANGUAGES, parse_json_or_text_response, parse_hq_response, get_glossary_extraction_prompt, merge_glossary_to_file
 from .keys import OPENAI_API_KEY, OPENAI_MODEL
 from ..utils import Context
 
@@ -157,7 +157,7 @@ class OpenAITranslator(CommonTranslator):
             except Exception:
                 pass  # 忽略所有清理错误
     
-    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """构建系统提示词"""
         # Map language codes to full names for clarity in the prompt
         lang_map = {
@@ -181,63 +181,23 @@ class OpenAITranslator(CommonTranslator):
         if line_break_prompt_json and line_break_prompt_json.get('line_break_prompt'):
             line_break_prompt_str = line_break_prompt_json['line_break_prompt']
 
+        # 尝试加载 HQ System Prompt
+        base_prompt = ""
         try:
             from ..utils import BASE_PATH
             import os
             import json
             prompt_path = os.path.join(BASE_PATH, 'dict', 'system_prompt_hq.json')
-            with open(prompt_path, 'r', encoding='utf-8') as f:
-                base_prompt_data = json.load(f)
-            base_prompt = base_prompt_data['system_prompt']
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    base_prompt_data = json.load(f)
+                base_prompt = base_prompt_data['system_prompt']
         except Exception as e:
-            self.logger.warning(f"Failed to load system prompt from file, falling back to hardcoded prompt. Error: {e}")
-            base_prompt = f"""You are an expert manga translator. Your task is to accurately translate manga text from the source language into **{{{target_lang}}}**.
+            self.logger.warning(f"Failed to load system prompt from file: {e}")
 
-**CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):**
-
-1.  **DIRECT TRANSLATION ONLY**: Your output MUST contain ONLY the raw, translated text. Nothing else.
-    -   DO NOT include the original text.
-    -   DO NOT include any explanations, greetings, apologies, or any conversational text.
-    -   DO NOT use Markdown formatting (like ```json or ```).
-    -   The output is fed directly to an automated script. Any extra text will cause it to fail.
-
-2.  **MATCH LINE COUNT**: The number of lines in your output MUST EXACTLY match the number of text regions you are asked to translate. Each line in your output corresponds to one numbered text region in the input.
-
-3.  **TRANSLATE EVERYTHING**: Translate all text provided, including sound effects and single characters. Do not leave any line untranslated.
-
-4.  **ACCURACY AND TONE**:
-    -   Preserve the original tone, emotion, and character's voice.
-    -   Ensure consistent translation of names, places, and special terms.
-    -   For onomatopoeia (sound effects), provide the equivalent sound in {{{target_lang}}} or a brief description (e.g., '(rumble)', '(thud)').
-
----
-
-**EXAMPLE OF CORRECT AND INCORRECT OUTPUT:**
-
-**[ CORRECT OUTPUT EXAMPLE ]**
-This is a correct response. Notice it only contains the translated text, with each translation on a new line.
-
-(Imagine the user input was: "1. うるさい！", "2. 黙れ！")
-```
-吵死了！
-闭嘴！
-```
-
-**[ ❌ INCORRECT OUTPUT EXAMPLE ]**
-This is an incorrect response because it includes extra text and explanations.
-
-(Imagine the user input was: "1. うるさい！", "2. 黙れ！")
-```
-好的，这是您的翻译：
-1. 吵死了！
-2. 闭嘴！
-```
-**REASONING:** The above example is WRONG because it includes "好的，这是您的翻译：" and numbering. Your response must be ONLY the translated text, line by line.
-
----
-
-**FINAL INSTRUCTION:** Now, perform the translation task. Remember, your response must be clean, containing only the translated text.
-"""
+        # Fallback
+        if not base_prompt:
+             base_prompt = f"""You are an expert manga translator. Translate from {source_lang} to {target_lang}. Output only the translation."""
 
         # Replace placeholder with the full language name
         base_prompt = base_prompt.replace("{{{target_lang}}}", target_lang_full)
@@ -259,15 +219,23 @@ This is an incorrect response because it includes extra text and explanations.
             final_prompt += f"{custom_prompt_str}\n\n---\n\n"
         
         final_prompt += base_prompt
+        
+        # 追加术语提取提示词
+        if extract_glossary:
+            extraction_prompt = get_glossary_extraction_prompt(target_lang_full)
+            if extraction_prompt:
+                final_prompt += f"\n\n---\n\n{extraction_prompt}"
+                self.logger.info("已启用自动术语提取，提示词已追加。")
+        
         return final_prompt
 
     def _build_user_prompt(self, texts: List[str], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
-        """构建用户提示词（纯文本版）- 使用统一方法，只包含上下文和待翻译文本"""
+        """构建用户提示词（纯文本版）- 使用 JSON 格式以配合 HQ Prompt"""
         return self._build_user_prompt_for_texts(texts, ctx, self.prev_context, retry_attempt=retry_attempt, retry_reason=retry_reason)
     
-    def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
-        """获取完整的系统提示词（包含断句提示词、自定义提示词和基础系统提示词）"""
-        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+    def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
+        """获取完整的系统提示词"""
+        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
 
     async def _translate_batch(self, texts: List[str], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None, split_level: int = 0) -> List[str]:
         """批量翻译方法（纯文本）"""
@@ -280,6 +248,12 @@ This is an incorrect response because it includes extra text and explanations.
         # 初始化重试信息
         retry_attempt = 0
         retry_reason = ""
+        
+        # 保存参数供重试时使用
+        _source_lang = source_lang
+        _target_lang = target_lang
+        _custom_prompt_json = custom_prompt_json
+        _line_break_prompt_json = line_break_prompt_json
         
         # 发送请求
         max_retries = self.attempts
@@ -301,14 +275,16 @@ This is an incorrect response because it includes extra text and explanations.
 
             local_attempt += 1
             attempt += 1
-
-            # 文本分割逻辑已禁用
-            # if local_attempt > self._SPLIT_THRESHOLD and len(texts) > 1 and split_level < self._MAX_SPLIT_ATTEMPTS:
-            #     self.logger.warning(f"Triggering split after {local_attempt} local attempts")
-            #     raise self.SplitException(local_attempt, texts)
             
+            # 确定是否开启术语提取
+            config_extract = False
+            if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                config_extract = getattr(ctx.config.translator, 'extract_glossary', False)
+            
+            extract_glossary = bool(_custom_prompt_json) and config_extract
+
             # 构建系统提示词和用户提示词（包含重试信息以避免缓存）
-            system_prompt = self._get_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+            system_prompt = self._get_system_prompt(_source_lang, _target_lang, custom_prompt_json=_custom_prompt_json, line_break_prompt_json=_line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
             user_prompt = self._build_user_prompt(texts, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -371,11 +347,27 @@ This is an incorrect response because it includes extra text and explanations.
                     
                     # 增加清理步骤，移除可能的Markdown代码块
                     if result_text.startswith("```") and result_text.endswith("```"):
-                        result_text = result_text[3:-3].strip()
+                         # 这里的正则比简单的切片更安全
+                         code_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', result_text, re.DOTALL)
+                         if code_match:
+                             result_text = code_match.group(1).strip()
+                         elif result_text.startswith("```"): # 简单fallback
+                             result_text = result_text.strip("`").strip()
                     
-                    # 使用通用函数解析响应
-                    translations = parse_json_or_text_response(result_text)
+                    # 使用通用函数解析响应（支持JSON和纯文本）
+                    translations, new_terms = parse_hq_response(result_text)
                     
+                    # 处理提取到的术语
+                    if extract_glossary and new_terms:
+                        prompt_path = None
+                        if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                            prompt_path = getattr(ctx.config.translator, 'high_quality_prompt_path', None)
+                        
+                        if prompt_path:
+                            merge_glossary_to_file(prompt_path, new_terms)
+                        else:
+                            self.logger.warning("Extracted new terms but prompt path not found in context.")
+
                     # Strict validation: must match input count
                     if len(translations) != len(texts):
                         retry_attempt += 1

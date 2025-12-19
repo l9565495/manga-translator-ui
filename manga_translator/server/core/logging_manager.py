@@ -18,6 +18,7 @@ task_logs = defaultdict(lambda: deque(maxlen=1000))  # 每个任务最多保存1
 task_logs_lock = threading.Lock()
 
 # 全局日志队列（用于管理员查看所有日志）
+# 限制为1000条，避免日志过多导致内存占用和卡顿
 global_log_queue = deque(maxlen=1000)
 
 # 当前任务ID的线程本地存储
@@ -164,7 +165,8 @@ def export_logs(task_id: Optional[str] = None) -> tuple[str, str]:
             filename = f"logs_{task_id[:8]}.txt"
         else:
             logs = list(global_log_queue)
-            filename = f"logs_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            from datetime import timezone
+            filename = f"logs_all_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
     
     # 生成日志文本
     log_text = "\n".join([

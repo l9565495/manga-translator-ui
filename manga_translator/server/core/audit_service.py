@@ -7,7 +7,7 @@
 import logging
 import json
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import shutil
@@ -71,7 +71,7 @@ class AuditService:
         # 创建审计事件
         event = AuditEvent(
             event_id=str(uuid4()),
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             event_type=event_type,
             username=username,
             ip_address=ip_address,

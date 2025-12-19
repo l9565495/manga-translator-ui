@@ -659,6 +659,30 @@ class MangaTranslator:
                             region_data['fg_color'] = (r, g, b)
                         except (ValueError, TypeError) as e:
                             logger.warning(f"Could not parse font_color '{hex_color}': {e}")
+                
+                # Map 'fg_colors' (list) to 'fg_color' (tuple) if present
+                if 'fg_colors' in region_data:
+                    fg_val = region_data.pop('fg_colors')
+                    if isinstance(fg_val, list):
+                        region_data['fg_color'] = tuple(fg_val)
+                
+                # Map 'bg_colors' or 'text_stroke_color' to 'bg_color'
+                if 'bg_colors' in region_data:
+                    bg_val = region_data.pop('bg_colors')
+                    if isinstance(bg_val, list):
+                        region_data['bg_color'] = tuple(bg_val)
+                elif 'text_stroke_color' in region_data: # Handle UI specific name
+                    bg_val = region_data.pop('text_stroke_color')
+                    if isinstance(bg_val, list): # List RGB
+                         region_data['bg_color'] = tuple(bg_val)
+                    elif isinstance(bg_val, str) and bg_val.startswith('#'): # Hex string
+                        try:
+                            r = int(bg_val[1:3], 16)
+                            g = int(bg_val[3:5], 16)
+                            b = int(bg_val[5:7], 16)
+                            region_data['bg_color'] = (r, g, b)
+                        except (ValueError, TypeError):
+                             pass
 
                 # Recreate the TextBlock object by unpacking the dictionary
                 # This restores all saved attributes
@@ -2509,52 +2533,6 @@ class MangaTranslator:
             logger.info(f'🚀 启用并发流水线模式 ({mode_desc}): {len(images_with_configs)} 张图片, 翻译批量大小: {batch_size}')
             from .concurrent_pipeline import ConcurrentPipeline
             
-            # ✅ 预检查：如果overwrite=False，过滤掉已存在的文件（与标准流程一致）
-            results = []
-            if save_info and not save_info.get('overwrite', True):
-                filtered_images = []
-                skipped_count = 0
-                
-                for image, config in images_with_configs:
-                    image_name = image.name if hasattr(image, 'name') else None
-                    if image_name:
-                        # 并发流水线只支持普通翻译模式，检查图片文件
-                        output_path = self._calculate_output_path(image_name, save_info)
-                        if os.path.exists(output_path):
-                            logger.info(f"⏭️  Skipping existing file: {os.path.basename(output_path)}")
-                            skipped_count += 1
-                            # 立即释放图片内存
-                            if hasattr(image, 'close'):
-                                try:
-                                    image.close()
-                                except:
-                                    pass
-                            # 创建一个已跳过的上下文
-                            ctx = Context()
-                            ctx.image_name = image_name
-                            ctx.success = True
-                            ctx.skipped = True
-                            results.append(ctx)
-                            continue
-                    
-                    filtered_images.append((image, config))
-                
-                if skipped_count > 0:
-                    logger.info(f"📊 Skipped {skipped_count} existing files, processing {len(filtered_images)} remaining files")
-                
-                images_with_configs = filtered_images
-                
-                # 强制垃圾回收，立即释放被跳过的图片内存
-                if skipped_count > 0:
-                    import gc
-                    gc.collect()
-                    logger.debug(f"🧹 Garbage collection completed after skipping {skipped_count} files")
-                
-                # 如果所有文件都已存在，直接返回
-                if len(images_with_configs) == 0:
-                    logger.info("✅ All files already exist, nothing to process")
-                    return results
-            
             # 保存save_info供并发流水线使用
             self._current_save_info = save_info
             
@@ -2586,10 +2564,7 @@ class MangaTranslator:
             # 使用并发流水线处理（分批加载图片）
             contexts = await pipeline.process_batch(file_paths, configs)
             
-            # 合并跳过的结果和处理的结果
-            results.extend(contexts)
-            
-            return results
+            return contexts
         
         # === 步骤4: 批量处理模式（顺序处理） ===
         logger.info(f'Starting batch translation: {len(images_with_configs)} images, batch size: {batch_size}')
@@ -2601,75 +2576,6 @@ class MangaTranslator:
         
         results = []
         total_images = len(images_with_configs)
-        
-        # ✅ 预检查：如果overwrite=False，过滤掉已存在的文件
-        if save_info and not save_info.get('overwrite', True):
-            filtered_images = []
-            skipped_count = 0
-            
-            for image, config in images_with_configs:
-                image_name = image.name if hasattr(image, 'name') else None
-                if image_name:
-                    should_skip = False
-                    skip_reason = ""
-                    
-                    # 检查导出原文/翻译的TXT文件（如果启用）
-                    if self.template and self.save_text:
-                        # 导出原文模式 - 只检查TXT文件
-                        from .utils.path_manager import get_original_txt_path
-                        txt_path = get_original_txt_path(image_name, create_dir=False)
-                        if os.path.exists(txt_path):
-                            should_skip = True
-                            skip_reason = f"existing original text file: {os.path.basename(txt_path)}"
-                    elif self.generate_and_export:
-                        # 导出翻译模式 - 只检查TXT文件
-                        from .utils.path_manager import get_translated_txt_path
-                        txt_path = get_translated_txt_path(image_name, create_dir=False)
-                        if os.path.exists(txt_path):
-                            should_skip = True
-                            skip_reason = f"existing translated text file: {os.path.basename(txt_path)}"
-                    else:
-                        # 普通翻译模式 - 检查图片文件
-                        output_path = self._calculate_output_path(image_name, save_info)
-                        if os.path.exists(output_path):
-                            should_skip = True
-                            skip_reason = f"existing file: {os.path.basename(output_path)}"
-                    
-                    if should_skip:
-                        logger.info(f"⏭️  Skipping {skip_reason}")
-                        skipped_count += 1
-                        # 立即释放图片内存
-                        if hasattr(image, 'close'):
-                            try:
-                                image.close()
-                            except:
-                                pass
-                        # 创建一个已跳过的上下文
-                        ctx = Context()
-                        ctx.image_name = image_name
-                        ctx.success = True
-                        ctx.skipped = True
-                        results.append(ctx)
-                        continue
-                
-                filtered_images.append((image, config))
-            
-            if skipped_count > 0:
-                logger.info(f"📊 Skipped {skipped_count} existing files, processing {len(filtered_images)} remaining files")
-            
-            images_with_configs = filtered_images
-            total_images = len(images_with_configs)
-            
-            # 强制垃圾回收，立即释放被跳过的图片内存
-            if skipped_count > 0:
-                import gc
-                gc.collect()
-                logger.debug(f"🧹 Garbage collection completed after skipping {skipped_count} files")
-            
-            # 如果所有文件都已存在，直接返回
-            if total_images == 0:
-                logger.info("✅ All files already exist, nothing to process")
-                return results
 
         # 分批处理所有图片
         for batch_start in range(0, total_images, batch_size):

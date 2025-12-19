@@ -502,7 +502,8 @@ async def export_logs(
             filename = f"logs_{task_id[:8]}.txt"
         else:
             logs = list(global_log_queue)
-            filename = f"logs_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            from datetime import timezone
+            filename = f"logs_all_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
     
     # Generate log text
     log_text = "\n".join([

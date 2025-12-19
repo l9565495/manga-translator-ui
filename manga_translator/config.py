@@ -239,6 +239,8 @@ class TranslatorConfig(BaseModel):
     """Path to GPT config file, more info in README"""
     high_quality_prompt_path: Optional[str] = None
     """Path to a JSON file containing custom prompts for high-quality translation."""
+    extract_glossary: bool = False
+    """Automatically extract new terms to glossary (requires high_quality_prompt_path)"""
     translator_chain: Optional[str] = None
     """Output of one translator goes in another. Example: --translator-chain "openai:JPN;gemini:ENG"."""
     selective_translation: Optional[str] = None

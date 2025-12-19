@@ -229,7 +229,8 @@ async def export_audit_events(
         
         # 设置响应头
         media_type = "application/json" if format == "json" else "text/csv"
-        filename = f"audit_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{format}"
+        from datetime import timezone
+        filename = f"audit_log_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.{format}"
         
         return Response(
             content=export_data,

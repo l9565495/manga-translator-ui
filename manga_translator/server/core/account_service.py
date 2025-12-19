@@ -7,7 +7,7 @@
 import bcrypt
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from manga_translator.server.core.models import UserAccount, UserPermissions
 from manga_translator.server.core.persistence import atomic_write_json, load_json
@@ -101,7 +101,7 @@ class AccountService:
             role=role,
             group=group,
             permissions=permissions,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
             last_login=None,
             is_active=True,
             must_change_password=False
@@ -327,7 +327,7 @@ class AccountService:
         if not account:
             return False
         
-        account.last_login = datetime.now()
+        account.last_login = datetime.now(timezone.utc)
         self._save_accounts()
         return True
     

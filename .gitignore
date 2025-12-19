@@ -220,5 +220,5 @@ manga_translator/server/data/
 # MangaJaNai Converter Gui
 MangaJaNaiConverterGui/
 
-# Watermark removal tool (水印去除工具)
-watermark-removal-master/
+# Scripts directory (脚本目录)
+scripts/

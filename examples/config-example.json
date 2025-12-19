@@ -11,11 +11,12 @@
   "kernel_size": 3,
   "mask_dilation_offset": 20,
   "translator": {
-    "translator": "gemini_hq",
+    "translator": "openai_hq",
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "gpt_config": "examples/gpt_config-example.yaml",
     "high_quality_prompt_path": "dict/prompt_example.json",
+    "extract_glossary": false,
     "max_requests_per_minute": 0,
     "attempts": -1
   },
@@ -51,7 +52,8 @@
     "inpainter": "lama_large",
     "inpainting_size": 2048,
     "inpainting_precision": "fp32",
-    "inpainting_split_ratio": 3.0
+    "inpainting_split_ratio": 3.0,
+    "force_use_torch_inpainting": false
   },
   "render": {
     "renderer": "default",
@@ -87,25 +89,25 @@
     "revert_upscaling": false
   },
   "colorizer": {
-    "colorization_size": 576,
+    "colorization_size": 2048,
     "denoise_sigma": 30,
     "colorizer": "none"
   },
   "cli": {
     "verbose": false,
-    "attempts": -1,
+    "attempts": 3,
     "ignore_errors": false,
     "use_gpu": true,
     "use_gpu_limited": false,
     "context_size": 3,
     "format": "不指定",
-    "overwrite": true,
+    "overwrite": false,
     "skip_no_text": false,
     "save_text": true,
     "load_text": false,
     "template": false,
     "save_quality": 100,
-    "batch_size": 1,
+    "batch_size": 3,
     "batch_concurrent": false,
     "generate_and_export": false,
     "colorize_only": false,

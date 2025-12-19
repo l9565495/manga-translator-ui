@@ -11,7 +11,7 @@ import httpx
 import openai
 from openai import AsyncOpenAI
 
-from .common import CommonTranslator, VALID_LANGUAGES, draw_text_boxes_on_image, parse_json_or_text_response
+from .common import CommonTranslator, VALID_LANGUAGES, draw_text_boxes_on_image, parse_json_or_text_response, merge_glossary_to_file, get_glossary_extraction_prompt, parse_hq_response
 from .keys import OPENAI_API_KEY, OPENAI_MODEL
 from ..utils import Context
 
@@ -209,7 +209,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 pass  # 忽略所有清理错误
 
     
-    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """构建系统提示词"""
         # Map language codes to full names for clarity in the prompt
         lang_map = {
@@ -312,6 +312,14 @@ This is an incorrect response because it includes extra text and explanations.
             final_prompt += f"{custom_prompt_str}\n\n---\n\n"
         
         final_prompt += base_prompt
+        
+        # 追加术语提取提示词
+        if extract_glossary:
+            extraction_prompt = get_glossary_extraction_prompt(target_lang_full)
+            if extraction_prompt:
+                final_prompt += f"\n\n---\n\n{extraction_prompt}"
+                self.logger.info("已启用自动术语提取，提示词已追加。")
+        
         # self.logger.info(f"--- OpenAI HQ Final System Prompt ---\n{final_prompt}")
         return final_prompt
 
@@ -319,9 +327,9 @@ This is an incorrect response because it includes extra text and explanations.
         """构建用户提示词（高质量版）- 使用统一方法，只包含上下文和待翻译文本"""
         return self._build_user_prompt_for_hq(batch_data, ctx, self.prev_context, retry_attempt=retry_attempt, retry_reason=retry_reason)
     
-    def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """获取完整的系统提示词（包含断句提示词、自定义提示词和基础系统提示词）"""
-        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
 
     async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None, split_level: int = 0) -> List[str]:
         """高质量批量翻译方法"""
@@ -385,8 +393,16 @@ This is an incorrect response because it includes extra text and explanations.
             #     self.logger.warning(f"Triggering split after {local_attempt} local attempts")
             #     raise self.SplitException(local_attempt, texts)
             
+            # 确定是否开启术语提取
+            # 必须同时满足：1. 有自定义提示词（才有地方存） 2. 配置开启了提取开关
+            config_extract = False
+            if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                config_extract = getattr(ctx.config.translator, 'extract_glossary', False)
+            
+            extract_glossary = bool(custom_prompt_json) and config_extract
+
             # 构建系统提示词和用户提示词（包含重试信息以避免缓存）
-            system_prompt = self._get_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+            system_prompt = self._get_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
             user_prompt = self._build_user_prompt(batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
             user_content = [{"type": "text", "text": user_prompt}]
             
@@ -451,8 +467,19 @@ This is an incorrect response because it includes extra text and explanations.
                         send_images = False
                         raise Exception("OpenAI API returned empty text")
                     
-                    # 解析翻译结果
-                    translations = parse_json_or_text_response(result_text)
+                    # 解析翻译结果（支持提取翻译和术语）
+                    translations, new_terms = parse_hq_response(result_text)
+                    
+                    # 处理提取到的术语
+                    if extract_glossary and new_terms:
+                        prompt_path = None
+                        if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                            prompt_path = getattr(ctx.config.translator, 'high_quality_prompt_path', None)
+                        
+                        if prompt_path:
+                            merge_glossary_to_file(prompt_path, new_terms)
+                        else:
+                            self.logger.warning("Extracted new terms but prompt path not found in context.")
                     
                     # Strict validation: must match input count
                     if len(translations) != len(texts):

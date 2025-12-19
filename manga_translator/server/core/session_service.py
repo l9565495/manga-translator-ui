@@ -72,7 +72,8 @@ class SessionService:
         token = secrets.token_urlsafe(32)
         
         # 创建会话对象
-        now = datetime.now()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         session = Session(
             session_id=session_id,
             username=username,
@@ -177,7 +178,8 @@ class SessionService:
             return False
         
         # 更新最后活动时间
-        session.last_activity = datetime.now()
+        from datetime import timezone
+        session.last_activity = datetime.now(timezone.utc)
         
         # 持久化（如果启用）
         if self.enable_persistence:
@@ -301,7 +303,8 @@ class SessionService:
             return True
         
         timeout = timedelta(minutes=self.session_timeout_minutes)
-        return datetime.now() - session.last_activity > timeout
+        from datetime import timezone
+        return datetime.now(timezone.utc) - session.last_activity > timeout
     
     def _deactivate_session(self, session: Session) -> None:
         """

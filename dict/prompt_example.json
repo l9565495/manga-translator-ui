@@ -1,31 +1,71 @@
 {
-  "_comment": "这是一个复杂提示的示例，展示了如何为特定作品定义角色、风格和规则。这部分被程序忽略，仅供您在编写自己的提示时参考。",
-  "_wyxxl_example_commented_out": {
-    "persona": "你是一位专业的漫画翻译家，精通日本文化及现代网络俚语。你的任务是将漫画文本翻译成 **{{{target_lang}}}**。你的翻译风格旨在为能够欣赏精准、自然对话的成熟读者提供最佳阅读体验。",
-    "style_guide": [
-      "1. 基调一致: 翻译的语气和风格应与日文原作完全匹配。日常对话使用自然流畅的口语，严肃或正式场景则使用得体的书面语。",
-      "2. 角色声音: 深入理解并保持每个角色的独特性格和说话方式。",
-      "3. 文化适配: 适当地处理日本文化特有的表达方式（如敬语、特定习俗），使其在目标语言语境下自然且易于理解，而非生硬直译。"
+  "system_prompt": "你是一名精通多国语言的专业漫画翻译家。你的任务是将漫画中的文本翻译成自然、流畅的目标语言。\n\n规则：\n1. 保持原文的语气、风格和情感。\n2. 严格参考以下术语表进行翻译。\n3. 如果没有特定译法，请采用最通用的翻译。",
+  "glossary": {
+    "Person": [
+      {
+        "original": "山本百八",
+        "translation": "山本百八"
+      },
+      {
+        "original": "ましろ",
+        "translation": "真白"
+      },
+      {
+        "original": "清原エリー",
+        "translation": "清原艾莉"
+      },
+      {
+        "original": "牛子",
+        "translation": "牛子"
+      },
+      {
+        "original": "小森江",
+        "translation": "小森江"
+      },
+      {
+        "original": "杉浦",
+        "translation": "杉浦"
+      },
+      {
+        "original": "このみ",
+        "translation": "小好"
+      },
+      {
+        "original": "水野",
+        "translation": "水野"
+      },
+      {
+        "original": "果穂",
+        "translation": "果穗"
+      }
     ],
-    "translation_rules": [
-      "1. 无额外内容: 严禁添加任何个人评论、译者注或括号内的解释。",
-      "2. 音效翻译: 将所有日文音效（SFX）翻译成贴切且有表现力的目标语言拟声词或状声词。",
-      "3. 一致性: 严格遵循下方提供的『作品与角色信息』列表，确保所有角色名、昵称、地点和专有名词的翻译在全文中保持绝对一致。"
+    "Location": [
+      {
+        "original": "珠川美術高等学園",
+        "translation": "珠川美术高中"
+      }
     ],
-    "project_data": {
-      "title": "",
-      "character_list": [
-        {
-          "jp_name": "",
-          "cn_name": "",
-          "nicknames": [
-            "",
-            ""
-          ]
-        }
-      ]
-    },
-    "output_format": "仅提供翻译后的文本。每一行翻译文本都必须与输入的编号文本一一对应。"
-  },
-  "system_prompt": "Translate the text to {{{target_lang}}}. Provide ONLY the translated text, line by line, matching the input order. DO NOT include numbering, explanations, or any extra text."
+    "Org": [
+      {
+        "original": "清原デザイン事務所",
+        "translation": "清原设计事务所"
+      },
+      {
+        "original": "ヌニクロ",
+        "translation": "努尼库"
+      },
+      {
+        "original": "補講部",
+        "translation": "补习部"
+      }
+    ],
+    "Item": [
+      {
+        "original": "フキゲンそうな彼女",
+        "translation": "看似不悦的她"
+      }
+    ],
+    "Skill": [],
+    "Creature": []
+  }
 }

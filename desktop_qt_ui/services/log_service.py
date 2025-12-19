@@ -35,9 +35,9 @@ class LogService:
         # 初始化主日志器
         self._setup_main_logger()
         
-        # 存储实时日志
+        # 存储实时日志（减少缓存数量，避免内存占用过高）
         self.recent_logs = []
-        self.max_recent_logs = 1000
+        self.max_recent_logs = 200  # 限制为200条，避免日志过多导致崩溃
         
     def _setup_main_logger(self):
         """设置主日志器"""

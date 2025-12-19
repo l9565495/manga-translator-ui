@@ -278,7 +278,7 @@ async def get_config_structure(token: str = Header(alias="X-Admin-Token", defaul
     prompts_dir = os.path.join(BASE_PATH, 'dict')
     if os.path.exists(prompts_dir):
         prompts = sorted([f for f in os.listdir(prompts_dir) 
-                         if f.lower().endswith('.json') and f not in ['system_prompt_hq.json', 'system_prompt_line_break.json']])
+                         if f.lower().endswith('.json') and f not in ['system_prompt_hq.json', 'system_prompt_line_break.json', 'glossary_extraction_prompt.json']])
     
     # Define parameter options (enum types)
     param_options = {
@@ -390,7 +390,7 @@ async def get_config_options(
     dict_dir = os.path.join(BASE_PATH, 'dict')
     if os.path.exists(dict_dir):
         prompts = sorted([f for f in os.listdir(dict_dir) 
-                         if f.lower().endswith('.json') and f not in ['system_prompt_hq.json', 'system_prompt_line_break.json']])
+                         if f.lower().endswith('.json') and f not in ['system_prompt_hq.json', 'system_prompt_line_break.json', 'glossary_extraction_prompt.json']])
     
     # 服务器提示词使用相对路径: dict/{filename}
     server_prompt_paths = [f'dict/{p}' for p in prompts]

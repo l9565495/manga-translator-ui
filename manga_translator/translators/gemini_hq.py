@@ -9,7 +9,7 @@ from PIL import Image
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-from .common import CommonTranslator, VALID_LANGUAGES, draw_text_boxes_on_image, parse_json_or_text_response
+from .common import CommonTranslator, VALID_LANGUAGES, draw_text_boxes_on_image, parse_json_or_text_response, parse_hq_response, get_glossary_extraction_prompt, merge_glossary_to_file
 from .keys import GEMINI_API_KEY
 from ..utils import Context
 
@@ -230,7 +230,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
     
 
     
-    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """构建系统提示词"""
         # Map language codes to full names for clarity in the prompt
         lang_map = {
@@ -265,7 +265,12 @@ class GeminiHighQualityTranslator(CommonTranslator):
             base_prompt = base_prompt_data['system_prompt']
         except Exception as e:
             self.logger.warning(f"Failed to load system prompt from file, falling back to hardcoded prompt. Error: {e}")
-            base_prompt = f"""You are an expert manga translator. Your task is to accurately translate manga text from the source language into **{{{target_lang}}}**. You will be given the full manga page for context.\n\n**CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):**\n\n1.  **DIRECT TRANSLATION ONLY**: Your output MUST contain ONLY the raw, translated text. Nothing else.\n    -   DO NOT include the original text.\n    -   DO NOT include any explanations, greetings, apologies, or any conversational text.\n    -   DO NOT use Markdown formatting (like ```json or ```).\n    -   The output is fed directly to an automated script. Any extra text will cause it to fail.\n\n2.  **MATCH LINE COUNT**: The number of lines in your output MUST EXACTLY match the number of text regions you are asked to translate. Each line in your output corresponds to one numbered text region in the input.\n\n3.  **TRANSLATE EVERYTHING**: Translate all text provided, including sound effects and single characters. Do not leave any line untranslated.\n\n4.  **ACCURACY AND TONE**:\n    -   Preserve the original tone, emotion, and character's voice.\n    -   Ensure consistent translation of names, places, and special terms.\n    -   For onomatopoeia (sound effects), provide the equivalent sound in {{{target_lang}}} or a brief description (e.g., '(rumble)', '(thud)').\n\n---\n\n**EXAMPLE OF CORRECT AND INCORRECT OUTPUT:**\n\n**[ CORRECT OUTPUT EXAMPLE ]**\nThis is a correct response. Notice it only contains the translated text, with each translation on a new line.\n\n(Imagine the user input was: "1. うるさい！", "2. 黙れ！")\n```\n吵死了！\n闭嘴！\n```\n\n**[ ❌ INCORRECT OUTPUT EXAMPLE ]**\nThis is an incorrect response because it includes extra text and explanations.\n\n(Imagine the user input was: "1. うるさい！", "2. 黙れ！")\n```\n好的，这是您的翻译：\n1. 吵死了！\n2. 闭嘴！\n```\n**REASONING:** The above example is WRONG because it includes "好的，这是您的翻译：" and numbering. Your response must be ONLY the translated text, line by line.\n\n---\n\n**FINAL INSTRUCTION:** Now, perform the translation task. Remember, your response must be clean, containing only the translated text.\n"""
+            base_prompt = f"""You are an expert manga translator. Your task is to accurately translate manga text from the source language into **{{{target_lang}}}**. You will be given the full manga page for context.\n\n**CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):**\n\n1.  **DIRECT TRANSLATION ONLY**: Your output MUST contain ONLY the raw, translated text. Nothing else.\n    -   DO NOT include the original text.\n    -   DO NOT include any explanations, greetings, apologies, or any conversational text.\n    -   DO NOT use Markdown formatting (like ```json or ```).\n    -   The output is fed directly to an automated script. Any extra text will cause it to fail.\n
+2.  **MATCH LINE COUNT**: The number of lines in your output MUST EXACTLY match the number of text regions you are asked to translate. Each line in your output corresponds to one numbered text region in the input.\n
+3.  **TRANSLATE EVERYTHING**: Translate all text provided, including sound effects and single characters. Do not leave any line untranslated.\n
+4.  **ACCURACY AND TONE**:\n    -   Preserve the original tone, emotion, and character's voice.\n    -   Ensure consistent translation of names, places, and special terms.\n    -   For onomatopoeia (sound effects), provide the equivalent sound in {{{target_lang}}} or a brief description (e.g., '(rumble)', '(thud)').\n\n---\n\n**EXAMPLE OF CORRECT AND INCORRECT OUTPUT:**\n\n**[ CORRECT OUTPUT EXAMPLE ]**\nThis is a correct response. Notice it only contains the translated text, with each translation on a new line.\n\n(Imagine the user input was: "1. うるさい！", "2. 黙れ！")\n```\n吵死了！\n闭嘴！\n```\n\n**[ ❌ INCORRECT OUTPUT EXAMPLE ]**\nThis is an incorrect response because it includes extra text and explanations.\n\n(Imagine the user input was: "1. うるさい！", "2. 黙れ！")\n```\n好的，这是您的翻译：\n1. 吵死了！
+2. 闭嘴！
+```\n**REASONING:** The above example is WRONG because it includes "好的，这是您的翻译：" and numbering. Your response must be ONLY the translated text, line by line.\n\n---\n\n**FINAL INSTRUCTION:** Now, perform the translation task. Remember, your response must be clean, containing only the translated text."""
 
         # Replace placeholder with the full language name
         base_prompt = base_prompt.replace("{{{target_lang}}}", target_lang_full)
@@ -287,16 +292,24 @@ class GeminiHighQualityTranslator(CommonTranslator):
             final_prompt += f"{custom_prompt_str}\n\n---\n\n"
         
         final_prompt += base_prompt
+        
+        # 追加术语提取提示词
+        if extract_glossary:
+            extraction_prompt = get_glossary_extraction_prompt(target_lang_full)
+            if extraction_prompt:
+                final_prompt += f"\n\n---\n\n{extraction_prompt}"
+                self.logger.info("已启用自动术语提取，提示词已追加。")
+        
         return final_prompt
 
     def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
         """构建用户提示词（高质量版）- 使用统一方法，只包含上下文和待翻译文本"""
         return self._build_user_prompt_for_hq(batch_data, ctx, self.prev_context, retry_attempt=retry_attempt, retry_reason=retry_reason)
     
-    def _get_system_instruction(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _get_system_instruction(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """获取完整的系统指令（包含断句提示词、自定义提示词和基础系统提示词）"""
         # 构建系统提示词（包含所有指令）
-        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
 
     async def _translate_batch_high_quality(self, texts: List[str], batch_data: List[Dict], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None, split_level: int = 0) -> List[str]:
         """高质量批量翻译方法"""
@@ -396,8 +409,16 @@ class GeminiHighQualityTranslator(CommonTranslator):
             #     self.logger.warning(f"Triggering split after {local_attempt} local attempts")
             #     raise self.SplitException(local_attempt, texts)
             
+            # 确定是否开启术语提取
+            # 必须同时满足：1. 有自定义提示词（才有地方存） 2. 配置开启了提取开关
+            config_extract = False
+            if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                config_extract = getattr(ctx.config.translator, 'extract_glossary', False)
+            
+            extract_glossary = bool(_custom_prompt_json) and config_extract
+
             # 获取系统指令并重新初始化客户端（包含重试信息以避免缓存）
-            system_instruction = self._get_system_instruction(_source_lang, _target_lang, custom_prompt_json=_custom_prompt_json, line_break_prompt_json=_line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+            system_instruction = self._get_system_instruction(_source_lang, _target_lang, custom_prompt_json=_custom_prompt_json, line_break_prompt_json=_line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
             self.client = None
             self._setup_client(system_instruction=system_instruction)
             
@@ -501,8 +522,19 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     raise Exception("Gemini API returned empty text")
 
 
-                # 使用通用函数解析响应（支持JSON和纯文本）
-                translations = parse_json_or_text_response(result_text)
+                # 使用通用函数解析响应（支持JSON和纯文本，以及术语提取）
+                translations, new_terms = parse_hq_response(result_text)
+                
+                # 处理提取到的术语
+                if extract_glossary and new_terms:
+                    prompt_path = None
+                    if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                        prompt_path = getattr(ctx.config.translator, 'high_quality_prompt_path', None)
+                    
+                    if prompt_path:
+                        merge_glossary_to_file(prompt_path, new_terms)
+                    else:
+                        self.logger.warning("Extracted new terms but prompt path not found in context.")
                 
                 # Strict validation: must match input count
                 if len(translations) != len(texts):

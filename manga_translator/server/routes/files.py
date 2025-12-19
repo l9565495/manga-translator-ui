@@ -95,7 +95,7 @@ async def upload_prompt(
         raise HTTPException(400, detail="Invalid filename")
     
     # Prohibit uploading system prompt filenames
-    if file.filename in ['system_prompt_hq.json', 'system_prompt_line_break.json']:
+    if file.filename in ['system_prompt_hq.json', 'system_prompt_line_break.json', 'glossary_extraction_prompt.json']:
         raise HTTPException(403, detail="Cannot overwrite system prompt files")
     
     dict_dir = os.path.join(BASE_PATH, 'dict')
@@ -127,7 +127,8 @@ async def list_prompts():
                 # Filter out system prompt files
                 if f.lower().endswith('.json') and f not in [
                     'system_prompt_hq.json',
-                    'system_prompt_line_break.json'
+                    'system_prompt_line_break.json',
+                    'glossary_extraction_prompt.json'
                 ]:
                     prompts.append(f)
                     print(f"[DEBUG] Added prompt: {f}")
@@ -175,7 +176,7 @@ async def delete_prompt(
     dict_dir = os.path.join(BASE_PATH, 'dict')
     
     # Prohibit deleting system prompts
-    if filename in ['system_prompt_hq.json', 'system_prompt_line_break.json']:
+    if filename in ['system_prompt_hq.json', 'system_prompt_line_break.json', 'glossary_extraction_prompt.json']:
         raise HTTPException(403, detail="Cannot delete system prompt files")
     
     # Find in dict directory

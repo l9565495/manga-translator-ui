@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-from .common import CommonTranslator, VALID_LANGUAGES, parse_json_or_text_response
+from .common import CommonTranslator, VALID_LANGUAGES, parse_json_or_text_response, parse_hq_response, get_glossary_extraction_prompt, merge_glossary_to_file
 from .keys import GEMINI_API_KEY
 from ..utils import Context
 
@@ -188,7 +188,7 @@ class GeminiTranslator(CommonTranslator):
 
             self.client = genai.GenerativeModel(**model_args)
     
-    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """构建系统提示词"""
         # Map language codes to full names for clarity in the prompt
         lang_map = {
@@ -212,63 +212,24 @@ class GeminiTranslator(CommonTranslator):
         if line_break_prompt_json and line_break_prompt_json.get('line_break_prompt'):
             line_break_prompt_str = line_break_prompt_json['line_break_prompt']
 
+        # 尝试加载 HQ System Prompt，如果失败或不需要（比如既没custom也没glossary），是否回退到简单prompt？
+        # 为了统一体验，只要能加载到 system_prompt_hq.json 就用它。
+        base_prompt = ""
         try:
             from ..utils import BASE_PATH
             import os
             import json
             prompt_path = os.path.join(BASE_PATH, 'dict', 'system_prompt_hq.json')
-            with open(prompt_path, 'r', encoding='utf-8') as f:
-                base_prompt_data = json.load(f)
-            base_prompt = base_prompt_data['system_prompt']
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    base_prompt_data = json.load(f)
+                base_prompt = base_prompt_data['system_prompt']
         except Exception as e:
-            self.logger.warning(f"Failed to load system prompt from file, falling back to hardcoded prompt. Error: {e}")
-            base_prompt = f"""You are an expert manga translator. Your task is to accurately translate manga text from the source language into **{{{target_lang}}}**.
+            self.logger.warning(f"Failed to load system prompt from file: {e}")
 
-**CRITICAL INSTRUCTIONS (FOLLOW STRICTLY):**
-
-1.  **DIRECT TRANSLATION ONLY**: Your output MUST contain ONLY the raw, translated text. Nothing else.
-    -   DO NOT include the original text.
-    -   DO NOT include any explanations, greetings, apologies, or any conversational text.
-    -   DO NOT use Markdown formatting (like ```json or ```).
-    -   The output is fed directly to an automated script. Any extra text will cause it to fail.
-
-2.  **MATCH LINE COUNT**: The number of lines in your output MUST EXACTLY match the number of text regions you are asked to translate. Each line in your output corresponds to one numbered text region in the input.
-
-3.  **TRANSLATE EVERYTHING**: Translate all text provided, including sound effects and single characters. Do not leave any line untranslated.
-
-4.  **ACCURACY AND TONE**:
-    -   Preserve the original tone, emotion, and character's voice.
-    -   Ensure consistent translation of names, places, and special terms.
-    -   For onomatopoeia (sound effects), provide the equivalent sound in {{{target_lang}}} or a brief description (e.g., '(rumble)', '(thud)').
-
----
-
-**EXAMPLE OF CORRECT AND INCORRECT OUTPUT:**
-
-**[ CORRECT OUTPUT EXAMPLE ]**
-This is a correct response. Notice it only contains the translated text, with each translation on a new line.
-
-(Imagine the user input was: "1. うるさい！", "2. 黙れ！")
-```
-吵死了！
-闭嘴！
-```
-
-**[ ❌ INCORRECT OUTPUT EXAMPLE ]**
-This is an incorrect response because it includes extra text and explanations.
-
-(Imagine the user input was: "1. うるさい！", "2. 黙れ！")
-```
-好的，这是您的翻译：
-1. 吵死了！
-2. 闭嘴！
-```
-**REASONING:** The above example is WRONG because it includes "好的，这是您的翻译：" and numbering. Your response must be ONLY the translated text, line by line.
-
----
-
-**FINAL INSTRUCTION:** Now, perform the translation task. Remember, your response must be clean, containing only the translated text.
-"""
+        # 如果没加载到 HQ Prompt，使用简单的 fallback
+        if not base_prompt:
+             base_prompt = f"""You are an expert manga translator. Translate from {source_lang} to {target_lang}. Output only the translation."""
 
         # Replace placeholder with the full language name
         base_prompt = base_prompt.replace("{{{target_lang}}}", target_lang_full)
@@ -290,15 +251,23 @@ This is an incorrect response because it includes extra text and explanations.
             final_prompt += f"{custom_prompt_str}\n\n---\n\n"
         
         final_prompt += base_prompt
+        
+        # 追加术语提取提示词
+        if extract_glossary:
+            extraction_prompt = get_glossary_extraction_prompt(target_lang_full)
+            if extraction_prompt:
+                final_prompt += f"\n\n---\n\n{extraction_prompt}"
+                self.logger.info("已启用自动术语提取，提示词已追加。")
+        
         return final_prompt
 
     def _build_user_prompt(self, texts: List[str], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
-        """构建用户提示词（纯文本版）- 使用统一方法，只包含上下文和待翻译文本"""
+        """构建用户提示词（纯文本版）- 使用 JSON 格式以配合 HQ Prompt"""
         return self._build_user_prompt_for_texts(texts, ctx, self.prev_context, retry_attempt=retry_attempt, retry_reason=retry_reason)
     
-    def _get_system_instruction(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "") -> str:
-        """获取完整的系统指令（包含断句提示词、自定义提示词和基础系统提示词）"""
-        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+    def _get_system_instruction(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
+        """获取完整的系统指令"""
+        return self._build_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
 
     async def _translate_batch(self, texts: List[str], source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, ctx: Any = None, split_level: int = 0) -> List[str]:
         """批量翻译方法（纯文本）"""
@@ -342,20 +311,21 @@ This is an incorrect response because it includes extra text and explanations.
             # 检查全局尝试次数
             if not self._increment_global_attempt():
                 self.logger.error("Reached global attempt limit. Stopping translation.")
-                # 包含最后一次错误的真正原因
                 last_error_msg = str(last_exception) if last_exception else "Unknown error"
                 raise Exception(f"达到最大尝试次数 ({self._max_total_attempts})，最后一次错误: {last_error_msg}")
 
             local_attempt += 1
             attempt += 1
 
-            # 文本分割逻辑已禁用
-            # if local_attempt > self._SPLIT_THRESHOLD and len(texts) > 1 and split_level < self._MAX_SPLIT_ATTEMPTS:
-            #     self.logger.warning(f"Triggering split after {local_attempt} local attempts")
-            #     raise self.SplitException(local_attempt, texts)
+            # 确定是否开启术语提取
+            config_extract = False
+            if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                config_extract = getattr(ctx.config.translator, 'extract_glossary', False)
             
+            extract_glossary = bool(_custom_prompt_json) and config_extract
+
             # 获取系统指令并重新初始化客户端（包含重试信息以避免缓存）
-            system_instruction = self._get_system_instruction(_source_lang, _target_lang, custom_prompt_json=_custom_prompt_json, line_break_prompt_json=_line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason)
+            system_instruction = self._get_system_instruction(_source_lang, _target_lang, custom_prompt_json=_custom_prompt_json, line_break_prompt_json=_line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
             self.client = None
             self._setup_client(system_instruction=system_instruction)
             
@@ -363,7 +333,8 @@ This is an incorrect response because it includes extra text and explanations.
                 self.logger.error("Gemini客户端初始化失败")
                 return texts
             
-            # 构建用户提示词（包含重试信息以避免缓存）
+            # 构建用户提示词
+            # 如果加载了 HQ Prompt，_build_user_prompt (即 _build_user_prompt_for_texts) 会生成 JSON 格式的输入，与 System Prompt 匹配
             user_prompt = self._build_user_prompt(texts, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
             
             # 动态构建请求参数 - 默认总是发送安全设置
@@ -389,11 +360,10 @@ This is an incorrect response because it includes extra text and explanations.
                     self.logger.warning("回退模式：移除安全设置参数")
                     request_args = {k: v for k, v in request_args.items() if k != "safety_settings"}
                 
-                # 动态调整温度：质量检查或BR检查失败时提高温度帮助跳出错误模式
+                # 动态调整温度
                 current_temperature = self._get_retry_temperature(self.temperature, retry_attempt, retry_reason)
                 if retry_attempt > 0 and current_temperature != self.temperature:
                     self.logger.info(f"[重试] 温度调整: {self.temperature} -> {current_temperature}")
-                    # 覆盖 generation_config 中的温度
                     request_args["generation_config"] = {"temperature": current_temperature}
                 
                 # 设置5分钟超时
@@ -403,44 +373,39 @@ This is an incorrect response because it includes extra text and explanations.
                     **request_args
                 )
                 
-                # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
                 if self._MAX_REQUESTS_PER_MINUTE > 0:
                     GeminiTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
 
-                # 检查finish_reason，只有成功(1)才继续，其他都重试
+                # 检查finish_reason
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
                     if hasattr(candidate, 'finish_reason'):
                         finish_reason = candidate.finish_reason
-
                         if finish_reason != 1:  # 不是STOP(成功)
                             attempt += 1
                             log_attempt = f"{attempt}/{max_retries}" if not is_infinite else f"Attempt {attempt}"
-
-                            # 显示具体的finish_reason信息
-                            finish_reason_map = {
-                                1: "STOP(成功)",
-                                2: "SAFETY(安全策略拦截)",
-                                3: "MAX_TOKENS(达到最大token限制)",
-                                4: "RECITATION(内容重复检测)",
-                                5: "OTHER(其他未知错误)"
-                            }
-                            reason_desc = finish_reason_map.get(finish_reason, f"未知错误码({finish_reason})")
-
-                            self.logger.warning(f"Gemini API失败 ({log_attempt}): finish_reason={finish_reason} - {reason_desc}")
-
+                            self.logger.warning(f"Gemini API失败 ({log_attempt}): finish_reason={finish_reason}")
                             if not is_infinite and attempt >= max_retries:
-                                self.logger.error(f"Gemini翻译在多次重试后仍失败: {reason_desc}")
                                 break
                             await asyncio.sleep(1)
                             continue
 
-                # 尝试访问 .text 属性，如果API因安全原因等返回空内容，这里会触发异常
                 result_text = response.text.strip()
                 self.logger.debug(f"--- Gemini Raw Response ---\n{result_text}\n---------------------------")
 
-                # 使用通用函数解析响应
-                translations = parse_json_or_text_response(result_text)
+                # 使用 parse_hq_response 解析（支持 JSON Object/Array/Text）
+                translations, new_terms = parse_hq_response(result_text)
+                
+                # 处理术语提取
+                if extract_glossary and new_terms:
+                    prompt_path = None
+                    if ctx and hasattr(ctx, 'config') and hasattr(ctx.config, 'translator'):
+                        prompt_path = getattr(ctx.config.translator, 'high_quality_prompt_path', None)
+                    
+                    if prompt_path:
+                        merge_glossary_to_file(prompt_path, new_terms)
+                    else:
+                        self.logger.warning("Extracted new terms but prompt path not found in context.")
                 
                 # Strict validation: must match input count
                 if len(translations) != len(texts):
@@ -502,7 +467,6 @@ This is an incorrect response because it includes extra text and explanations.
                             total_count=len(texts),
                             tolerance=max(1, len(texts) // 10)
                         )
-                    
                     await asyncio.sleep(2)
                     continue
 

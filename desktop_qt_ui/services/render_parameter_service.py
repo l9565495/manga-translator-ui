@@ -457,8 +457,34 @@ class RenderParameterService:
                 # 特殊处理颜色键名的不一致 (JSON是复数, dataclass是单数)
                 if key == 'fg_colors':
                     key = 'fg_color'
+                    value = tuple(value) if isinstance(value, list) else value
                 elif key == 'bg_colors':
                     key = 'bg_color'
+                    value = tuple(value) if isinstance(value, list) else value
+                elif key == 'text_stroke_color':
+                    key = 'bg_color'
+                    # 处理 hex 格式颜色
+                    if isinstance(value, str) and value.startswith('#'):
+                        try:
+                            r = int(value[1:3], 16)
+                            g = int(value[3:5], 16)
+                            b = int(value[5:7], 16)
+                            value = (r, g, b)
+                        except ValueError:
+                            continue
+                    else:
+                         value = tuple(value) if isinstance(value, list) else value
+                elif key == 'font_color':
+                    # 处理 hex 格式颜色
+                    if isinstance(value, str) and value.startswith('#'):
+                        try:
+                            r = int(value[1:3], 16)
+                            g = int(value[3:5], 16)
+                            b = int(value[5:7], 16)
+                            key = 'fg_color'
+                            value = (r, g, b)
+                        except ValueError:
+                            continue
 
                 if key in param_fields:
                     valid_params[key] = value

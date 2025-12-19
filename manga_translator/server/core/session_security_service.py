@@ -74,10 +74,11 @@ class SessionSecurityService:
         Validates: Requirements 35.1
         """
         session_token = SessionOwnership.generate_session_token()
+        from datetime import timezone
         session = SessionOwnership(
             session_token=session_token,
             user_id=user_id,
-            created_at=datetime.now(),
+            created_at=datetime.now(timezone.utc),
             status="active",
             metadata=metadata or {}
         )
@@ -144,7 +145,8 @@ class SessionSecurityService:
             
         Validates: Requirements 35.9 (anti-enumeration)
         """
-        now = datetime.now()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         
         # Clean up old attempts outside the window
         if user_id in self._failed_attempts:
@@ -170,7 +172,8 @@ class SessionSecurityService:
         """
         if user_id not in self._failed_attempts:
             self._failed_attempts[user_id] = []
-        self._failed_attempts[user_id].append(datetime.now())
+        from datetime import timezone
+        self._failed_attempts[user_id].append(datetime.now(timezone.utc))
     
     def _clear_failed_attempts(self, user_id: str) -> None:
         """
@@ -282,10 +285,11 @@ class SessionSecurityService:
             
         Validates: Requirements 35.8
         """
+        from datetime import timezone
         attempt = SessionAccessAttempt(
             session_token=session_token,
             user_id=user_id,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             action=action,
             granted=granted,
             reason=reason
