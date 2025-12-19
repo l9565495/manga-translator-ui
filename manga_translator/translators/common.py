@@ -1016,21 +1016,35 @@ def parse_json_or_text_response(result_text: str) -> List[str]:
         解析后的翻译列表
     """
     import json
+    import logging
+    
+    logger = logging.getLogger('manga_translator')
     
     result_text = result_text.strip()
     if not result_text:
         return []
+    
+    # 保存原始文本用于调试
+    original_text = result_text
         
-    # 清理可能的Markdown代码块
-    if result_text.startswith("```") and result_text.endswith("```"):
-        lines = result_text.split('\n')
-        # 移除第一行（如果是 ```json 或 ```）
-        if lines[0].strip().startswith("```"):
-            lines = lines[1:]
-        # 移除最后一行（如果是 ```）
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        result_text = "\n".join(lines).strip()
+    # 清理可能的Markdown代码块（更强健的处理）
+    if "```" in result_text:
+        # 尝试提取代码块内容
+        import re
+        # 匹配 ```json ... ``` 或 ``` ... ```
+        code_block_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', result_text, re.DOTALL)
+        if code_block_match:
+            result_text = code_block_match.group(1).strip()
+        else:
+            # 如果没有匹配到完整的代码块，尝试简单清理
+            lines = result_text.split('\n')
+            # 移除第一行（如果是 ```json 或 ```）
+            if lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            # 移除最后一行（如果是 ```）
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            result_text = "\n".join(lines).strip()
     
     translations = []
     try:
@@ -1064,8 +1078,20 @@ def parse_json_or_text_response(result_text: str) -> List[str]:
                 translations = [str(item) for item in parsed_json]
         else:
             raise ValueError("JSON parsed but not a list")
-    except (json.JSONDecodeError, ValueError):
-        # 如果不是JSON或解析失败，回退到按行分割
+    except (json.JSONDecodeError, ValueError) as e:
+        # 如果不是JSON或解析失败，记录详细错误信息
+        logger.debug(f"JSON解析失败: {e}")
+        logger.debug(f"尝试解析的文本: {result_text[:200]}...")
+        
+        # 检查是否看起来像JSON但解析失败（可能是格式问题）
+        stripped_text = result_text.strip()
+        if stripped_text.startswith('[') or stripped_text.startswith('{'):
+            logger.error("响应看起来像JSON但解析失败，这通常意味着AI返回了格式错误的JSON")
+            logger.error(f"原始响应: {original_text}")
+            # 不要回退到按行分割，直接返回空列表触发重试
+            return []
+        
+        # 只有当响应明确不是JSON格式时，才回退到按行分割
         for line in result_text.split('\n'):
             line = line.strip()
             if line:
