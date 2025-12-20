@@ -34,7 +34,7 @@ _KNOWN_MODELS = {
     "4x_MangaJaNai_2048p_V1_ESRGAN_70k.pth": "f70e08c60da372b7207e7348486ea6b498ea8dea6246bb717530a4d45c955b9b",
 }
 
-def is_color_image(image: Image.Image, threshold: float = 0.1) -> bool:
+def is_color_image(image, threshold: float = 0.1) -> bool:
     """
     检测图片是否为彩色图片
     通过计算图片的色彩饱和度来判断
@@ -46,9 +46,8 @@ def is_color_image(image: Image.Image, threshold: float = 0.1) -> bool:
     Returns:
         True 如果是彩色图片，False 如果是黑白/灰度图片
     """
-    # 如果是 numpy array，转换为 PIL Image
+    # 统一转换为 PIL Image
     if isinstance(image, np.ndarray):
-        from PIL import Image
         image = Image.fromarray(image)
     
     if image.mode == 'L':
@@ -76,11 +75,21 @@ def is_color_image(image: Image.Image, threshold: float = 0.1) -> bool:
     return is_color
 
 
-def enhance_contrast(image: Image.Image) -> Image.Image:
+def enhance_contrast(image) -> Image.Image:
     """
     Auto-adjust levels to enhance contrast, similar to MangaJaNaiConverterGui.
     Finds black/white points from histogram and stretches the range.
+    
+    Args:
+        image: PIL Image 或 numpy array
+        
+    Returns:
+        PIL Image 对象
     """
+    # 统一转换为 PIL Image
+    if isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    
     if image.mode != 'L':
         image_p = image.convert("L")
     else:
@@ -307,10 +316,22 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         model_path = os.path.join(self.model_dir, self.model_file)
         return os.path.exists(model_path)
     
-    def _select_best_model(self, img: Image.Image) -> str:
-        """Select best model from candidates based on image resolution and color"""
+    def _select_best_model(self, img) -> str:
+        """
+        Select best model from candidates based on image resolution and color
+        
+        Args:
+            img: PIL Image 或 numpy array
+            
+        Returns:
+            模型文件名
+        """
         if not self.is_auto_mode:
             return self.model_file
+        
+        # 统一确保输入是 PIL Image
+        if isinstance(img, np.ndarray):
+            img = Image.fromarray(img)
         
         # 检测是否为彩色图片
         is_color = is_color_image(img)
@@ -421,6 +442,10 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         
         results = []
         for img in image_batch:
+            # 统一确保输入是 PIL Image
+            if isinstance(img, np.ndarray):
+                img = Image.fromarray(img)
+            
             # 1. Determine best model for this image
             target_model_file = self.model_file
             if self.is_auto_mode:
@@ -454,7 +479,20 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
             
         return results
 
-    def _process_single(self, img: Image.Image, device: torch.device) -> Image.Image:
+    def _process_single(self, img, device: torch.device) -> Image.Image:
+        """
+        处理单张图片
+        
+        Args:
+            img: PIL Image 或 numpy array
+            device: torch 设备
+            
+        Returns:
+            处理后的 PIL Image
+        """
+        # 统一确保输入是 PIL Image
+        if isinstance(img, np.ndarray):
+            img = Image.fromarray(img)
         # Check minimum size requirement
         min_size = 40
         original_size = img.size
@@ -503,8 +541,21 @@ class MangaJaNaiUpscaler(OfflineUpscaler):
         
         return result_img
 
-    def _process_with_tiles(self, img: Image.Image, device: torch.device, tile_size: int) -> Image.Image:
-        """Process image with external tiling"""
+    def _process_with_tiles(self, img, device: torch.device, tile_size: int) -> Image.Image:
+        """
+        使用分块处理图片
+        
+        Args:
+            img: PIL Image 或 numpy array
+            device: torch 设备
+            tile_size: 分块大小
+            
+        Returns:
+            处理后的 PIL Image
+        """
+        # 统一确保输入是 PIL Image
+        if isinstance(img, np.ndarray):
+            img = Image.fromarray(img)
         tiles_with_pos = split_image_into_tiles(img, tile_size, overlap=16)
         
         processed_tiles = []
