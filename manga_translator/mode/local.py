@@ -336,12 +336,35 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         filtered_file_paths = []
         for file_path, config in file_paths_with_configs:
             try:
-                # 使用内部方法计算输出路径
-                output_path = translator._calculate_output_path(file_path, save_info)
-                if os.path.exists(output_path):
+                should_skip = False
+                skip_reason = ""
+                
+                # 检查导出原文/翻译的TXT文件（如果启用）
+                if cli_config.get('template', False) and cli_config.get('save_text', False):
+                    # 导出原文模式 - 检查TXT文件
+                    from manga_translator.utils.path_manager import get_original_txt_path
+                    txt_path = get_original_txt_path(file_path, create_dir=False)
+                    if os.path.exists(txt_path):
+                        should_skip = True
+                        skip_reason = f"原文文件已存在: {os.path.basename(txt_path)}"
+                elif cli_config.get('generate_and_export', False):
+                    # 导出翻译模式 - 检查TXT文件
+                    from manga_translator.utils.path_manager import get_translated_txt_path
+                    txt_path = get_translated_txt_path(file_path, create_dir=False)
+                    if os.path.exists(txt_path):
+                        should_skip = True
+                        skip_reason = f"翻译文件已存在: {os.path.basename(txt_path)}"
+                else:
+                    # 普通翻译模式 - 检查图片文件
+                    output_path = translator._calculate_output_path(file_path, save_info)
+                    if os.path.exists(output_path):
+                        should_skip = True
+                        skip_reason = f"输出文件已存在: {os.path.basename(file_path)}"
+                
+                if should_skip:
                     skipped_count += 1
                     if verbose:
-                        print(f"⏭️  跳过已存在: {os.path.basename(file_path)}")
+                        print(f"⏭️  跳过 - {skip_reason}")
                 else:
                     filtered_file_paths.append((file_path, config))
             except Exception as e:

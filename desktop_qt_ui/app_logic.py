@@ -2074,9 +2074,28 @@ class TranslationWorker(QObject):
                 self.log_received.emit("--- Checking for existing files...")
                 for file_path in self.files:
                     try:
-                        # Use internal method to calculate output path
-                        output_path = translator._calculate_output_path(file_path, save_info)
-                        if os.path.exists(output_path):
+                        should_skip = False
+                        
+                        # 检查导出原文/翻译的TXT文件（如果启用）
+                        if cli_config.get('template', False) and cli_config.get('save_text', False):
+                            # 导出原文模式 - 检查TXT文件
+                            from manga_translator.utils.path_manager import get_original_txt_path
+                            txt_path = get_original_txt_path(file_path, create_dir=False)
+                            if os.path.exists(txt_path):
+                                should_skip = True
+                        elif cli_config.get('generate_and_export', False):
+                            # 导出翻译模式 - 检查TXT文件
+                            from manga_translator.utils.path_manager import get_translated_txt_path
+                            txt_path = get_translated_txt_path(file_path, create_dir=False)
+                            if os.path.exists(txt_path):
+                                should_skip = True
+                        else:
+                            # 普通翻译模式 - 检查图片文件
+                            output_path = translator._calculate_output_path(file_path, save_info)
+                            if os.path.exists(output_path):
+                                should_skip = True
+                        
+                        if should_skip:
                             skipped_files.append(file_path)
                             results.append({'success': True, 'original_path': file_path, 'image_data': None, 'skipped': True})
                         else:
