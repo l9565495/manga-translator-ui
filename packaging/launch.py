@@ -663,9 +663,10 @@ def prepare_environment(args):
 
     print('\n正在检查依赖...\n')
     
-    # 将项目根目录添加到 Python 路径，以便导入 build_utils
-    if str(PATH_ROOT) not in sys.path:
-        sys.path.insert(0, str(PATH_ROOT))
+    # 将 packaging 目录添加到 Python 路径，以便导入 build_utils
+    packaging_dir = PATH_ROOT / 'packaging'
+    if str(packaging_dir) not in sys.path:
+        sys.path.insert(0, str(packaging_dir))
     
     # 导入依赖检查工具
     try:
