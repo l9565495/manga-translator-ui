@@ -6,17 +6,16 @@ import json
 import langcodes
 import os
 import regex as re
-import time
-import torch
-import logging
 import sys
+import time
+import logging
 import traceback
 import numpy as np
 from PIL import Image
 from typing import Optional, Any, List
 import py3langid as langid
 
-from .config import Config, Colorizer, Detector, Translator, Renderer, Inpainter
+from .config import Config, Colorizer, Translator, Renderer, Inpainter
 from .utils import (
     BASE_PATH,
     LANGUAGE_ORIENTATION_PRESETS,
@@ -27,18 +26,14 @@ from .utils import (
     visualize_textblocks,
     is_valuable_text,
     sort_regions,
-    get_color_name,
-    rgb2hex,
     TextBlock,
     imwrite_unicode
 )
 from .utils.text_filter import match_filter, ensure_filter_list_exists
 import matplotlib
 matplotlib.use('Agg')  # 使用非GUI后端
-import matplotlib.pyplot as plt·
 from matplotlib import cm
 from .utils.path_manager import (
-    get_json_path,
     get_inpainted_path,
     find_json_path
 )
@@ -408,7 +403,7 @@ class MangaTranslator:
             original_width, original_height = ctx.input.size
         else:
             # 如果都没有，使用默认值或从图片文件读取
-            logger.warning(f"无法获取图片尺寸，使用默认值")
+            logger.warning("无法获取图片尺寸，使用默认值")
             original_width, original_height = 0, 0
         
         data_to_save = {
@@ -726,7 +721,7 @@ class MangaTranslator:
         旧的TXT格式加载方法（已废弃）
         现在只支持JSON格式，此方法保留用于向后兼容但不再实现
         """
-        logger.warning(f"TXT format is deprecated and no longer supported. Please use JSON format instead.")
+        logger.warning("TXT format is deprecated and no longer supported. Please use JSON format instead.")
         return None
 
     async def _translate(self, config: Config, ctx: Context) -> Context:
@@ -786,7 +781,7 @@ class MangaTranslator:
             # 如果有raw_mask_mask，生成对比图
             if hasattr(ctx, 'raw_mask_mask') and ctx.raw_mask_mask is not None:
                 try:
-                    logger.info(f"Generating mask vs db comparison heatmap...")
+                    logger.info("Generating mask vs db comparison heatmap...")
                     logger.info(f"[DEBUG] raw_mask_mask shape: {ctx.raw_mask_mask.shape}, ctx.mask_raw shape: {ctx.mask_raw.shape}")
                     
                     # 确保两个mask尺寸一致
@@ -1262,10 +1257,10 @@ class MangaTranslator:
                 await unload_translation(model)
             case 'textline_merge':
                 # textline_merge 不需要卸载（无模型）
-                logger.debug(f"textline_merge does not require unloading")
+                logger.debug("textline_merge does not require unloading")
             case 'rendering':
                 # rendering 不需要卸载（无模型）
-                logger.debug(f"rendering does not require unloading")
+                logger.debug("rendering does not require unloading")
             case _:
                 logger.warning(f"Unknown tool type for unloading: {tool}")
         
@@ -2139,10 +2134,10 @@ class MangaTranslator:
                                 )
                                 
                                 if page_lang_check_result:
-                                    logger.info(f"Page-level target language check passed")
+                                    logger.info("Page-level target language check passed")
                                     break
                                 else:
-                                    logger.warning(f"Page-level target language check still failed")
+                                    logger.warning("Page-level target language check still failed")
                                     
                             except Exception as e:
                                 logger.error(f"Error during batch retry {batch_retry_count}: {e}")
@@ -3099,7 +3094,7 @@ class MangaTranslator:
                 await self._report_progress('inpainting')
                 try:
                     ctx.img_inpainted = await self._run_inpainting(config, ctx)
-                    logger.info(f"✓ Step 5 - Inpainting: Completed successfully")
+                    logger.info("✓ Step 5 - Inpainting: Completed successfully")
                 except Exception as e:
                     logger.error(f"Error during inpainting:\n{traceback.format_exc()}")
                     if not self.ignore_errors:
@@ -3455,10 +3450,10 @@ class MangaTranslator:
                                         )
                                         
                                         if batch_lang_check_result:
-                                            logger.info(f"Batch-level target language check passed")
+                                            logger.info("Batch-level target language check passed")
                                             break
                                         else:
-                                            logger.warning(f"Batch-level target language check still failed")
+                                            logger.warning("Batch-level target language check still failed")
                                             
                                     except Exception as e:
                                         logger.error(f"Error during batch retry {batch_retry_count}: {e}")
@@ -3605,7 +3600,7 @@ class MangaTranslator:
                     )
                     
                     if not page_lang_check_result:
-                        logger.warning(f"Page-level target language check failed for single image")
+                        logger.warning("Page-level target language check failed for single image")
                         
                         # 单页重试逻辑
                         max_retry = config.translator.post_check_max_retry_attempts
@@ -3638,7 +3633,7 @@ class MangaTranslator:
                                     )
                                     
                                     if page_lang_check_result:
-                                        logger.info(f"Single image target language check passed")
+                                        logger.info("Single image target language check passed")
                                         break
                                         
                                 except Exception as e:

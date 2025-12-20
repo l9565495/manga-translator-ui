@@ -7,13 +7,12 @@ import asyncio
 import logging
 import traceback
 import os
-from typing import List, Dict
+from typing import List
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 import functools
 
 from .utils import Context, load_image
-from .config import Config
 
 # 使用 manga_translator 的主 logger，确保日志能被UI捕获
 logger = logging.getLogger('manga_translator')
@@ -445,7 +444,7 @@ class ConcurrentPipeline:
                 
                 # ✅ 检查渲染所需的数据是否完整
                 if not hasattr(ctx, 'img_rgb') or ctx.img_rgb is None:
-                    logger.error(f"[渲染] ctx.img_rgb 为 None，无法渲染！跳过此图片")
+                    logger.error("[渲染] ctx.img_rgb 为 None，无法渲染！跳过此图片")
                     ctx.translation_error = "渲染失败：缺少原始图片数据"
                     continue
                 
@@ -504,7 +503,7 @@ class ConcurrentPipeline:
                             if (self.translator.save_text or self.translator.text_output_file) and ctx.text_regions is not None:
                                 self.translator._save_text_to_file(ctx.image_name, ctx, config)
                         else:
-                            logger.warning(f"[渲染] 无save_info，跳过保存")
+                            logger.warning("[渲染] 无save_info，跳过保存")
                         
                         # 标记成功（与主流程一致）
                         ctx.success = True
@@ -514,7 +513,7 @@ class ConcurrentPipeline:
                         logger.error(traceback.format_exc())
                         ctx.translation_error = str(save_err)
                 else:
-                    logger.error(f"[渲染] ctx.result 为 None！")
+                    logger.error("[渲染] ctx.result 为 None！")
                 
                 # 添加到结果列表
                 results.append(ctx)
@@ -609,7 +608,7 @@ class ConcurrentPipeline:
         
         # 统计
         elapsed = (datetime.now(timezone.utc) - self.start_time).total_seconds()
-        logger.info(f"[并发流水线] 完成！")
+        logger.info("[并发流水线] 完成！")
         logger.info(f"  总耗时: {elapsed:.2f}秒")
         logger.info(f"  平均速度: {elapsed/self.total_images:.2f}秒/张")
         logger.info(f"  处理统计: 检测+OCR={self.stats['detection_ocr']}, "

@@ -1,11 +1,10 @@
 import argparse
-import re
 from enum import Enum
 
-from typing import Optional, Any, Literal, List, Union
+from typing import Optional, Any, Union
 
 from omegaconf import OmegaConf
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, PrivateAttr
 
 
 # TODO: Refactor
@@ -24,9 +23,9 @@ class TranslatorChain:
             trans, lang = g.split(':')
             translator = Translator[trans]
             if translator not in TRANSLATORS:
-                raise ValueError(f'Invalid choice: %s (choose from %s)' % (trans, ', '.join(map(repr, TRANSLATORS))))
+                raise ValueError('Invalid choice: %s (choose from %s)' % (trans, ', '.join(map(repr, TRANSLATORS))))
             if lang not in VALID_LANGUAGES:
-                raise ValueError(f'Invalid choice: %s (choose from %s)' % (lang, ', '.join(map(repr, VALID_LANGUAGES))))
+                raise ValueError('Invalid choice: %s (choose from %s)' % (lang, ', '.join(map(repr, VALID_LANGUAGES))))
             self.chain.append((translator, lang))
         self.translators, self.langs = list(zip(*self.chain))
 
