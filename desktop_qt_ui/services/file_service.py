@@ -210,16 +210,16 @@ class FileService:
         normalized_path = path.replace('\\', '/')
         
         # 将整个路径分割成文本和数字部分
-        # 使用元组 (is_number, value) 来确保可以正确排序
-        # 先按类型排序（文本=0在前，数字=1在后），再按值排序
+        # 数字部分转换为整数，文本部分保持为字符串
+        # 为了避免类型比较错误，将数字转换为固定长度的字符串格式
         parts = []
         for part in re.split(r'(\d+)', normalized_path):
             if part.isdigit():
-                # 数字部分：(1, 整数值) - 1 表示这是数字
-                parts.append((1, int(part)))
+                # 数字部分：转换为整数后再转为固定长度字符串（补零到20位）
+                parts.append(int(part))
             elif part:  # 忽略空字符串
-                # 文本部分：(0, 小写文本) - 0 表示这是文本
-                parts.append((0, part.lower()))
+                # 文本部分：保持为小写文本
+                parts.append(part.lower())
         
         return parts
     
