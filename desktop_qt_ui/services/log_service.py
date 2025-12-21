@@ -49,13 +49,13 @@ class LogService:
             logging.warning(f"无法初始化manga_translator日志: {e}")
         
         logger = logging.getLogger(self.app_name)
-        logger.setLevel(logging.INFO)  # 默认INFO级别，可通过set_console_log_level调整
+        logger.setLevel(logging.DEBUG)  # 设为 DEBUG 以允许所有日志通过
         
         # 清除现有处理器
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
         
-        # 控制台处理器
+        # 控制台处理器（默认 INFO，可通过 set_console_log_level 调整）
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         
@@ -125,12 +125,12 @@ class LogService:
         if hasattr(self, 'console_handler'):
             self.console_handler.setLevel(level)
         
-        # 设置根日志级别以确保DEBUG日志不会被过滤
-        logging.getLogger().setLevel(level)
+        # 根日志器保持 DEBUG 以允许所有日志通过
+        logging.getLogger().setLevel(logging.DEBUG)
         
         # 设置主应用logger级别
         if self.app_name in self.loggers:
-            self.loggers[self.app_name].setLevel(level)
+            self.loggers[self.app_name].setLevel(logging.DEBUG)
         
         # 同步设置manga_translator的日志级别
         try:
@@ -153,7 +153,7 @@ class LogService:
         
         if name not in self.loggers:
             logger = logging.getLogger(name)
-            logger.setLevel(logging.INFO)
+            logger.setLevel(logging.DEBUG)  # 设为 DEBUG 以允许所有日志通过
             
             # 如果是子日志器，继承主日志器的配置
             if name != self.app_name:

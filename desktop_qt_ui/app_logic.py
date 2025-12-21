@@ -2236,7 +2236,22 @@ class TranslationWorker(QObject):
         log_handler.setFormatter(formatter)
         manga_logger = logging.getLogger('manga_translator')
         manga_logger.addHandler(log_handler)
-        manga_logger.setLevel(logging.INFO)
+        
+        # 根据 verbose 配置设置日志级别
+        verbose = self.config_dict.get('cli', {}).get('verbose', False)
+        log_level = logging.DEBUG if verbose else logging.INFO
+        manga_logger.setLevel(log_level)
+        
+        # 根日志器设为 DEBUG 以允许所有日志通过
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        
+        # 文件处理器始终为 DEBUG，其他处理器根据 verbose 设置
+        for handler in root_logger.handlers:
+            if isinstance(handler, logging.FileHandler):
+                handler.setLevel(logging.DEBUG)  # 文件日志始终 DEBUG
+            else:
+                handler.setLevel(log_level)  # 控制台根据 verbose 设置
 
         results = []
         try:

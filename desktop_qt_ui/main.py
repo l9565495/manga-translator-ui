@@ -122,7 +122,7 @@ def main():
     async_handler.setFormatter(log_formatter)
     
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG)  # 根日志器设为 DEBUG 以允许所有日志通过
     root_logger.addHandler(async_handler)
     
     # 确保程序退出时正确关闭日志处理器
@@ -144,7 +144,7 @@ def main():
     
     # 添加文件日志处理器
     file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logging.DEBUG)  # 始终为 DEBUG 级别
     file_handler.setFormatter(log_formatter)
     root_logger.addHandler(file_handler)
     
