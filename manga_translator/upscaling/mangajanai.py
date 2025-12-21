@@ -34,14 +34,14 @@ _KNOWN_MODELS = {
     "4x_MangaJaNai_2048p_V1_ESRGAN_70k.pth": "f70e08c60da372b7207e7348486ea6b498ea8dea6246bb717530a4d45c955b9b",
 }
 
-def is_color_image(image, threshold: float = 0.1) -> bool:
+def is_color_image(image, threshold: float = 0.05) -> bool:
     """
     检测图片是否为彩色图片
-    通过计算图片的色彩饱和度来判断
+    使用多个指标综合判断，提高准确性
     
     Args:
         image: PIL Image 或 numpy array
-        threshold: 饱和度阈值，超过此值认为是彩色图片
+        threshold: 饱和度阈值（默认0.05）
     
     Returns:
         True 如果是彩色图片，False 如果是黑白/灰度图片
@@ -57,20 +57,44 @@ def is_color_image(image, threshold: float = 0.1) -> bool:
     img_rgb = image.convert('RGB')
     img_np = np.array(img_rgb, dtype=np.float32)
     
-    # 计算每个像素的饱和度
-    # 饱和度 = (max - min) / max
+    # 方法1: 检查RGB通道的相关性（最可靠的方法）
+    # 灰度图的RGB通道高度相关（相关系数接近1）
+    r_flat = img_np[:, :, 0].flatten()
+    g_flat = img_np[:, :, 1].flatten()
+    b_flat = img_np[:, :, 2].flatten()
+    
+    # 计算通道间的相关系数
+    corr_rg = np.corrcoef(r_flat, g_flat)[0, 1]
+    corr_gb = np.corrcoef(g_flat, b_flat)[0, 1]
+    corr_rb = np.corrcoef(r_flat, b_flat)[0, 1]
+    min_corr = min(corr_rg, corr_gb, corr_rb)
+    
+    # 如果通道高度相关（>0.995），肯定是黑白图
+    if min_corr > 0.995:
+        logger.debug(f"彩图检测 - 通道高度相关({min_corr:.4f})，判断: 黑白")
+        return False
+    
+    # 方法2: 计算平均饱和度
     max_val = img_np.max(axis=2)
     min_val = img_np.min(axis=2)
-    
-    # 避免除零
     max_val = np.maximum(max_val, 1)
     saturation = (max_val - min_val) / max_val
-    
-    # 计算平均饱和度
     mean_saturation = np.mean(saturation)
     
-    is_color = mean_saturation > threshold
-    logger.debug(f"Image saturation: {mean_saturation:.3f}, is_color: {is_color}")
+    # 方法3: 检查RGB通道的标准差差异
+    # 如果是灰度图，三个通道的标准差应该非常接近
+    r_std = np.std(img_np[:, :, 0])
+    g_std = np.std(img_np[:, :, 1])
+    b_std = np.std(img_np[:, :, 2])
+    std_diff = max(abs(r_std - g_std), abs(g_std - b_std), abs(r_std - b_std))
+    
+    # 综合判断（通道相关性已经排除了黑白图）
+    # 1. 饱和度超过阈值
+    # 2. 通道标准差差异明显（>1.0）
+    # 3. 通道相关性较低（<0.99）
+    is_color = (mean_saturation > threshold) or (std_diff > 1.0) or (min_corr < 0.99)
+    
+    logger.debug(f"彩图检测 - 饱和度: {mean_saturation:.4f}, 通道标准差差异: {std_diff:.2f}, 最小相关性: {min_corr:.4f}, 判断: {'彩色' if is_color else '黑白'}")
     
     return is_color
 
