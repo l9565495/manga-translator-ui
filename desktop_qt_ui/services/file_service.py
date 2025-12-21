@@ -78,7 +78,28 @@ class FileService:
             
             # 检查是否有超分倍率，如果有则总是缩小坐标和字体大小
             upscale_ratio = image_data.get('upscale_ratio', 0)
-            if upscale_ratio and upscale_ratio > 0:
+            # 确保 upscale_ratio 是数字类型，支持多种格式：
+            # - 数字: 2, 3, 4
+            # - 字符串数字: "2", "3", "4"
+            # - mangajanai格式: "x2", "x4", "DAT2 x4"
+            try:
+                if isinstance(upscale_ratio, str):
+                    # 移除空格并转小写
+                    upscale_ratio = upscale_ratio.strip().lower()
+                    # 提取数字部分
+                    import re
+                    match = re.search(r'(\d+)', upscale_ratio)
+                    if match:
+                        upscale_ratio = float(match.group(1))
+                    else:
+                        upscale_ratio = 0
+                else:
+                    upscale_ratio = float(upscale_ratio) if upscale_ratio else 0
+            except (ValueError, TypeError):
+                self.logger.warning(f"无法解析超分倍率: {image_data.get('upscale_ratio')}, 将忽略")
+                upscale_ratio = 0
+            
+            if upscale_ratio > 0:
                 self.logger.info(f"检测到超分倍率: {upscale_ratio}, 将坐标和字体大小缩小到原图比例")
                 for region in regions:
                     # 缩放坐标
@@ -118,7 +139,7 @@ class FileService:
                     img_array = np.frombuffer(img_bytes, dtype=np.uint8)
                     raw_mask = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
                     # 如果有超分倍率，缩小mask
-                    if upscale_ratio and upscale_ratio > 0 and raw_mask is not None:
+                    if upscale_ratio > 0 and raw_mask is not None:
                         new_height = int(raw_mask.shape[0] / upscale_ratio)
                         new_width = int(raw_mask.shape[1] / upscale_ratio)
                         raw_mask = cv2.resize(raw_mask, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
@@ -129,7 +150,7 @@ class FileService:
             elif isinstance(mask_data, list):
                 raw_mask = np.array(mask_data, dtype=np.uint8)
                 # 如果有超分倍率，缩小mask
-                if upscale_ratio and upscale_ratio > 0 and raw_mask is not None:
+                if upscale_ratio > 0 and raw_mask is not None:
                     new_height = int(raw_mask.shape[0] / upscale_ratio)
                     new_width = int(raw_mask.shape[1] / upscale_ratio)
                     raw_mask = cv2.resize(raw_mask, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
