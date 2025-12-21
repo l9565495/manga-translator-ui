@@ -1424,7 +1424,7 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
                         reversed_direction: bool, fg: Tuple[int, int, int], bg: Tuple[int, int, int],
                         lang: str = 'en_US', hyphenate: bool = True, line_spacing: int = 0, config=None, region_count: int = 1):
 
-    logger.debug(f"[RENDER] put_text_horizontal开始，文本长度: {len(text)}, font_size: {font_size}, width: {width}, height: {height}")
+    logger.info(f"[RENDER] put_text_horizontal开始，文本长度: {len(text)}, font_size: {font_size}, width: {width}, height: {height}")
     
     # 应用最大字体限制
     if config and hasattr(config.render, 'max_font_size') and config.render.max_font_size > 0:
