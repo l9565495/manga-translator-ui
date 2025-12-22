@@ -118,8 +118,6 @@ class ConcurrentPipeline:
                 ctx.img_rgb, ctx.img_alpha = load_image(image)
                 
                 if config.colorizer.colorizer.value != 'none':
-                    # 调试：确认 ctx.input 是 PIL Image
-                    logger.debug(f"[检测+OCR] ctx.input 类型: {type(ctx.input)}, hasattr convert: {hasattr(ctx.input, 'convert')}")
                     colorized_result = await self.translator._run_colorizer(config, ctx)
                     # colorizer 返回 PIL Image，需要转换为 numpy
                     if hasattr(colorized_result, 'mode'):  # PIL Image
