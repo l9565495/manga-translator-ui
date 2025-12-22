@@ -1124,8 +1124,7 @@ class MangaTranslator:
             colorization_size=config.colorizer.colorization_size,
             denoise_sigma=config.colorizer.denoise_sigma,
             device=self.device,
-            image=ctx.input,
-            **ctx
+            image=ctx.input
         )
 
     async def _run_upscaling(self, config: Config, ctx: Context):
