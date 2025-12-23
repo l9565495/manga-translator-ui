@@ -2,14 +2,14 @@
 
 <img src="doc/images/主页.png" width="500" alt="主页">
 
-[![DeepWiki文档](https://img.shields.io/badge/DeepWiki-在线文档-blue)](https://deepwiki.com/hgmzhn/manga-translator-ui)
-[![基于](https://img.shields.io/badge/基于-manga--image--translator-green)](https://github.com/zyddnys/manga-image-translator)
-[![模型](https://img.shields.io/badge/模型-Real--CUGAN-orange)](https://github.com/bilibili/ailab)
-[![模型](https://img.shields.io/badge/模型-MangaJaNai-orange)](https://github.com/the-database/MangaJaNai)
-[![模型](https://img.shields.io/badge/模型-YSG-orange)](https://github.com/lhj5426/YSG)
+[![DeepWiki文档](https://img.shields.io/badge/DeepWiki-%E5%9C%A8%E7%BA%BF%E6%96%87%E6%A1%A3-blue)](https://deepwiki.com/hgmzhn/manga-translator-ui)
+[![基于](https://img.shields.io/badge/%E5%9F%BA%E4%BA%8E-manga--image--translator-green)](https://github.com/zyddnys/manga-image-translator)
+[![模型](https://img.shields.io/badge/%E6%A8%A1%E5%9E%8B-Real--CUGAN-orange)](https://github.com/bilibili/ailab)
+[![模型](https://img.shields.io/badge/%E6%A8%A1%E5%9E%8B-MangaJaNai-orange)](https://github.com/the-database/MangaJaNai)
+[![模型](https://img.shields.io/badge/%E6%A8%A1%E5%9E%8B-YSG-orange)](https://github.com/lhj5426/YSG)
 [![OCR](https://img.shields.io/badge/OCR-PaddleOCR-blue)](https://github.com/PaddlePaddle/PaddleOCR)
 [![OCR](https://img.shields.io/badge/OCR-MangaOCR-blue)](https://github.com/kha-white/manga-ocr)
-[![许可证](https://img.shields.io/badge/许可证-GPL--3.0-red)](LICENSE)
+[![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-GPL--3.0-red)](LICENSE)
 
 </div>
 
