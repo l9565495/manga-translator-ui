@@ -91,7 +91,7 @@
   "colorizer": {
     "colorization_size": 2048,
     "denoise_sigma": 30,
-    "colorizer": "mc2"
+    "colorizer": "none"
   },
   "cli": {
     "verbose": false,
@@ -108,7 +108,7 @@
     "template": false,
     "save_quality": 100,
     "batch_size": 3,
-    "batch_concurrent": true,
+    "batch_concurrent": false,
     "generate_and_export": false,
     "colorize_only": false,
     "upscale_only": false,

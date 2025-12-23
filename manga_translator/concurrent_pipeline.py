@@ -551,6 +551,13 @@ class ConcurrentPipeline:
                     for i, region in enumerate(ctx.text_regions[:3]):  # 只显示前3个
                         logger.debug(f"[渲染调试] Region {i}: translation='{region.translation[:30]}...', font_size={region.font_size}, xywh={region.xywh}")
                 
+                # ✅ 在渲染之前先保存修复后图片的副本（用于后续保存到inpainted目录）
+                img_inpainted_copy = None
+                if (self.translator.save_text or self.translator.text_output_file) and hasattr(ctx, 'img_inpainted') and ctx.img_inpainted is not None:
+                    import numpy as np
+                    img_inpainted_copy = np.copy(ctx.img_inpainted)
+                    logger.debug(f"[渲染] 已备份修复后图片用于保存")
+                
                 if not ctx.text_regions:
                     # 无文本，直接使用upscaled
                     from .utils.generic import dump_image
@@ -594,10 +601,22 @@ class ConcurrentPipeline:
                             final_output_path = self.translator._calculate_output_path(ctx.image_name, save_info)
                             self.translator._save_translated_image(ctx.result, final_output_path, ctx.image_name, overwrite, "CONCURRENT")
                             
-                            # ✅ 保存修复后的图片到inpainted目录（与批量模式保持一致）
-                            # 与JSON保存逻辑保持一致：save_text或text_output_file任一满足即保存
-                            if (self.translator.save_text or self.translator.text_output_file) and hasattr(ctx, 'image_name') and ctx.image_name and ctx.img_inpainted is not None:
-                                self.translator._save_inpainted_image(ctx.image_name, ctx.img_inpainted)
+                            # ✅ 保存修复后的图片到inpainted目录（使用渲染前备份的副本）
+                            if img_inpainted_copy is not None:
+                                try:
+                                    from .utils.path_manager import get_inpainted_path
+                                    from .utils.generic import imwrite_unicode
+                                    import cv2
+                                    
+                                    inpainted_path = get_inpainted_path(ctx.image_name, create_dir=True)
+                                    imwrite_unicode(inpainted_path, cv2.cvtColor(img_inpainted_copy, cv2.COLOR_RGB2BGR), logger)
+                                    logger.info(f"[渲染] 修复后图片已保存: {inpainted_path}")
+                                except Exception as e:
+                                    logger.error(f"[渲染] 保存修复后图片失败: {e}")
+                                finally:
+                                    # 释放副本内存
+                                    del img_inpainted_copy
+                                    img_inpainted_copy = None
                             
                             # 保存JSON（如果需要）
                             if (self.translator.save_text or self.translator.text_output_file) and ctx.text_regions is not None:
