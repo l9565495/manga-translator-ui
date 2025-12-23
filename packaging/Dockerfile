@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     build-essential \
+    g++ \
+    libeigen3-dev \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -41,6 +43,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     curl \
     build-essential \
+    g++ \
+    libeigen3-dev \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -69,16 +73,18 @@ COPY . /app/
 ARG BUILD_TYPE=cpu
 RUN if [ "$BUILD_TYPE" = "gpu" ]; then \
         # GPU 版本：从源码编译 pydensecrf
-        echo "Building pydensecrf from source" && \
+        echo "Building pydensecrf from source for GPU" && \
+        pip install --no-cache-dir setuptools wheel && \
         pip install --no-cache-dir Cython numpy && \
-        pip install --no-cache-dir git+https://github.com/lucasb-eyer/pydensecrf.git && \
+        pip install --no-cache-dir --verbose git+https://github.com/lucasb-eyer/pydensecrf.git && \
         grep -v "^pydensecrf" requirements_gpu.txt > /tmp/requirements_gpu_no_pydensecrf.txt && \
         pip install --no-cache-dir -r /tmp/requirements_gpu_no_pydensecrf.txt; \
     else \
         # CPU 版本：从源码编译 pydensecrf
-        echo "Building pydensecrf from source" && \
+        echo "Building pydensecrf from source for CPU" && \
+        pip install --no-cache-dir setuptools wheel && \
         pip install --no-cache-dir Cython numpy && \
-        pip install --no-cache-dir git+https://github.com/lucasb-eyer/pydensecrf.git && \
+        pip install --no-cache-dir --verbose git+https://github.com/lucasb-eyer/pydensecrf.git && \
         grep -v "^pydensecrf" requirements_cpu.txt > /tmp/requirements_cpu_no_pydensecrf.txt && \
         pip install --no-cache-dir -r /tmp/requirements_cpu_no_pydensecrf.txt; \
     fi
