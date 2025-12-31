@@ -486,8 +486,8 @@ def generate_text_layer_jsx(index: int, text_region, default_font: str, line_spa
     # 旋转
     rotation_code = ""
     if abs(text_region.angle) > 1:  # 只有角度大于1度才旋转
-        # PS 的旋转是逆时针，需要取负值
-        rotation_code = f"textLayer{index}.rotate({-text_region.angle}, AnchorPosition.MIDDLECENTER);"
+        # 直接使用原始角度值
+        rotation_code = f"textLayer{index}.rotate({text_region.angle}, AnchorPosition.MIDDLECENTER);"
     
     # 縦中横处理（仅竖排文字）
     tcy_code = ""
