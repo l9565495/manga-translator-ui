@@ -247,6 +247,9 @@ class MangaTranslator:
         self.upscale_only = params.get('upscale_only', False)
         self.inpaint_only = params.get('inpaint_only', False)
         
+        # 替换翻译模式（从已翻译图片复制翻译数据到生肉图片）
+        self.replace_translation = params.get('replace_translation', False)
+        
         
         # batch_concurrent 已在初始化时设置并验证
         
@@ -494,6 +497,8 @@ class MangaTranslator:
                 _, buffer = cv2.imencode('.png', ctx.mask_raw)
                 mask_base64 = base64.b64encode(buffer).decode('utf-8')
                 data_to_save['mask_raw'] = mask_base64
+                # 保存蒙版是否已优化的标志
+                data_to_save['mask_is_refined'] = getattr(ctx, 'mask_is_refined', False)
             except Exception as e:
                 logger.error(f"Failed to encode mask to base64: {e}")
 
@@ -2622,6 +2627,11 @@ class MangaTranslator:
                 if is_hq_translator and is_import_export_mode:
                     logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
         
+        # === 步骤1.5: 替换翻译模式 ===
+        if self.replace_translation and images_with_configs:
+            logger.info("Replace translation mode detected: Will extract translations from translated images")
+            return await self._translate_batch_replace_translation(images_with_configs, save_info, global_offset, global_total)
+        
         # === 步骤2: 检查是否需要使用顺序处理模式 ===
         # 注意：不要在这里调用 translate()，因为 translate() 会调用 translate_batch()，造成无限循环
         # 相反，我们直接使用批量处理逻辑，但 batch_size 设置为 1
@@ -2650,7 +2660,8 @@ class MangaTranslator:
             self.generate_and_export or 
             self.colorize_only or 
             self.upscale_only or 
-            self.inpaint_only
+            self.inpaint_only or
+            self.replace_translation  # 替换翻译模式也不支持并发
         )
         
         # 如果启用了并发但有不兼容模式，给出提示
@@ -2668,6 +2679,8 @@ class MangaTranslator:
                 incompatible_modes.append("仅超分")
             if self.inpaint_only:
                 incompatible_modes.append("仅修复")
+            if self.replace_translation:
+                incompatible_modes.append("替换翻译")
             
             logger.info(f'⚠️  并发流水线已禁用：当前模式 [{", ".join(incompatible_modes)}] 不支持并发处理')
         
@@ -4620,6 +4633,25 @@ class MangaTranslator:
 
         except Exception as e:
             logger.error(f"Failed to update translation map: {e}")
+
+    async def _translate_batch_replace_translation(self, images_with_configs: List[tuple], save_info: dict = None, global_offset: int = 0, global_total: int = None) -> List[Context]:
+        """
+        替换翻译模式：从翻译图提取OCR结果并应用到生肉图
+        
+        流程：
+        1. 对生肉图执行检测+OCR，过滤低置信度区域
+        2. 查找对应的翻译图，执行检测+OCR
+        3. 区域匹配（考虑尺寸缩放）
+        4. 使用匹配的区域执行修复和渲染
+        
+        Args:
+            images_with_configs: List of (image, config) tuples
+            save_info: 保存配置
+            global_offset: 全局偏移量
+            global_total: 全局总图片数
+        """
+        from .utils.replace_translation import translate_batch_replace_translation
+        return await translate_batch_replace_translation(self, images_with_configs, save_info, global_offset, global_total)
 
     async def _translate_batch_high_quality(self, images_with_configs: List[tuple], save_info: dict = None, global_offset: int = 0, global_total: int = None) -> List[Context]:
         """

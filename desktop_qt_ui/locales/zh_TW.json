@@ -569,5 +569,13 @@
   "Black": "黑色",
   "label_psd_font": "PSD匯出字型",
   "label_psd_script_only": "僅生成腳本",
-  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Photoshop 字型名稱 (PostScript 名，如 SimHei)"
+  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Photoshop 字型名稱 (PostScript 名，如 SimHei)",
+  "Replace Translation": "替換翻譯",
+  "label_replace_translation": "替換翻譯模式",
+  "label_replace_translation_mode": "替換翻譯方式",
+  "replace_translation_mode_direct_copy": "直接複製坐標",
+  "replace_translation_mode_scale_by_size": "按尺寸縮放",
+  "replace_translation_mode_region_match": "區域匹配",
+  "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 提示：替換翻譯將一張圖的翻譯資料套用到另一張生肉圖片上",
+  "Start Replace Translation": "開始替換翻譯"
 }

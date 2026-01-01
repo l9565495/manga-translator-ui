@@ -877,7 +877,7 @@ def distance_point_lineseg(p: np.ndarray, p1: np.ndarray, p2: np.ndarray):
     dy = y - yy
     return np.sqrt(dx * dx + dy * dy)
 
-def quadrilateral_can_merge_region(a: Quadrilateral, b: Quadrilateral, ratio = 1.9, discard_connection_gap = 2, char_gap_tolerance = 0.6, char_gap_tolerance2 = 1.5, font_size_ratio_tol = 1.5, aspect_ratio_tol = 2, debug = False) -> bool:
+def quadrilateral_can_merge_region(a: Quadrilateral, b: Quadrilateral, ratio = 1.9, discard_connection_gap = 2, char_gap_tolerance = 0.6, char_gap_tolerance2 = 1.5, font_size_ratio_tol = 2.0, aspect_ratio_tol = 3.0, debug = False) -> bool:
     b1 = a.aabb
     b2 = b.aabb
     char_size = min(a.font_size, b.font_size)
@@ -888,8 +888,48 @@ def quadrilateral_can_merge_region(a: Quadrilateral, b: Quadrilateral, ratio = 1
     p2 = Polygon(b.pts)
     dist = p1.distance(p2)
 
-    if dist > discard_connection_gap * char_size:
+    # Relaxed constraint: Allow larger gap for vertical text merging (often ellipses are far)
+    if dist > discard_connection_gap * char_size * 1.5:
         return False
+    
+    # === FORCE MERGE ALIGNED BLOCKS ===
+    # 特殊逻辑：如果两个块在排列方向上高度对齐（重叠），且距离很近，强制允许合并
+    # 解决如 "抱..." 和 "抱歉" 竖排并列未能合并的问题
+    if a.assigned_direction == b.assigned_direction:
+        direction = a.assigned_direction or a.direction
+        
+        # 计算中心点距离
+        cx1, cy1 = x1 + w1/2, y1 + h1/2
+        cx2, cy2 = x2 + w2/2, y2 + h2/2
+        
+        if direction == 'v': # 竖排文本，检查垂直重叠（Y轴）和水平距离（X轴）
+            # 垂直投影重叠率
+            y_overlap = max(0, min(y1 + h1, y2 + h2) - max(y1, y2))
+            min_h = min(h1, h2)
+            y_overlap_ratio = y_overlap / min_h if min_h > 0 else 0
+            
+            # 水平距离（边缘到边缘）
+            x_dist = max(0, max(x1, x2) - min(x1 + w1, x2 + w2))
+            
+            # 如果垂直高度重叠超过 80%，且水平距离小于 1.5 个字符宽度
+            if y_overlap_ratio > 0.8 and x_dist < char_size * 1.5:
+                # 进一步放宽条件：如果字体大小也差不多，直接合并
+                if max(a.font_size, b.font_size) / char_size < 2.5:
+                    return True
+                    
+        elif direction == 'h': # 横排文本，检查水平重叠（X轴）和垂直距离（Y轴）
+            # 水平投影重叠率
+            x_overlap = max(0, min(x1 + w1, x2 + w2) - max(x1, x2))
+            min_w = min(w1, w2)
+            x_overlap_ratio = x_overlap / min_w if min_w > 0 else 0
+            
+            # 垂直距离
+            y_dist = max(0, max(y1, y2) - min(y1 + h1, y2 + h2))
+            
+            if x_overlap_ratio > 0.8 and y_dist < char_size * 1.5:
+                if max(a.font_size, b.font_size) / char_size < 2.5:
+                    return True
+
     if max(a.font_size, b.font_size) / char_size > font_size_ratio_tol:
         return False
     if a.aspect_ratio > aspect_ratio_tol and b.aspect_ratio < 1. / aspect_ratio_tol:

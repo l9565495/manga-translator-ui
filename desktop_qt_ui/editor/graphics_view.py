@@ -1717,7 +1717,6 @@ class GraphicsView(QGraphicsView):
 
     def _add_text_box(self):
         """添加新的文本框"""
-        print("[_add_text_box] 被调用")
         controller = self._get_controller()
         if controller:
             controller.enter_drawing_mode()
@@ -1886,14 +1885,24 @@ class GraphicsView(QGraphicsView):
                             'font_color': template_region.get('font_color', '#000000'),
                             'alignment': template_region.get('alignment', 'center'),
                             'direction': template_region.get('direction', 'auto'),
-                            'bold': template_region.get('bold', False),
-                            'italic': template_region.get('italic', False),
                             'angle': template_region.get('angle', 0)
                         }
             
             # 计算中心点（在图像坐标系中）
             center_scene = QPointF(rect_center_x, rect_center_y)
             center_image = inverse_transform.map(center_scene)
+            
+            # 从配置服务获取默认渲染参数
+            from services import get_config_service
+            config_service = get_config_service()
+            config = config_service.get_config()
+            default_line_spacing = config.render.line_spacing if hasattr(config.render, 'line_spacing') else 1.0
+            default_stroke_width = config.render.stroke_width if hasattr(config.render, 'stroke_width') else 0.07
+            # 确保不为 None
+            if default_line_spacing is None:
+                default_line_spacing = 1.0
+            if default_stroke_width is None:
+                default_stroke_width = 0.07
             
             # 创建新区域数据，使用模板样式或默认值
             new_region_data = {
@@ -1908,9 +1917,11 @@ class GraphicsView(QGraphicsView):
                 'font_color': template_data.get('font_color', '#000000'),
                 'alignment': template_data.get('alignment', 'center'),
                 'direction': template_data.get('direction', 'auto'),
-                'bold': template_data.get('bold', False),
-                'italic': template_data.get('italic', False),
-                'angle': template_data.get('angle', 0)
+                'angle': template_data.get('angle', 0),
+                'line_spacing': default_line_spacing,
+                'stroke_width': default_stroke_width,
+                'stroke_color_type': 'white',  # 默认白色描边
+                'font_path': ''  # 空字符串，渲染时会自动使用主页配置的默认字体
             }
             
             # 通知控制器添加新区域 - 使用命令模式以支持撤销
@@ -1918,11 +1929,7 @@ class GraphicsView(QGraphicsView):
             if controller:
                 from editor.commands import AddRegionCommand
 
-                print(f"[_create_new_text_region] 添加前 regions 数量: {len(self.model._regions)}")
-                print(f"[_create_new_text_region] 新 region_data: center={new_region_data.get('center')}, angle={new_region_data.get('angle')}, lines 数量={len(new_region_data.get('lines', []))}")
-
                 # 重置 _last_edited_region_index,确保触发完全更新
-                print(f"[_create_new_text_region] 重置 _last_edited_region_index: {self._last_edited_region_index} -> None")
                 self._last_edited_region_index = None
 
                 # 使用命令模式添加新区域
@@ -1932,19 +1939,14 @@ class GraphicsView(QGraphicsView):
                     description="Add New Text Box"
                 )
                 controller.execute_command(command)
-                print(f"[_create_new_text_region] 添加后 regions 数量: {len(self.model._regions)}")
 
                 # 选中新创建的区域
-                new_index = len(self.model._regions) - 1
-                print(f"[_create_new_text_region] 选中新区域: {new_index}")
+                new_index = len(self.model.get_regions()) - 1
                 self.model.set_selection([new_index])
-                print(f"[_create_new_text_region] 当前选中: {self.model.get_selection()}")
 
                 # 强制更新 view
-                print(f"[_create_new_text_region] 强制更新 view")
                 self.viewport().update()
                 self.scene.update()
-                print(f"[_create_new_text_region] 完成")
 
         except Exception as e:
             import traceback

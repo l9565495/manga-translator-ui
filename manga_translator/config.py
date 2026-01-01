@@ -371,6 +371,8 @@ class CliConfig(BaseModel):
     """Font name for PSD export (PostScript name, e.g. ArialMT, SimHei). If not set, uses default font."""
     psd_script_only: bool = False
     """Only generate JSX script without executing Photoshop"""
+    replace_translation: bool = False
+    """Replace translation mode: apply translation from one image to another raw image"""
 
 class OcrConfig(BaseModel):
     use_mocr_merge: bool = False

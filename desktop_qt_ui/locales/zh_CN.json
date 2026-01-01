@@ -642,5 +642,13 @@
   "Failed to get models": "获取模型列表失败",
   "No models available": "没有可用的模型",
   "White": "白色",
-  "Black": "黑色"
+  "Black": "黑色",
+  "Replace Translation": "替换翻译",
+  "label_replace_translation": "替换翻译模式",
+  "label_replace_translation_mode": "替换翻译方式",
+  "replace_translation_mode_direct_copy": "直接复制坐标",
+  "replace_translation_mode_scale_by_size": "按尺寸缩放",
+  "replace_translation_mode_region_match": "区域匹配",
+  "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 提示：替换翻译将一张图的翻译数据应用到另一张生肉图片上",
+  "Start Replace Translation": "开始替换翻译"
 }

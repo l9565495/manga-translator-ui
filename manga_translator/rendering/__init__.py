@@ -430,6 +430,8 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
         return_debug_img: If True, returns (dst_points_list, debug_img) for balloon_fill mode
     """
     mode = config.render.layout_mode
+    
+    logger.info(f"[RESIZE] 开始处理 {len(text_regions)} 个区域")
 
     # Prepare debug image for balloon_fill mode (only when requested)
     debug_img = None
@@ -440,11 +442,13 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
     dst_points_list = []
     for region_idx, region in enumerate(text_regions):
         if region is None:
+            logger.info(f"[RESIZE] 区域 {region_idx}: None，跳过")
             dst_points_list.append(None)
             continue
 
         # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
         if not region.translation or not region.translation.strip():
+            logger.info(f"[RESIZE] 区域 {region_idx}: translation 为空，使用 min_rect")
             dst_points_list.append(region.min_rect)
             continue
 
@@ -673,11 +677,26 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             min_shrink_font_size = max(min_font_size, 8)
 
             # AI 断句适配：如果开启了 AI 断句且有 BR 标记，使用无限宽度/高度
-            use_ai_break = config.render.disable_auto_wrap and has_br
+            
+            # 检测是否为替换翻译模式
+            is_replace_mode = config.cli.replace_translation if (config and hasattr(config, 'cli')) else False
+            
+            # 增强逻辑：如果是替换翻译模式 + 严格模式，且OCR检测为单行（len(region.lines) == 1）
+            # 强制使用无限宽度（不换行），以复刻原图的单行结构
+            is_single_line = len(region.lines) == 1
+            force_single_line_no_wrap = is_replace_mode and is_single_line
+            
+            use_ai_break = (config.render.disable_auto_wrap and has_br) or force_single_line_no_wrap
+            
             if use_ai_break:
                 calc_max_width = 99999
                 calc_max_height = 99999
-                logger.debug(f"[STRICT MODE] AI断句开启，使用无限尺寸")
+                if force_single_line_no_wrap:
+                    logger.debug(f"[STRICT MODE] 替换模式单行强制不换行 (OCR lines=1)，使用无限尺寸")
+                    # 强制清洗文本：移除所有可能导致换行的字符（\n, [BR]等），确保它真的是单行
+                    region.translation = re.sub(r'(\n|\[BR\]|【BR】|<br>)', '', region.translation, flags=re.IGNORECASE)
+                else:
+                    logger.debug(f"[STRICT MODE] AI断句开启，使用无限尺寸")
             else:
                 calc_max_width = region.unrotated_size[0]
                 calc_max_height = region.unrotated_size[1]
@@ -1259,6 +1278,12 @@ async def dispatch(
         # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
         # 注意：这是缩放后的真实文本区域，不是 render 函数中扩展后的区域
         region.dst_points = dst_points
+        
+        # 检查是否有文本需要渲染
+        if not region.translation or not region.translation.strip():
+            logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
+            continue
+        
         # 行间距 = 基础值 * 倍率：横排基础 0.01，竖排基础 0.2
         line_spacing_multiplier = getattr(region, 'line_spacing', 1.0)
         base_spacing = 0.01 if region.horizontal else 0.2

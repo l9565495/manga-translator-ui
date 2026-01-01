@@ -110,6 +110,7 @@ class CliSettings(BaseModel):
     export_editable_psd: bool = False  # 导出可编辑的PSD文件（需要Photoshop）
     psd_font: Optional[str] = None  # PSD导出使用的字体名称 (PostScript名称)
     psd_script_only: bool = False  # 仅生成JSX脚本而不执行Photoshop
+    replace_translation: bool = False  # 替换翻译模式：将一张图的翻译应用到另一张生肉图上
 
 class AppSection(BaseModel):
     last_open_dir: str = '.'

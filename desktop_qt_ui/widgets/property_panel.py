@@ -965,7 +965,16 @@ class PropertyPanel(QWidget):
         else:
             # 如果没有 stroke_color_type，从 bg_colors 判断
             bg_colors = region_data.get('bg_colors')
-            if isinstance(bg_colors, (list, tuple)) and len(bg_colors) == 3:
+            bg_color = region_data.get('bg_color')  # 也检查 bg_color 字段
+            
+            # 优先使用 bg_color（单个值），其次使用 bg_colors（数组）
+            if bg_color and isinstance(bg_color, (list, tuple)) and len(bg_color) == 3:
+                avg = sum(bg_color) / 3
+                if avg > 127:
+                    self.stroke_color_combo.setCurrentIndex(0)  # White
+                else:
+                    self.stroke_color_combo.setCurrentIndex(1)  # Black
+            elif isinstance(bg_colors, (list, tuple)) and len(bg_colors) == 3:
                 avg = sum(bg_colors) / 3
                 if avg > 127:
                     self.stroke_color_combo.setCurrentIndex(0)  # White
@@ -999,11 +1008,11 @@ class PropertyPanel(QWidget):
         
         # Update stroke width
         stroke_width = region_data.get("stroke_width", region_data.get("default_stroke_width", 0.07))
-        self.stroke_width_spinbox.setValue(stroke_width)
+        self.stroke_width_spinbox.setValue(stroke_width if stroke_width is not None else 0.07)
         
         # Update line spacing
         line_spacing = region_data.get("line_spacing", 1.0)
-        self.line_spacing_spinbox.setValue(line_spacing)
+        self.line_spacing_spinbox.setValue(line_spacing if line_spacing is not None else 1.0)
         
         # Update font family selector
         font_path = region_data.get("font_path", "")
@@ -1114,10 +1123,10 @@ class PropertyPanel(QWidget):
     
     def _on_original_text_changed(self):
         """保留这个方法以防需要，但现在不使用"""
-        if self.current_region_index != -1:
+        if self.current_region_index != -1 and not self.block_updates:
             self.original_text_modified.emit(self.current_region_index, self.original_text_box.toPlainText())
     def _on_translated_text_changed(self):
-        if self.current_region_index != -1:
+        if self.current_region_index != -1 and not self.block_updates:
             import re
 
             # 1. 将 ⇄ 替换回 <H> 标签
@@ -1127,6 +1136,7 @@ class PropertyPanel(QWidget):
             # 2. 将 ↵ 替换回 \n
             text_with_newlines = text_with_tags.replace('↵', '\n')
 
+            print(f"[PropertyPanel] 翻译文本修改: region={self.current_region_index}, text='{text_with_newlines[:50]}'")
             self.translated_text_modified.emit(self.current_region_index, text_with_newlines)
     
     def get_selected_ocr_model(self) -> str:

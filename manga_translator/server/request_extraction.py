@@ -269,6 +269,9 @@ def prepare_translator_params(config: Config, workflow: str = "normal") -> dict:
             config.cli.colorize_only = False
         if hasattr(config.cli, 'inpaint_only'):
             config.cli.inpaint_only = False
+        # 替换翻译功能只能在 Qt UI 中使用，Web UI 禁止使用
+        if hasattr(config.cli, 'replace_translation'):
+            config.cli.replace_translation = False
         if hasattr(config.cli, 'use_gpu'):
             config.cli.use_gpu = False
         if hasattr(config.cli, 'attempts'):

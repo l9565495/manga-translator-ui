@@ -21,28 +21,28 @@ class EditorModel(QObject):
     show_removed_mask_changed = pyqtSignal(bool) # New signal
     source_image_path_changed = pyqtSignal(str)
     original_image_alpha_changed = pyqtSignal(float)
-    region_text_updated = pyqtSignal(int) # New signal for targeted text updates
     region_style_updated = pyqtSignal(int) # NEW SIGNAL for targeted style updates
+    region_text_updated = pyqtSignal(int)  # Signal for targeted text updates
     active_tool_changed = pyqtSignal(str)
     brush_size_changed = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        from services import get_resource_manager
+        self.resource_manager = get_resource_manager()
+        
         self._source_image_path: Optional[str] = None
-        self._image: Optional[Any] = None
-        self._regions: List[Dict[str, Any]] = []
-        self._raw_mask: Optional[Any] = None
-        self._refined_mask: Optional[Any] = None
-        self._inpainted_image: Optional[Any] = None
-        self._inpainted_image_path: Optional[str] = None  # 新增：存储inpainted图片路径
+        # self._image, self._regions, etc. removed in favor of ResourceManager
+        
+        self._inpainted_image_path: Optional[str] = None  # Store inpainted path
         self._display_mask_type: str = 'none'
         self._selected_indices: List[int] = []
-        self._region_display_mode: str = 'full' # New property
-        self._show_removed_mask: bool = False # New property
-        self._original_image_alpha: float = 0.0  # 默认完全透明，显示inpainted图片
+        self._region_display_mode: str = 'full'
+        self._show_removed_mask: bool = False
+        self._original_image_alpha: float = 0.0
         self._active_tool: str = 'select'
         self._brush_size: int = 30
-        self.controller = None  # 添加controller引用，用于命令模式
+        self.controller = None
 
     # --- Getter / Setter 方法 ---
 
@@ -55,36 +55,67 @@ class EditorModel(QObject):
         return self._source_image_path
 
     def set_image(self, image: Any):
-        if self._image is not image:
-            self._image = image
-            self.image_changed.emit(image)
+        # Assume ResourceManager has been updated by the caller (Controller) if loaded from file.
+        # Or if passed directly, we can't easily update RM without path. 
+        # For now, we rely on Controller's workflow where RM is the source of truth for loading.
+        # This setter is mainly for triggering the signal.
+        self.image_changed.emit(image)
 
     def get_image(self) -> Optional[Any]:
-        return self._image
+        resource = self.resource_manager.get_current_image()
+        return resource.image if resource else None
 
     def set_regions(self, regions: List[Dict[str, Any]]):
-        self._regions = regions
+        # Clear and update ResourceManager
+        self.resource_manager.clear_regions()
+        for region_data in regions:
+            self.resource_manager.add_region(region_data)
         self.regions_changed.emit(regions)
 
     def get_regions(self) -> List[Dict[str, Any]]:
-        return self._regions
+        resources = self.resource_manager.get_all_regions()
+        return [r.data for r in resources]
 
     def set_raw_mask(self, mask: Any):
-        self._raw_mask = mask
+        from desktop_qt_ui.editor.core.types import MaskType
+        import numpy as np
+        if mask is not None:
+             # Ensure mask is numpy array
+            if not isinstance(mask, np.ndarray):
+                 # Try to convert if it's not (though it should be)
+                 mask = np.array(mask)
+            self.resource_manager.set_mask(MaskType.RAW, mask)
+        else:
+            # How to unset? ResourceManager doesn't have unset_mask specific, 
+            # but we can assume setting None isn't supported by set_mask directly likely.
+            # But ResourceManager.clear_masks clears ALL.
+            # Ideally we only clear RAW.
+            pass
+            
         self.raw_mask_changed.emit(mask)
 
     def get_raw_mask(self) -> Optional[Any]:
-        return self._raw_mask
+        from desktop_qt_ui.editor.core.types import MaskType
+        resource = self.resource_manager.get_mask(MaskType.RAW)
+        return resource.data if resource else None
 
     def set_refined_mask(self, mask: Any):
-        self._refined_mask = mask
+        from desktop_qt_ui.editor.core.types import MaskType
+        import numpy as np
+        if mask is not None:
+             if not isinstance(mask, np.ndarray):
+                 mask = np.array(mask)
+             self.resource_manager.set_mask(MaskType.REFINED, mask)
+        
         self.refined_mask_changed.emit(mask)
         # Force immediate display update if this is the current display type
         if self._display_mask_type == 'refined':
             self.display_mask_type_changed.emit('refined')
 
     def get_refined_mask(self) -> Optional[Any]:
-        return self._refined_mask
+        from desktop_qt_ui.editor.core.types import MaskType
+        resource = self.resource_manager.get_mask(MaskType.REFINED)
+        return resource.data if resource else None
 
     def set_display_mask_type(self, mask_type: str):
         """Sets which mask ('raw', 'refined', or 'none') should be displayed."""
@@ -124,16 +155,19 @@ class EditorModel(QObject):
 
     def get_region_by_index(self, index: int) -> Optional[Dict[str, Any]]:
         """通过索引安全地获取区域数据"""
-        if 0 <= index < len(self._regions):
-            return self._regions[index]
+        regions = self.get_regions()
+        if 0 <= index < len(regions):
+            return regions[index]
         return None
 
     def set_inpainted_image(self, image: Any):
-        self._inpainted_image = image
+        # Store in temp cache of ResourceManager or keep local?
+        # Let's use ResourceManager's temp cache to be consistent with "Unification"
+        self.resource_manager.set_cache("inpainted_image", image)
         self.inpainted_image_changed.emit(image)
 
     def get_inpainted_image(self) -> Optional[Any]:
-        return self._inpainted_image
+        return self.resource_manager.get_cache("inpainted_image")
 
     def set_region_display_mode(self, mode: str):
         """设置区域显示模式 ('full', 'text_only', 'box_only', 'none')"""
@@ -170,53 +204,34 @@ class EditorModel(QObject):
 
     def update_region_text(self, index: int, key: str, value: str):
         """Updates only the text of a specific region and emits a targeted signal."""
-        if 0 <= index < len(self._regions):
-            if self._regions[index].get(key) != value:
-                self._regions[index][key] = value
+        all_regions = self.resource_manager.get_all_regions()
+        if 0 <= index < len(all_regions):
+            region_resource = all_regions[index]
+            if region_resource.data.get(key) != value:
+                self.resource_manager.update_region(region_resource.region_id, {key: value})
                 self.region_text_updated.emit(index) # Emit targeted signal
 
     def update_region_style(self, index: int, key: str, value: Any):
         """Updates only the style of a specific region and emits a targeted signal."""
-        if 0 <= index < len(self._regions):
-            old_value = self._regions[index].get(key)
+        all_regions = self.resource_manager.get_all_regions()
+        if 0 <= index < len(all_regions):
+            region_resource = all_regions[index]
+            old_value = region_resource.data.get(key)
             if old_value != value:
-                self._regions[index][key] = value
-                
-                # 同步更新 ResourceManager 中的数据
-                if self.controller:
-                    try:
-                        resource_manager = self.controller.resource_manager
-                        all_regions = resource_manager.get_all_regions()
-                        if index < len(all_regions):
-                            region_resource = all_regions[index]
-                            resource_manager.update_region(region_resource.region_id, {key: value})
-                    except Exception as e:
-                        import logging
-                        logger = logging.getLogger('manga_translator')
-                        logger.warning(f"Failed to sync region {index} to ResourceManager: {e}")
-                
+                self.resource_manager.update_region(region_resource.region_id, {key: value})
                 self.region_style_updated.emit(index) # Emit targeted signal
 
     def update_region_data(self, index: int, key: str, value: Any):
         """安全地更新单个区域的特定字段，但不发出信号。"""
-        if 0 <= index < len(self._regions):
-            if self._regions[index].get(key) != value:
-                self._regions[index][key] = value
+        all_regions = self.resource_manager.get_all_regions()
+        if 0 <= index < len(all_regions):
+            region_resource = all_regions[index]
+            if region_resource.data.get(key) != value:
+                self.resource_manager.update_region(region_resource.region_id, {key: value})
 
     def update_region_silent(self, index: int, new_data: dict):
         """静默更新整个区域数据,不发出信号"""
-        if 0 <= index < len(self._regions):
-            self._regions[index].update(new_data)
-            
-            # 同步更新 ResourceManager 中的数据
-            if self.controller:
-                try:
-                    resource_manager = self.controller.resource_manager
-                    all_regions = resource_manager.get_all_regions()
-                    if index < len(all_regions):
-                        region_resource = all_regions[index]
-                        resource_manager.update_region(region_resource.region_id, new_data)
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger('manga_translator')
-                    logger.warning(f"Failed to sync region {index} to ResourceManager: {e}")
+        all_regions = self.resource_manager.get_all_regions()
+        if 0 <= index < len(all_regions):
+            region_resource = all_regions[index]
+            self.resource_manager.update_region(region_resource.region_id, new_data)

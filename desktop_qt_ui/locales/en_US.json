@@ -642,5 +642,13 @@
   "Failed to get models": "Failed to get models",
   "No models available": "No models available",
   "White": "White",
-  "Black": "Black"
+  "Black": "Black",
+  "Replace Translation": "Replace Translation",
+  "label_replace_translation": "Replace Translation Mode",
+  "label_replace_translation_mode": "Replace Translation Method",
+  "replace_translation_mode_direct_copy": "Direct Copy Coordinates",
+  "replace_translation_mode_scale_by_size": "Scale by Size",
+  "replace_translation_mode_region_match": "Region Match",
+  "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 Tip: Replace translation applies translations from one image to another raw image",
+  "Start Replace Translation": "Start Replace Translation"
 }

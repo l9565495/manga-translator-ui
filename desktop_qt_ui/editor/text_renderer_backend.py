@@ -64,22 +64,40 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
         disable_auto_wrap_param = render_params.get('disable_auto_wrap', False)
         layout_mode = render_params.get('layout_mode', 'default')
         
+        # 获取区域数（lines数组的长度），用于智能排版模式的换行判断
+        region_count = 1
+        if hasattr(text_block, 'lines') and text_block.lines is not None:
+            try:
+                region_count = len(text_block.lines)
+            except:
+                region_count = 1
+
         # 检测文本中是否有BR标记
         has_br = bool(re.search(r'(\[BR\]|【BR】|<br>|\n)', processed_text, flags=re.IGNORECASE))
         
-        # 只有当AI断句开启且文本中有BR标记时才真正禁用自动换行
-        # 否则回退到自动换行模式
-        effective_disable_auto_wrap = disable_auto_wrap_param and has_br
+        # 核心逻辑同步：当AI断句开启(disable_auto_wrap=True)时：
+        # 1. 如果有 [BR] 标记 -> 强制不换行 (依赖标记)
+        # 2. 如果是 Strict/SmartScaling 模式且为单行 -> 强制不换行
+        # 3. 否则 -> 回退到自动换行
+        
+        is_strict_or_smart = layout_mode in ['strict', 'smart_scaling']
+        is_single_line = region_count <= 1
+        force_no_wrap = is_strict_or_smart and is_single_line
+        
+        # 只有在 disable_auto_wrap_param 为 True 时才应用这些逻辑
+        # effective_disable_auto_wrap = True 意味着传给后端的 width/height 为无限大
+        effective_disable_auto_wrap = disable_auto_wrap_param and (has_br or force_no_wrap)
         
         # 横排使用hyphenate参数控制
         hyphenate = not effective_disable_auto_wrap
         
-        if disable_auto_wrap_param and not has_br:
-            logger.debug(f"[EDITOR RENDER] AI断句开启但无BR标记，回退到自动换行模式")
-        elif effective_disable_auto_wrap:
-            logger.debug(f"[EDITOR RENDER] AI断句开启且有BR标记，禁用自动换行")
-
-        render_params.get('line_spacing')
+        if disable_auto_wrap_param:
+            if has_br:
+                logger.debug(f"[EDITOR RENDER] AI断句开启且有BR标记，禁用自动换行")
+            elif force_no_wrap:
+                logger.debug(f"[EDITOR RENDER] AI断句开启且单行Strict/Smart，禁用自动换行")
+            else:
+                logger.debug(f"[EDITOR RENDER] AI断句开启但无BR且非单行强制模式，回退到自动换行模式")
         disable_font_border = render_params.get('disable_font_border', False)
         
         middle_pts = (dst_points[:, [1, 2, 3, 0]] + dst_points) / 2

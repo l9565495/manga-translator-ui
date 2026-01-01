@@ -22,16 +22,18 @@ class UpdateRegionCommand(QUndoCommand):
 
     def _apply_data(self, data_to_apply: Dict[str, Any]):
         """将给定的数据字典应用到模型中的区域。"""
-        if not (0 <= self._index < len(self._model._regions)):
+        regions = self._model.get_regions()
+        if not (0 <= self._index < len(regions)):
             return
 
         # 检查 center 是否改变
-        old_center = self._model._regions[self._index].get('center')
+        old_center = regions[self._index].get('center')
         new_center = data_to_apply.get('center')
         center_changed = old_center != new_center
 
-        # 直接更新模型中的区域字典
-        self._model._regions[self._index] = data_to_apply
+        # 更新区域数据
+        regions[self._index] = data_to_apply
+        self._model.set_regions(regions)
         
         # 【修复】同时更新resource_manager中的regions
         # ResourceManager使用region_id，需要通过索引获取对应的region_id
@@ -53,11 +55,12 @@ class UpdateRegionCommand(QUndoCommand):
             # 保存当前选择状态
             old_selection = self._model.get_selection()
             # 触发完全更新
-            self._model.regions_changed.emit(self._model._regions)
+            self._model.regions_changed.emit(self._model.get_regions())
             # 恢复选择状态(只有当选择的region还存在时)
             if old_selection:
                 # 检查选择的region是否还在有效范围内
-                valid_selection = [idx for idx in old_selection if 0 <= idx < len(self._model._regions)]
+                current_regions = self._model.get_regions()
+                valid_selection = [idx for idx in old_selection if 0 <= idx < len(current_regions)]
                 if valid_selection:
                     self._model.set_selection(valid_selection)
         else:
@@ -85,8 +88,10 @@ class AddRegionCommand(QUndoCommand):
 
     def redo(self):
         """执行添加操作"""
-        self._model._regions.append(copy.deepcopy(self._region_data))
-        self._index = len(self._model._regions) - 1
+        regions = self._model.get_regions()
+        regions.append(copy.deepcopy(self._region_data))
+        self._index = len(regions) - 1
+        self._model.set_regions(regions)
         
         # 【修复】同时更新resource_manager中的regions
         try:
@@ -97,12 +102,14 @@ class AddRegionCommand(QUndoCommand):
             pass  # 静默失败
         
         # 添加操作触发完全更新
-        self._model.regions_changed.emit(self._model._regions)
+        self._model.regions_changed.emit(self._model.get_regions())
 
     def undo(self):
         """撤销添加操作:删除最后添加的区域"""
-        if self._index is not None and 0 <= self._index < len(self._model._regions):
-            self._model._regions.pop(self._index)
+        regions = self._model.get_regions()
+        if self._index is not None and 0 <= self._index < len(regions):
+            regions.pop(self._index)
+            self._model.set_regions(regions)
             
             # 【修复】同时更新resource_manager中的regions
             # 由于ResourceManager使用字典存储，需要重新同步整个列表
@@ -110,13 +117,13 @@ class AddRegionCommand(QUndoCommand):
                 from services import get_resource_manager
                 resource_manager = get_resource_manager()
                 resource_manager.clear_regions()
-                for region_data in self._model._regions:
+                for region_data in regions:
                     resource_manager.add_region(region_data)
             except Exception:
                 pass  # 静默失败
             
             # 删除操作会改变后续区域的索引,必须触发完全更新
-            self._model.regions_changed.emit(self._model._regions)
+            self._model.regions_changed.emit(self._model.get_regions())
             # 清除选择
             self._model.set_selection([])
 
@@ -131,8 +138,10 @@ class DeleteRegionCommand(QUndoCommand):
 
     def redo(self):
         """执行删除操作"""
-        if 0 <= self._index < len(self._model._regions):
-            self._model._regions.pop(self._index)
+        regions = self._model.get_regions()
+        if 0 <= self._index < len(regions):
+            regions.pop(self._index)
+            self._model.set_regions(regions)
             
             # 【修复】同时更新resource_manager中的regions
             # 由于ResourceManager使用字典存储，需要重新同步整个列表
@@ -140,21 +149,23 @@ class DeleteRegionCommand(QUndoCommand):
                 from services import get_resource_manager
                 resource_manager = get_resource_manager()
                 resource_manager.clear_regions()
-                for region_data in self._model._regions:
+                for region_data in regions:
                     resource_manager.add_region(region_data)
             except Exception:
                 pass  # 静默失败
             
             # 删除操作会改变后续区域的索引,必须触发完全更新
             # 通过直接调用 regions_changed 信号(而不是 region_style_updated)来确保完全更新
-            self._model.regions_changed.emit(self._model._regions)
+            self._model.regions_changed.emit(self._model.get_regions())
             # 清除选择,因为被删除的区域可能被选中
             self._model.set_selection([])
 
     def undo(self):
         """撤销删除操作:在原位置插入回区域"""
-        if 0 <= self._index <= len(self._model._regions):
-            self._model._regions.insert(self._index, copy.deepcopy(self._deleted_data))
+        regions = self._model.get_regions()
+        if 0 <= self._index <= len(regions):
+            regions.insert(self._index, copy.deepcopy(self._deleted_data))
+            self._model.set_regions(regions)
             
             # 【修复】同时更新resource_manager中的regions
             # 由于ResourceManager使用字典存储，需要重新同步整个列表
@@ -162,13 +173,13 @@ class DeleteRegionCommand(QUndoCommand):
                 from services import get_resource_manager
                 resource_manager = get_resource_manager()
                 resource_manager.clear_regions()
-                for region_data in self._model._regions:
+                for region_data in regions:
                     resource_manager.add_region(region_data)
             except Exception:
                 pass  # 静默失败
             
             # 插入操作会改变后续区域的索引,必须触发完全更新
-            self._model.regions_changed.emit(self._model._regions)
+            self._model.regions_changed.emit(self._model.get_regions())
             # 恢复选择到被恢复的区域
             self._model.set_selection([self._index])
 

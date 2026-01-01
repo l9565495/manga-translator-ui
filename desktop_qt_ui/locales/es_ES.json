@@ -565,5 +565,13 @@
   "Black": "Negro",
   "label_psd_font": "Fuente de exportación PSD",
   "label_psd_script_only": "Solo generar script",
-  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Nombre de fuente de Photoshop (Nombre PostScript)"
+  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Nombre de fuente de Photoshop (Nombre PostScript)",
+  "Replace Translation": "Reemplazar Traducción",
+  "label_replace_translation": "Modo de Reemplazo de Traducción",
+  "label_replace_translation_mode": "Método de Reemplazo de Traducción",
+  "replace_translation_mode_direct_copy": "Copia Directa de Coordenadas",
+  "replace_translation_mode_scale_by_size": "Escalar por Tamaño",
+  "replace_translation_mode_region_match": "Coincidencia de Región",
+  "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 Consejo: El reemplazo de traducción aplica traducciones de una imagen a otra imagen en bruto",
+  "Start Replace Translation": "Iniciar Reemplazo de Traducción"
 }

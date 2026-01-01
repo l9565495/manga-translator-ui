@@ -15,6 +15,7 @@ JSON_SUBDIR = "json"
 TRANSLATIONS_SUBDIR = "translations"
 ORIGINALS_SUBDIR = "originals"
 INPAINTED_SUBDIR = "inpainted"
+TRANSLATED_IMAGES_SUBDIR = "translated_images"  # 已翻译图片目录（替换翻译模式使用）
 
 
 def get_work_dir(image_path: str) -> str:
@@ -114,6 +115,71 @@ def get_inpainted_path(image_path: str, create_dir: bool = True) -> str:
     base_name = os.path.splitext(os.path.basename(image_path))[0]
     ext = os.path.splitext(image_path)[1]
     return os.path.join(inpainted_dir, f"{base_name}_inpainted{ext}")
+
+
+def get_translated_images_dir(image_path: str, create_dir: bool = True) -> str:
+    """
+    获取已翻译图片目录的路径
+    
+    Args:
+        image_path: 原图片路径
+        create_dir: 是否自动创建目录
+        
+    Returns:
+        已翻译图片目录的绝对路径
+    """
+    work_dir = get_work_dir(image_path)
+    translated_dir = os.path.join(work_dir, TRANSLATED_IMAGES_SUBDIR)
+    
+    if create_dir:
+        os.makedirs(translated_dir, exist_ok=True)
+    
+    return translated_dir
+
+
+def find_translated_source_json(target_image_path: str, translated_dir: str) -> Optional[str]:
+    """
+    在已翻译图片目录中查找与目标图同名的翻译数据JSON
+    
+    用于替换翻译模式：根据生肉图的文件名，在已翻译目录中查找同名图片的JSON
+    
+    Args:
+        target_image_path: 目标图片（生肉）的路径
+        translated_dir: 已翻译图片所在目录
+        
+    Returns:
+        找到的JSON文件路径，如果不存在返回None
+    """
+    if not translated_dir or not os.path.isdir(translated_dir):
+        return None
+    
+    # 获取目标图的基础文件名（不含扩展名）
+    target_basename = os.path.splitext(os.path.basename(target_image_path))[0]
+    
+    # 在已翻译目录中查找同名图片
+    # 尝试查找 manga_translator_work/json/文件名_translations.json
+    translated_work_dir = os.path.join(translated_dir, WORK_DIR_NAME, JSON_SUBDIR)
+    if os.path.isdir(translated_work_dir):
+        json_path = os.path.join(translated_work_dir, f"{target_basename}_translations.json")
+        if os.path.exists(json_path):
+            return json_path
+    
+    # 向后兼容：查找 已翻译目录/文件名_translations.json
+    old_json_path = os.path.join(translated_dir, f"{target_basename}_translations.json")
+    if os.path.exists(old_json_path):
+        return old_json_path
+    
+    # 尝试匹配任意图片扩展名
+    for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']:
+        # 构造可能的已翻译图片路径
+        possible_translated_image = os.path.join(translated_dir, f"{target_basename}{ext}")
+        if os.path.exists(possible_translated_image):
+            # 查找该图片对应的JSON
+            json_path = find_json_path(possible_translated_image)
+            if json_path:
+                return json_path
+    
+    return None
 
 
 def find_json_path(image_path: str) -> Optional[str]:

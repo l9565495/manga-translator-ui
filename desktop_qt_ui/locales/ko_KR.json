@@ -565,5 +565,13 @@
   "Black": "검은색",
   "label_psd_font": "PSD 내보내기 폰트",
   "label_psd_script_only": "스크립트만 생성",
-  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Photoshop 폰트 이름 (PostScript 이름)"
+  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Photoshop 폰트 이름 (PostScript 이름)",
+  "Replace Translation": "번역 교체",
+  "label_replace_translation": "번역 교체 모드",
+  "label_replace_translation_mode": "번역 교체 방식",
+  "replace_translation_mode_direct_copy": "좌표 직접 복사",
+  "replace_translation_mode_scale_by_size": "크기에 맞게 스케일",
+  "replace_translation_mode_region_match": "영역 매칭",
+  "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 팁: 번역 교체는 한 이미지의 번역을 다른 원본 이미지에 적용합니다",
+  "Start Replace Translation": "번역 교체 시작"
 }

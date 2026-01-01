@@ -562,5 +562,13 @@
   "Black": "黒",
   "label_psd_font": "PSD出力フォント",
   "label_psd_script_only": "スクリプトのみ生成",
-  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Photoshopフォント名 (PostScript名, 例: AdobeHeitiStd-Regular)"
+  "Photoshop Font Name (e.g. AdobeHeitiStd-Regular)": "Photoshopフォント名 (PostScript名, 例: AdobeHeitiStd-Regular)",
+  "Replace Translation": "翻訳置換",
+  "label_replace_translation": "翻訳置換モード",
+  "label_replace_translation_mode": "翻訳置換方式",
+  "replace_translation_mode_direct_copy": "座標を直接コピー",
+  "replace_translation_mode_scale_by_size": "サイズに合わせてスケール",
+  "replace_translation_mode_region_match": "領域マッチング",
+  "💡 Tip: Replace translation applies translations from one image to another raw image": "💡 ヒント：翻訳置換は一つの画像の翻訳を別の生画像に適用します",
+  "Start Replace Translation": "翻訳置換を開始"
 }

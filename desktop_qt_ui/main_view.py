@@ -416,7 +416,8 @@ class MainView(QWidget):
             # realcugan_model 将通过 upscale_ratio 动态下拉框处理
             # gimp_font 已废弃，使用 font_path 代替
             # translator.attempts 隐藏，始终与 cli.attempts 同步
-            if full_key in ["cli.load_text", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "upscale.realcugan_model", "render.gimp_font", "translator.attempts"]:
+            # replace_translation 和 replace_translation_mode 通过工作流模式下拉框控制
+            if full_key in ["cli.load_text", "cli.template", "cli.generate_and_export", "cli.colorize_only", "cli.upscale_only", "cli.inpaint_only", "cli.replace_translation", "cli.replace_translation_mode", "upscale.realcugan_model", "render.gimp_font", "translator.attempts"]:
                 continue
 
             label_text = key
@@ -696,7 +697,8 @@ class MainView(QWidget):
             self._t("Import Translation and Render"),
             self._t("Colorize Only"),
             self._t("Upscale Only"),
-            self._t("Inpaint Only")
+            self._t("Inpaint Only"),
+            self._t("Replace Translation")
         ])
         self.workflow_mode_combo.currentIndexChanged.connect(self._on_workflow_mode_changed)
         left_layout.addWidget(self.workflow_mode_combo)
@@ -995,7 +997,8 @@ class MainView(QWidget):
                 self._t("Import Translation and Render"),
                 self._t("Colorize Only"),
                 self._t("Upscale Only"),
-                self._t("Inpaint Only")
+                self._t("Inpaint Only"),
+                self._t("Replace Translation")
             ])
             self.workflow_mode_combo.setCurrentIndex(current_index)
             self.workflow_mode_combo.blockSignals(False)
@@ -1583,7 +1586,9 @@ class MainView(QWidget):
             # 阻止信号触发，避免循环
             self.workflow_mode_combo.blockSignals(True)
 
-            if config.cli.inpaint_only:
+            if config.cli.replace_translation:
+                self.workflow_mode_combo.setCurrentIndex(7)  # 替换翻译
+            elif config.cli.inpaint_only:
                 self.workflow_mode_combo.setCurrentIndex(6)  # 仅输出修复图片
             elif config.cli.upscale_only:
                 self.workflow_mode_combo.setCurrentIndex(5)  # 仅超分
@@ -1611,6 +1616,8 @@ class MainView(QWidget):
         # 3: 导入翻译并渲染
         # 4: 仅上色
         # 5: 仅超分
+        # 6: 仅输出修复图片
+        # 7: 替换翻译
 
         config = self.config_service.get_config()
 
@@ -1621,6 +1628,7 @@ class MainView(QWidget):
         config.cli.colorize_only = False
         config.cli.upscale_only = False
         config.cli.inpaint_only = False
+        config.cli.replace_translation = False
 
         if index == 1:  # 导出翻译
             config.cli.generate_and_export = True
@@ -1634,6 +1642,8 @@ class MainView(QWidget):
             config.cli.upscale_only = True
         elif index == 6:  # 仅输出修复图片
             config.cli.inpaint_only = True
+        elif index == 7:  # 替换翻译
+            config.cli.replace_translation = True
 
         # ✅ 保存配置到内存和文件
         self.config_service.set_config(config)
@@ -1649,7 +1659,9 @@ class MainView(QWidget):
 
         try:
             config = self.config_service.get_config()
-            if config.cli.inpaint_only:
+            if config.cli.replace_translation:
+                self.start_button.setText(self._t("Start Replace Translation"))
+            elif config.cli.inpaint_only:
                 self.start_button.setText(self._t("Start Inpainting"))
             elif config.cli.upscale_only:
                 self.start_button.setText(self._t("Start Upscaling"))

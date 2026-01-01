@@ -144,12 +144,7 @@ class EditorController(QObject):
         Args:
             regions: 区域列表
         """
-        # 清空现有区域
-        self.resource_manager.clear_regions()
-        # 添加新区域
-        for region_data in regions:
-            self.resource_manager.add_region(region_data)
-        # 同步到Model（向后兼容）
+        # Model now handles synchronization with ResourceManager
         self.model.set_regions(regions)
     
     def _get_region_by_index(self, index: int):
@@ -250,20 +245,8 @@ class EditorController(QObject):
             return
 
         for index, text in translations.items():
-            # 更新model中的数据
+            # 更新model中的数据 (Model proxies to ResourceManager)
             self.model.update_region_data(index, 'translation', text)
-            
-            # 同步更新ResourceManager中的数据
-            # ResourceManager使用region_id，需要通过索引获取对应的region_id
-            try:
-                all_regions = self.resource_manager.get_all_regions()
-                if index < len(all_regions):
-                    # 获取对应索引的region_id
-                    region_resource = all_regions[index]
-                    self.resource_manager.update_region(region_resource.region_id, {'translation': text})
-            except Exception as e:
-                # 静默失败，不影响主流程
-                self.logger.warning(f"Failed to update region {index} in ResourceManager: {e}")
 
         # 一次性通知视图更新
         self.model.regions_changed.emit(self.model.get_regions())
@@ -546,10 +529,11 @@ class EditorController(QObject):
                     # 如果没有JSON，作为可编辑的空白图片加载（允许用户添加编辑）
                     regions = []
                     raw_mask = None
+                    mask_is_refined = False
                     inpainted_image = image.copy()  # 使用原图作为底图
                     inpainted_path = None
                 else:
-                    regions, raw_mask, original_size = self.file_service.load_translation_json(image_path)
+                    regions, raw_mask, original_size, mask_is_refined = self.file_service.load_translation_json(image_path)
     
                     # 4. 查找和加载inpainted图片
                     inpainted_path = find_inpainted_path(image_path)
@@ -570,6 +554,7 @@ class EditorController(QObject):
                     'image': image,
                     'regions': regions,
                     'raw_mask': raw_mask,
+                    'mask_is_refined': mask_is_refined,
                     'inpainted_path': inpainted_path,
                     'inpainted_image': inpainted_image
                 }
@@ -605,6 +590,7 @@ class EditorController(QObject):
                     result['image'],
                     result['regions'],
                     result['raw_mask'],
+                    result['mask_is_refined'],
                     result['inpainted_path'],
                     result['inpainted_image']
                 )
@@ -636,7 +622,7 @@ class EditorController(QObject):
         except Exception as e:
             self.logger.error(f"Error applying translated image to model: {e}")
     
-    def _apply_loaded_data_to_model(self, image_path, image, regions, raw_mask, inpainted_path, inpainted_image):
+    def _apply_loaded_data_to_model(self, image_path, image, regions, raw_mask, mask_is_refined, inpainted_path, inpainted_image):
         """在主线程应用加载的数据到Model"""
         try:
             # 关闭加载提示
@@ -667,6 +653,9 @@ class EditorController(QObject):
                 from desktop_qt_ui.editor.core.types import MaskType
                 self.resource_manager.set_mask(MaskType.RAW, raw_mask)
                 self.model.set_raw_mask(raw_mask)
+
+            # 保存 mask_is_refined 标志到 model
+            self.model.mask_is_refined = mask_is_refined
 
             self.model.set_refined_mask(None)
 
@@ -730,22 +719,31 @@ class EditorController(QObject):
                 self.logger.error(f"Failed to import backend modules: {e}")
                 return
 
-            # 1. Refine Mask
-            image_np = np.array(image.convert("RGB"))
-            text_blocks = [TextBlock(**region_data) for region_data in regions]
-            raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
-            raw_mask_contiguous = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
+            # 检查是否需要跳过蒙版优化
+            mask_is_refined = getattr(self.model, 'mask_is_refined', False)
+            
+            if mask_is_refined:
+                # 蒙版已优化，直接使用 raw_mask 作为 refined_mask
+                self.logger.info("蒙版已优化，跳过蒙版优化步骤")
+                raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
+                refined_mask = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
+            else:
+                # 1. Refine Mask
+                image_np = np.array(image.convert("RGB"))
+                text_blocks = [TextBlock(**region_data) for region_data in regions]
+                raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
+                raw_mask_contiguous = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
 
-            # 从配置服务获取mask参数
-            config = self.config_service.get_config()
-            dilation_offset = config.mask_dilation_offset
-            kernel_size = config.kernel_size
-            ignore_bubble = config.ocr.ignore_bubble
+                # 从配置服务获取mask参数
+                config = self.config_service.get_config()
+                dilation_offset = config.mask_dilation_offset
+                kernel_size = config.kernel_size
+                ignore_bubble = config.ocr.ignore_bubble
 
-            refined_mask = await refine_mask_dispatch(
-                text_blocks, image_np, raw_mask_contiguous, method='fit_text',
-                dilation_offset=dilation_offset, ignore_bubble=ignore_bubble, kernel_size=kernel_size
-            )
+                refined_mask = await refine_mask_dispatch(
+                    text_blocks, image_np, raw_mask_contiguous, method='fit_text',
+                    dilation_offset=dilation_offset, ignore_bubble=ignore_bubble, kernel_size=kernel_size
+                )
 
             if refined_mask is None:
                 self.logger.error("Mask refinement failed.")
@@ -1296,14 +1294,6 @@ class EditorController(QObject):
             
         # 深拷贝以避免引用问题
         old_region_data = copy.deepcopy(old_region_data)
-        
-        
-
-        # --- UNDO DEBUGGING ---
-        self.logger.debug("--- Creating Undo Command ---")
-        self.logger.debug(f"OLD_DATA (before command): angle={old_region_data.get('angle')}, polygons[0][0]={old_region_data.get('polygons')[0][0] if old_region_data.get('polygons') else 'N/A'}")
-        self.logger.debug(f"NEW_DATA (from view): angle={new_region_data.get('angle')}, polygons[0][0]={new_region_data.get('polygons')[0][0] if new_region_data.get('polygons') else 'N/A'}")
-        # --- END UNDO DEBUGGING ---
 
         command = UpdateRegionCommand(
             model=self.model,
@@ -1762,6 +1752,7 @@ class EditorController(QObject):
         try:
             image = self._get_current_image()
             regions = self._get_regions()
+            
             if not image:
                 self.logger.warning("Cannot export: missing image data")
                 if hasattr(self, 'toast_manager'):
@@ -2125,7 +2116,25 @@ class EditorController(QObject):
     @pyqtSlot(list)
     def on_regions_update_finished(self, updated_regions: list):
         """Slot to safely update regions from the main thread."""
-        self.model.set_regions(updated_regions)
+        # 统一更新到 ResourceManager（唯一数据源）
+        if hasattr(self, 'resource_manager') and self.resource_manager:
+            # 获取所有现有的 region resources（按 region_id 排序）
+            existing_resources = self.resource_manager.get_all_regions()
+            
+            # 更新每个区域的数据
+            for i, region_data in enumerate(updated_regions):
+                if i < len(existing_resources):
+                    # 使用正确的 region_id 来更新
+                    region_id = existing_resources[i].region_id
+                    self.resource_manager.update_region(region_id, region_data)
+            
+            # 从 ResourceManager 获取最新数据，同步到 model（保持兼容性）
+            synced_regions = [r.data for r in self.resource_manager.get_all_regions()]
+            self.model.set_regions(synced_regions)
+        else:
+            # 如果没有 ResourceManager，直接更新 model（向后兼容）
+            self.model.set_regions(updated_regions)
+        
         # 强制刷新属性栏（忽略焦点状态）
         if hasattr(self, 'view') and self.view and hasattr(self.view, 'property_panel'):
             self.view.property_panel.force_refresh_from_model()
@@ -2267,6 +2276,7 @@ class EditorController(QObject):
                 image=image, 
                 regions=regions
             )
+            # 重新获取最新的区域数据，避免覆盖其他修改
             current_regions = self.model.get_regions()
             updated_regions = list(current_regions) # Create a shallow copy
 

@@ -780,9 +780,10 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
             logger.debug(f"[VERTICAL DEBUG] AI断句开启且有BR标记，effective_max_height=99999, region_count={region_count}")
         else:
             # AI断句开启但没有BR标记，根据 layout_mode 回退
-            if config.render.layout_mode == 'smart_scaling' and region_count <= 1:
+            # 严格模式(strict)和智能缩放(smart_scaling)在单行时都强制不换行
+            if (config.render.layout_mode in ['smart_scaling', 'strict']) and region_count <= 1:
                 effective_max_height = 99999
-                logger.debug(f"[VERTICAL DEBUG] AI断句开启但无BR标记，回退Smart Scaling，effective_max_height=99999, region_count={region_count}")
+                logger.debug(f"[VERTICAL DEBUG] AI断句开启但无BR标记，单行Strict/SmartScaling，effective_max_height=99999, region_count={region_count}")
             else:
                 # 回退到自动换行模式
                 effective_max_height = h
@@ -1551,9 +1552,21 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     if config and config.render.disable_auto_wrap:
         # 统一处理所有类型的AI换行符
         text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', text, flags=re.IGNORECASE)
-        # 使用无限宽度，让文本完全按照AI断句标记换行
-        width = 99999
-        logger.debug(f"[HORIZONTAL DEBUG] AI断句开启，width=99999, region_count={region_count}")
+        
+        has_newline = '\n' in text
+        if has_newline:
+            # 有AI换行符，使用无限宽度
+            width = 99999
+            logger.debug(f"[HORIZONTAL DEBUG] AI断句开启且有换行符，width=99999, region_count={region_count}")
+        else:
+            # 无换行符，检查是否单行严格/智能模式
+            if (config.render.layout_mode in ['smart_scaling', 'strict']) and region_count <= 1:
+                width = 99999
+                logger.debug(f"[HORIZONTAL DEBUG] AI断句开启但无换行符，单行Strict/SmartScaling，width=99999, region_count={region_count}")
+            else:
+                # 保持原宽度（允许自动换行）
+                logger.debug(f"[HORIZONTAL DEBUG] AI断句开启但无换行符，回退自动换行，width={width}, region_count={region_count}")
+                
     elif layout_mode == 'smart_scaling':
         # In smart_scaling mode, wrapping is conditional.
         # It wraps only if manual line breaks ([BR] or \n) are present.
