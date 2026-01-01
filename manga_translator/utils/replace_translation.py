@@ -353,23 +353,40 @@ def find_translated_image(raw_image_path: str) -> Optional[str]:
     work_dir = get_work_dir(raw_image_path)
     translated_dir = os.path.join(work_dir, TRANSLATED_IMAGES_SUBDIR)
     
+    logger.debug(f"[查找翻译图] 生肉图路径: {raw_image_path}")
+    logger.debug(f"[查找翻译图] 工作目录: {work_dir}")
+    logger.debug(f"[查找翻译图] 翻译图目录: {translated_dir}")
+    logger.debug(f"[查找翻译图] 目录是否存在: {os.path.isdir(translated_dir)}")
+    
     if not os.path.isdir(translated_dir):
+        logger.warning(f"[查找翻译图] 翻译图目录不存在: {translated_dir}")
         return None
     
     # 获取生肉图的基础文件名
     raw_basename = os.path.splitext(os.path.basename(raw_image_path))[0]
     raw_ext = os.path.splitext(raw_image_path)[1].lower()
     
+    logger.debug(f"[查找翻译图] 基础文件名: {raw_basename}, 扩展名: {raw_ext}")
+    
     # 首先尝试同扩展名
     same_ext_path = os.path.join(translated_dir, f"{raw_basename}{raw_ext}")
+    logger.debug(f"[查找翻译图] 尝试同扩展名: {same_ext_path}, 存在: {os.path.exists(same_ext_path)}")
     if os.path.exists(same_ext_path):
         return same_ext_path
     
     # 尝试其他常见图片扩展名
     for ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']:
         translated_path = os.path.join(translated_dir, f"{raw_basename}{ext}")
+        logger.debug(f"[查找翻译图] 尝试扩展名 {ext}: {translated_path}, 存在: {os.path.exists(translated_path)}")
         if os.path.exists(translated_path):
             return translated_path
+    
+    # 列出目录中的所有文件
+    try:
+        files_in_dir = os.listdir(translated_dir)
+        logger.warning(f"[查找翻译图] 目录中的文件: {files_in_dir}")
+    except Exception as e:
+        logger.error(f"[查找翻译图] 无法列出目录文件: {e}")
     
     return None
 
