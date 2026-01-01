@@ -185,6 +185,10 @@ class RenderConfig(BaseModel):
     """The layout mode to use for rendering. Options: 'default', 'smart_scaling', 'strict', 'disable_all', 'balloon_fill'"""
     stroke_width: float = 0.07
     """Stroke/border width ratio relative to font size. Default is 0.07 (7%). Set to 0 to disable stroke."""
+    enable_template_alignment: bool = False
+    """Enable template matching alignment for replace translation mode. Aligns translated text to raw image using template matching."""
+    template_size: int = 440
+    """Template size for template matching alignment. Default is 440 pixels."""
     _font_color_fg = None
     _font_color_bg = None
     @property

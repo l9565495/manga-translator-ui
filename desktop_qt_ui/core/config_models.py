@@ -74,6 +74,8 @@ class RenderSettings(BaseModel):
     check_br_and_retry: bool = False
     strict_smart_scaling: bool = False
     stroke_width: float = 0.07
+    enable_template_alignment: bool = False  # 启用模板匹配对齐（替换翻译模式）
+    template_size: int = 440  # 模板大小（像素）
 
 class UpscaleSettings(BaseModel):
     upscaler: str = "esrgan"

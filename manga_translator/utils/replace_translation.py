@@ -7,6 +7,7 @@
 3. 区域匹配：根据尺寸缩放对齐坐标，计算重叠区域
 4. 过滤：移除生肉独有和翻译独有的区域
 5. 合并：将翻译图的OCR结果作为translation字段
+6. 可选：模板匹配对齐 - 自动计算中日文图的偏移量并调整文字位置
 
 使用场景：
 - 同一本漫画的不同版本（如修复版/原版）
@@ -22,6 +23,7 @@ import logging
 import numpy as np
 import asyncio
 import traceback
+import cv2
 from typing import Optional, List, Tuple, Dict, Any
 from PIL import Image
 
@@ -142,6 +144,30 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
             
             # 将翻译图区域缩放到生肉图尺寸
             scaled_trans_regions = scale_regions_to_target(trans_regions_filtered, trans_size, raw_size)
+            
+            # 可选：模板匹配对齐
+            horizontal_offset = 0
+            vertical_offset = 0
+            if config.render.enable_template_alignment:
+                logger.info(f"    [对齐] 启用模板匹配对齐模式")
+                template_size = getattr(config.render, 'template_size', 440)
+                
+                # 计算偏移量
+                horizontal_offset, vertical_offset = calculate_template_alignment_offset(
+                    raw_ctx.img_rgb,
+                    translated_ctx.img_rgb,
+                    template_size=template_size
+                )
+                
+                # 对翻译区域应用偏移
+                if horizontal_offset != 0 or vertical_offset != 0:
+                    logger.info(f"    [对齐] 应用偏移量到翻译区域...")
+                    scaled_trans_regions = apply_alignment_offset_to_regions(
+                        scaled_trans_regions,
+                        horizontal_offset,
+                        vertical_offset,
+                        (raw_ctx.img_rgb.shape[0], raw_ctx.img_rgb.shape[1])
+                    )
             
             # 执行匹配（使用以小框为基准的重叠率）
             matches = match_regions(raw_regions_filtered, scaled_trans_regions, iou_threshold=0.3)
@@ -627,6 +653,154 @@ def filter_raw_regions_for_inpainting(raw_regions: List[TextBlock],
     return [raw_regions[i] for i in sorted(matched_indices)]
 
 
+def calculate_template_alignment_offset(raw_img: np.ndarray, 
+                                        translated_img: np.ndarray,
+                                        template_size: int = 440) -> Tuple[int, int]:
+    """
+    使用模板匹配计算中日文图的对齐偏移量
+    
+    从中文图（翻译图）中心提取模板，在日文图（生肉图）中匹配，
+    计算需要移动的水平和垂直偏移量
+    
+    Args:
+        raw_img: 生肉图（BGR格式）
+        translated_img: 翻译图（BGR格式）
+        template_size: 模板大小（像素）
+        
+    Returns:
+        (horizontal_offset, vertical_offset)
+        - horizontal_offset: 水平偏移，>0 向左移，<0 向右移
+        - vertical_offset: 垂直偏移，>0 向上移，<0 向下移
+    """
+    try:
+        # 确保图像是BGR格式
+        if len(translated_img.shape) == 2:
+            translated_img = cv2.cvtColor(translated_img, cv2.COLOR_GRAY2BGR)
+        if len(raw_img.shape) == 2:
+            raw_img = cv2.cvtColor(raw_img, cv2.COLOR_GRAY2BGR)
+        
+        zh, zw = translated_img.shape[:2]
+        
+        # 从翻译图中心提取模板
+        cenx = zw // 2 - template_size // 2
+        ceny = zh // 2 - template_size // 2
+        
+        # 确保模板不超出边界
+        if cenx < 0 or ceny < 0 or cenx + template_size > zw or ceny + template_size > zh:
+            logger.warning(f"模板大小 {template_size} 超出图像尺寸 {zw}x{zh}，使用默认偏移 (0, 0)")
+            return (0, 0)
+        
+        muban = translated_img[ceny:ceny + template_size, cenx:cenx + template_size]
+        
+        # 在生肉图中匹配
+        res = cv2.matchTemplate(raw_img, muban, cv2.TM_CCOEFF)
+        _, _, _, max_loc = cv2.minMaxLoc(res)
+        
+        # 获得匹配位置
+        xdist, ydist = max_loc
+        
+        # 计算偏移量
+        horizontal_offset = cenx - xdist
+        vertical_offset = ceny - ydist
+        
+        # 微调偏移量（与原版逻辑一致）
+        if horizontal_offset < 0:
+            horizontal_offset -= 3
+        elif horizontal_offset > 0:
+            horizontal_offset += 3
+        
+        if vertical_offset < 0:
+            vertical_offset -= 3
+        elif vertical_offset > 0:
+            vertical_offset += 3
+        
+        logger.info(f"    [对齐] 模板匹配完成: 水平偏移={horizontal_offset}, 垂直偏移={vertical_offset}")
+        
+        return (horizontal_offset, vertical_offset)
+        
+    except Exception as e:
+        logger.error(f"    [对齐] 模板匹配失败: {e}")
+        traceback.print_exc()
+        return (0, 0)
+
+
+def apply_alignment_offset_to_regions(regions: List[TextBlock],
+                                      horizontal_offset: int,
+                                      vertical_offset: int,
+                                      img_shape: Tuple[int, int]) -> List[TextBlock]:
+    """
+    对区域应用对齐偏移量
+    
+    Args:
+        regions: 区域列表
+        horizontal_offset: 水平偏移（>0 向左，<0 向右）
+        vertical_offset: 垂直偏移（>0 向上，<0 向下）
+        img_shape: 图像尺寸 (height, width)
+        
+    Returns:
+        调整后的区域列表（新对象）
+    """
+    import copy
+    
+    if horizontal_offset == 0 and vertical_offset == 0:
+        return regions
+    
+    img_h, img_w = img_shape
+    aligned_regions = []
+    
+    for region in regions:
+        new_region = copy.deepcopy(region)
+        
+        # 创建新的坐标数组
+        if new_region.lines is not None:
+            new_lines = np.zeros_like(new_region.lines)
+            old_shape = new_region.lines.shape
+            
+            # 将 lines 展平为 (n_points, 2)
+            all_points = new_region.lines.reshape(-1, 2)
+            
+            # 应用偏移
+            # 注意：OpenCV 坐标系是 (x, y)，偏移量也是 (x, y)
+            # horizontal_offset > 0 表示向左移动，即 x 坐标减小
+            # vertical_offset > 0 表示向上移动，即 y 坐标减小
+            
+            for i, point in enumerate(all_points):
+                x, y = point
+                
+                # 计算新坐标
+                if vertical_offset > 0:  # 向上移
+                    new_y = y - vertical_offset
+                elif vertical_offset < 0:  # 向下移
+                    new_y = y - vertical_offset  # vertical_offset 是负数，所以是加
+                else:
+                    new_y = y
+                
+                if horizontal_offset > 0:  # 向左移
+                    new_x = x - horizontal_offset
+                elif horizontal_offset < 0:  # 向右移
+                    new_x = x - horizontal_offset  # horizontal_offset 是负数，所以是加
+                else:
+                    new_x = x
+                
+                # 限制在图像范围内
+                new_x = max(0, min(img_w - 1, new_x))
+                new_y = max(0, min(img_h - 1, new_y))
+                
+                all_points[i] = [new_x, new_y]
+            
+            # 恢复原始形状
+            new_region.lines = all_points.reshape(old_shape)
+            
+            # 清除缓存的属性
+            for attr in ['xyxy', 'xywh', 'center', 'unrotated_polygons', 'unrotated_min_rect', 'min_rect']:
+                if attr in new_region.__dict__:
+                    delattr(new_region, attr)
+        
+        aligned_regions.append(new_region)
+    
+    return aligned_regions
+
+
 # 导出的函数和类
 __all__ = [
     'ReplaceTranslationResult',
@@ -637,4 +811,6 @@ __all__ = [
     'match_regions',
     'create_matched_regions',
     'filter_raw_regions_for_inpainting',
+    'calculate_template_alignment_offset',
+    'apply_alignment_offset_to_regions',
 ]
