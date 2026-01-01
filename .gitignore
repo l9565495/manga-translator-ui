@@ -238,3 +238,6 @@ gha-creds-*.json
 
 # PCL demo directory (点云处理项目)
 pcl_demo/
+
+# 新建文件夹 (临时测试目录)
+新建文件夹/
