@@ -291,6 +291,10 @@ def prepare_translator_params(config: Config, workflow: str = "normal") -> dict:
             translator_params['font_path'] = font_path
             logger.debug(f"Using font path: {font_path}")
     
+    # 直接粘贴模式只能在 Qt UI 的替换翻译模式中使用，Web UI 禁止使用
+    if hasattr(config, 'render') and hasattr(config.render, 'enable_template_alignment'):
+        config.render.enable_template_alignment = False
+    
     # 提示词路径 - 直接传递相对路径，翻译程序会自动用 BASE_PATH 拼接
     # (high_quality_prompt_path 在 config.translator 中，翻译程序会直接读取)
     
