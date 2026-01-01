@@ -227,6 +227,9 @@ class ModelPaddleOCR(OfflineOCR):
             self.logger.error("Model not loaded")
             return textlines
 
+        from ..utils.bubble import is_ignore
+        
+        ignore_bubble = config.ignore_bubble
         threshold = 0.2 if config.prob is None else config.prob
 
         # Extract and preprocess regions
@@ -254,6 +257,11 @@ class ModelPaddleOCR(OfflineOCR):
                     region_bgr = cv2.cvtColor(region, cv2.COLOR_RGB2BGR)
                 else:
                     region_bgr = region
+
+                # Determine whether to skip the text block, and return True to skip.
+                if ignore_bubble >=1 and ignore_bubble <=50 and is_ignore(region, ignore_bubble):
+                    self.logger.info(f'[FILTERED] Region {i} ignored - Non-bubble area detected (ignore_bubble={ignore_bubble})')
+                    continue
 
                 # Save debug image if verbose
                 if verbose:

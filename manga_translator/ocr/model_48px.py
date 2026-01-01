@@ -84,6 +84,7 @@ class Model48pxOCR(OfflineOCR):
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False, ignore_bubble: int = 0) -> List[TextBlock]:
         text_height = 48
         max_chunk_size = 16
+        ignore_bubble = config.ignore_bubble
         threshold = 0.2 if config.prob is None else config.prob
 
         quadrilaterals = list(self._generate_text_direction(textlines))
@@ -105,6 +106,11 @@ class Model48pxOCR(OfflineOCR):
             for i, idx in enumerate(indices):
                 W = region_imgs[idx].shape[1]
                 tmp = region_imgs[idx]
+                # Determine whether to skip the text block, and return True to skip.
+                if ignore_bubble >=1 and ignore_bubble <=50 and is_ignore(region_imgs[idx], ignore_bubble):
+                    self.logger.info(f'[FILTERED] Region {ix} ignored - Non-bubble area detected (ignore_bubble={ignore_bubble})')
+                    ix+=1
+                    continue
                 region[i, :, : W, :]=tmp
                 if verbose:
                     # 保存OCR调试图片，使用优化的保存方式

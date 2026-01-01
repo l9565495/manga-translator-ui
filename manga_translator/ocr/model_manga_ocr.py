@@ -35,6 +35,7 @@ from ..config import OcrConfig
 from ..textline_merge import split_text_region
 from ..utils import TextBlock, Quadrilateral, quadrilateral_can_merge_region, chunks, imwrite_unicode
 from ..utils.generic import AvgMeter
+from ..utils.bubble import is_ignore
 
 
 # ============ 内置 MangaOCR 功能（不依赖 manga_ocr 库）============
@@ -293,6 +294,7 @@ class ModelMangaOCR(OfflineOCR):
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral], config: OcrConfig, verbose: bool = False, ignore_bubble: int = 0) -> List[TextBlock]:
         text_height = 48
         max_chunk_size = 16
+        ignore_bubble = config.ignore_bubble
 
         quadrilaterals = list(self._generate_text_direction(textlines))
         region_imgs = [q.get_transformed_region(image, d, text_height) for q, d in quadrilaterals]
@@ -334,6 +336,11 @@ class ModelMangaOCR(OfflineOCR):
             region = np.zeros((N, text_height, max_width, 3), dtype = np.uint8)
             idx_keys = []
             for i, idx in enumerate(indices):
+                # Determine whether to skip the text block, and return True to skip.
+                if ignore_bubble >=1 and ignore_bubble <=50 and is_ignore(region_imgs[idx], ignore_bubble):
+                    self.logger.info(f'[FILTERED] Region {ix} ignored - Non-bubble area detected (ignore_bubble={ignore_bubble})')
+                    ix+=1
+                    continue
                 idx_keys.append(idx)
                 W = region_imgs[idx].shape[1]
                 tmp = region_imgs[idx]
