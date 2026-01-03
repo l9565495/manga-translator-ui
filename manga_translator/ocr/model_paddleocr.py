@@ -360,6 +360,9 @@ class ModelPaddleOCR(OfflineOCR):
             except Exception as e:
                 self.logger.error(f"Inference failed: {e}")
 
+        # 清理 GPU 显存
+        self._cleanup_ocr_memory(force_gpu_cleanup=False)
+
         return textlines
 
     def _preprocess(self, img: np.ndarray) -> np.ndarray:
