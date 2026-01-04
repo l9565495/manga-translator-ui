@@ -1092,10 +1092,38 @@ def prepare_environment(args):
     if not check_req_file(requirements_file) or need_reinstall:
         if need_reinstall:
             print(f'强制重新安装所有依赖...')
+            # 如果已经单独安装了 PyTorch，跳过 requirements 中的 PyTorch
+            if need_reinstall or use_amd_pytorch:
+                print('跳过 requirements 中的 PyTorch（已单独安装）')
+                # 创建临时 requirements 文件，排除 torch/torchvision/torchaudio
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as tmp_req:
+                    with open(requirements_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line_stripped = line.strip()
+                            # 跳过 torch/torchvision/torchaudio 相关行
+                            if line_stripped and not line_stripped.startswith('#'):
+                                pkg_name = line_stripped.split('==')[0].split('>=')[0].split('<=')[0].split('<')[0].split('>')[0].split('[')[0].split('@')[0].strip()
+                                if pkg_name.lower() not in ['torch', 'torchvision', 'torchaudio']:
+                                    tmp_req.write(line)
+                            else:
+                                tmp_req.write(line)
+                    tmp_req_path = tmp_req.name
+                
+                try:
+                    run_pip_requirements(tmp_req_path, f"{requirements_file} 中的依赖（跳过PyTorch）")
+                finally:
+                    # 删除临时文件
+                    try:
+                        os.unlink(tmp_req_path)
+                    except:
+                        pass
+            else:
+                run_pip_requirements(requirements_file, f"{requirements_file} 中的依赖")
         else:
             print(f'发现缺失依赖,正在安装...')
-        # 使用逐个包安装，失败时从失败的包开始切换镜像重试
-        run_pip_requirements(requirements_file, f"{requirements_file} 中的依赖")
+            # 使用逐个包安装，失败时从失败的包开始切换镜像重试
+            run_pip_requirements(requirements_file, f"{requirements_file} 中的依赖")
     else:
         print(f'依赖已满足 ✓')
     
