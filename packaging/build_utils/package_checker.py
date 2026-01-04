@@ -129,8 +129,29 @@ def _yield_reqs_to_install(req: Requirement, current_extra: str = ''):
                 if need_check:
                     yield from _yield_reqs_to_install(child_req_obj, ext)
         else:
-            # 版本不匹配，需要安装
-            yield req
+            # 版本不匹配，但如果已安装的版本更新，也认为满足
+            # 例如：要求 ==2.8.0，已安装 2.9.1，认为满足（向后兼容）
+            try:
+                installed_version = Version(version_base)
+                # 检查 specifier 中是否有精确版本要求（==）
+                has_exact_match = any(spec.operator == '==' for spec in req.specifier)
+                
+                if has_exact_match:
+                    # 有精确版本要求，检查已安装版本是否更新
+                    # 提取要求的版本号
+                    for spec in req.specifier:
+                        if spec.operator == '==':
+                            required_version = Version(spec.version)
+                            if installed_version >= required_version:
+                                # 已安装版本更新或相等，认为满足
+                                return
+                            break
+                
+                # 其他情况，版本不匹配，需要安装
+                yield req
+            except Exception:
+                # 版本解析失败，按原逻辑处理
+                yield req
 
 
 def _check_req(req: Requirement):
