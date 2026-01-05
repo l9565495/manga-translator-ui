@@ -10,6 +10,22 @@ from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, mak
 class DDIMSampler(object):
     def __init__(self, model, schedule="linear", **kwargs):
         super().__init__()
+        self.alphas_cumprod_prev = None
+        self.alphas_cumprod = None
+        self.alphas_cumprod = None
+        self.alphas_cumprod_prev = None
+        self.ddim_alphas = None
+        self.ddim_alphas_prev = None
+        self.ddim_sqrt_one_minus_alphas = None
+        self.ddim_sigmas = None
+        self.alphas_cumprod = None
+        self.alphas_cumprod_prev = None
+        self.ddim_alphas = None
+        self.ddim_alphas_prev = None
+        self.sqrt_alphas_cumprod = None
+        self.sqrt_one_minus_alphas_cumprod = None
+        self.ddim_alphas = None
+        self.ddim_sqrt_one_minus_alphas = None
         self.model = model
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule

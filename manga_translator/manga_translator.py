@@ -2634,7 +2634,7 @@ class MangaTranslator:
             if state in LOG_MESSAGES:
                 logger.info(LOG_MESSAGES[state])
             elif state in LOG_MESSAGES_SKIP:
-                logger.warn(LOG_MESSAGES_SKIP[state])
+                logger.warning(LOG_MESSAGES_SKIP[state])
             elif state in LOG_MESSAGES_ERROR:
                 logger.error(LOG_MESSAGES_ERROR[state])
 

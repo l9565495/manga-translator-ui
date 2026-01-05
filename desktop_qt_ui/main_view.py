@@ -281,7 +281,7 @@ class MainView(QWidget):
     def _create_dynamic_settings(self):
         """读取配置文件并动态创建所有设置控件"""
         try:
-            config = self.config_service.get_config().dict() # Get default config
+            config = self.config_service.get_config().model_dump() # Get default config
             self.set_parameters(config)
         except Exception as e:
             print(f"Error creating dynamic settings: {e}")

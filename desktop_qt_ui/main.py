@@ -275,9 +275,27 @@ def main():
     app.processEvents()  # 处理所有待处理事件
 
     # 4. 启动事件循环
-    # 使用 os._exit(0) 强制退出，防止因守护线程未结束导致进程无法终止
     ret = app.exec()
     logging.info("Exiting application...")
+    
+    # 确保所有日志都写入文件
+    try:
+        # 刷新所有日志处理器
+        for handler in logging.root.handlers:
+            handler.flush()
+        
+        # 关闭异步日志处理器
+        if 'async_handler' in locals():
+            async_handler.close()
+        
+        # 关闭文件日志处理器
+        if 'file_handler' in locals():
+            file_handler.flush()
+            file_handler.close()
+    except Exception as e:
+        print(f"关闭日志处理器时出错: {e}", file=sys.stderr)
+    
+    # 使用 os._exit 强制退出，防止守护线程阻塞
     os._exit(ret)
 
 if __name__ == '__main__':

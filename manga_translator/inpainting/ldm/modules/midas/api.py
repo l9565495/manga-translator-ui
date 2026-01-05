@@ -6,7 +6,6 @@ import torch.nn as nn
 from torchvision.transforms import Compose
 
 from ldm.modules.midas.midas.dpt_depth import DPTDepthModel
-from ldm.modules.midas.midas.midas_net import MidasNet
 from ldm.modules.midas.midas.midas_net_custom import MidasNet_small
 from ldm.modules.midas.midas.transforms import Resize, NormalizeImage, PrepareForNet
 
@@ -95,7 +94,7 @@ def load_model(model_type):
         normalization = NormalizeImage(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 
     elif model_type == "midas_v21":
-        model = MidasNet(model_path, non_negative=True)
+        model = MidasNet_small(model_path, non_negative=True)
         net_w, net_h = 384, 384
         resize_mode = "upper_bound"
         normalization = NormalizeImage(

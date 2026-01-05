@@ -175,7 +175,7 @@ class StateManager(QObject):
     
     def set_current_config(self, config: Any) -> None:
         if hasattr(config, 'dict') and callable(getattr(config, 'dict')):
-            self.set_state(AppStateKey.CURRENT_CONFIG, config.dict())
+            self.set_state(AppStateKey.CURRENT_CONFIG, config.model_dump())
         else:
             self.set_state(AppStateKey.CURRENT_CONFIG, config)
     

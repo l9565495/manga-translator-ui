@@ -1,18 +1,16 @@
 
 import copy
-from typing import Any, Dict
+from typing import Any, Dict, TYPE_CHECKING
 
 import numpy as np
 from PyQt6.QtGui import QUndoCommand
 
-
-# Forward declaration for type hinting to avoid circular imports
-class EditorModel:
-    pass
+if TYPE_CHECKING:
+    from desktop_qt_ui.editor.editor_model import EditorModel
 
 class UpdateRegionCommand(QUndoCommand):
     """用于更新单个区域数据的通用命令。"""
-    def __init__(self, model: EditorModel, region_index: int, old_data: Dict[str, Any], new_data: Dict[str, Any], description: str = "Update Region"):
+    def __init__(self, model: "EditorModel", region_index: int, old_data: Dict[str, Any], new_data: Dict[str, Any], description: str = "Update Region"):
         super().__init__(description)
         self._model = model
         self._index = region_index
@@ -78,7 +76,7 @@ class UpdateRegionCommand(QUndoCommand):
 
 class AddRegionCommand(QUndoCommand):
     """用于添加新区域的命令。"""
-    def __init__(self, model: EditorModel, region_data: Dict[str, Any], description: str = "Add Region"):
+    def __init__(self, model: "EditorModel", region_data: Dict[str, Any], description: str = "Add Region"):
         super().__init__(description)
         self._model = model
         # 存储新区域的数据
@@ -129,7 +127,7 @@ class AddRegionCommand(QUndoCommand):
 
 class DeleteRegionCommand(QUndoCommand):
     """用于删除区域的命令。"""
-    def __init__(self, model: EditorModel, region_index: int, region_data: Dict[str, Any], description: str = "Delete Region"):
+    def __init__(self, model: "EditorModel", region_index: int, region_data: Dict[str, Any], description: str = "Delete Region"):
         super().__init__(description)
         self._model = model
         self._index = region_index
@@ -185,7 +183,7 @@ class DeleteRegionCommand(QUndoCommand):
 
 class MaskEditCommand(QUndoCommand):
     """用于处理蒙版编辑的命令。"""
-    def __init__(self, model: EditorModel, old_mask: np.ndarray, new_mask: np.ndarray):
+    def __init__(self, model: "EditorModel", old_mask: np.ndarray, new_mask: np.ndarray):
         super().__init__("Edit Mask")
         self._model = model
         self._old_mask = old_mask

@@ -141,7 +141,7 @@ class ConfigService(QObject):
 
             # 获取默认配置作为基础
             default_config = AppSettings()
-            new_config_dict = default_config.dict()
+            new_config_dict = default_config.model_dump()
             
             # 逐个键安全合并，验证每个值
             error_keys = []
@@ -161,7 +161,7 @@ class ConfigService(QObject):
                             
                             # 尝试用新值创建配置对象来验证
                             try:
-                                AppSettings.parse_obj(new_config_dict)
+                                AppSettings.model_validate(new_config_dict)
                             except Exception as validate_err:
                                 # 验证失败，恢复默认值
                                 target[key] = old_value
@@ -175,7 +175,7 @@ class ConfigService(QObject):
             
             # 最终验证并创建配置对象
             try:
-                self.current_config = AppSettings.parse_obj(new_config_dict)
+                self.current_config = AppSettings.model_validate(new_config_dict)
             except Exception as final_err:
                 self.logger.error(f"配置验证失败，使用默认配置: {final_err}")
                 self.current_config = AppSettings()
@@ -190,7 +190,7 @@ class ConfigService(QObject):
             
             self.config_path = config_path
             self.logger.debug(f"加载配置: {os.path.basename(config_path)}")
-            config_dict = self.current_config.dict()
+            config_dict = self.current_config.model_dump()
             config_dict = self._convert_config_for_ui(config_dict)
             self.config_changed.emit(config_dict)
             return True
@@ -229,7 +229,7 @@ class ConfigService(QObject):
                     continue
                 
                 # 获取当前配置
-                config_dict = self.current_config.dict()
+                config_dict = self.current_config.model_dump()
                 
                 # 强制设置 min_box_area_ratio 为 0（模板配置固定值）
                 if 'detector' not in config_dict:
@@ -345,7 +345,7 @@ class ConfigService(QObject):
         self._load_configs_with_priority()
 
         # 4. 通知所有监听者配置已更改
-        config_dict = self.current_config.dict()
+        config_dict = self.current_config.model_dump()
         config_dict = self._convert_config_for_ui(config_dict)
         self.config_changed.emit(config_dict)
         self.logger.info("配置重载完成。")
@@ -362,7 +362,7 @@ class ConfigService(QObject):
     
     def get_config(self) -> AppSettings:
         """获取当前配置模型的深拷贝副本"""
-        return self.current_config.copy(deep=True)
+        return self.current_config.model_copy(deep=True)
 
     def get_config_reference(self) -> AppSettings:
         """获取对当前配置模型的直接引用，谨慎使用。"""
@@ -396,15 +396,15 @@ class ConfigService(QObject):
     
     def set_config(self, config: AppSettings) -> None:
         """设置配置并通知监听者"""
-        self.current_config = config.copy(deep=True)
+        self.current_config = config.model_copy(deep=True)
         self.logger.debug("配置已更新，正在通知监听者...")
-        config_dict = self.current_config.dict()
+        config_dict = self.current_config.model_dump()
         config_dict = self._convert_config_for_ui(config_dict)
         self.config_changed.emit(config_dict)
     
     def update_config(self, updates: Dict[str, Any]) -> None:
         """更新配置的部分内容"""
-        new_config_dict = self.current_config.dict()
+        new_config_dict = self.current_config.model_dump()
 
         def deep_update(target, source):
             for key, value in source.items():
@@ -415,9 +415,9 @@ class ConfigService(QObject):
         
         deep_update(new_config_dict, updates)
 
-        self.current_config = AppSettings.parse_obj(new_config_dict)
+        self.current_config = AppSettings.model_validate(new_config_dict)
         self.logger.debug("配置已更新，正在通知监听者...")
-        config_dict = self.current_config.dict()
+        config_dict = self.current_config.model_dump()
         config_dict = self._convert_config_for_ui(config_dict)
         self.config_changed.emit(config_dict)
 

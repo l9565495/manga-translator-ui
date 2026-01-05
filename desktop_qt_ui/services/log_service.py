@@ -29,8 +29,8 @@ class LogService:
         self.log_handlers = []
         self._lock = threading.Lock()
         
-        # 确保日志目录存在
-        os.makedirs(log_dir, exist_ok=True)
+        # 注意：不再自动创建日志目录，由调用方根据需要创建
+        # 实际日志文件写入到 result 目录，由 main.py 管理
         
         # 初始化主日志器
         self._setup_main_logger()

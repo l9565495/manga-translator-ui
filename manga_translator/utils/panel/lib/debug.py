@@ -122,7 +122,7 @@ class Debug:
 		return html
 
 	@staticmethod
-	def get_files_diff(file_or_dir, json1, json2):
+	def get_files_diff(file_or_dir, json1, json2, Panel=None):
 		from lib.panel import Panel
 
 		files_diff = {}

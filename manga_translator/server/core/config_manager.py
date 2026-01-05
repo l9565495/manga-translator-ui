@@ -198,7 +198,7 @@ def load_default_config() -> Config:
     config_dict = load_default_config_dict()
     if config_dict:
         try:
-            config = Config.parse_obj(config_dict)
+            config = Config.model_validate(config_dict)
             return config
         except Exception as e:
             print(f"[WARNING] Failed to parse config: {e}")

@@ -71,6 +71,7 @@ class MainAppLogic(QObject):
         # ✅ 使用线程池替代QThread，避免线程管理问题
         self.thread_pool = QThreadPool.globalInstance()
         self.current_worker = None  # 当前运行的worker
+        self.current_task_id = 0  # 任务ID，用于区分不同的翻译任务
         self.saved_files_count = 0
         self.saved_files_list = []  # 收集所有保存的文件路径
 
@@ -701,7 +702,7 @@ class MainAppLogic(QObject):
                 self.state_manager.set_current_config(config)
                 self.state_manager.set_state(AppStateKey.CONFIG_PATH, config_path)
                 self.logger.info(self._t("log_config_loaded_successfully", path=config_path))
-                self.config_loaded.emit(config.dict())
+                self.config_loaded.emit(config.model_dump())
                 if config.app.last_output_path:
                     self.output_path_updated.emit(config.app.last_output_path)
                 return True
@@ -990,7 +991,7 @@ class MainAppLogic(QObject):
             
             # 获取当前配置
             config = self.config_service.get_config()
-            config_dict = config.dict()
+            config_dict = config.model_dump()
             
             # 排除敏感信息和临时状态
             # 1. 排除 app 配置（包含路径等临时信息）
@@ -1048,7 +1049,7 @@ class MainAppLogic(QObject):
             
             # 获取当前配置
             current_config = self.config_service.get_config()
-            current_dict = current_config.dict()
+            current_dict = current_config.model_dump()
             
             # 保留当前的 app 配置（路径等临时信息）
             preserved_app = current_dict.get('app', {})
@@ -1069,12 +1070,12 @@ class MainAppLogic(QObject):
             
             # 更新配置
             from core.config_models import AppSettings
-            new_config = AppSettings.parse_obj(current_dict)
+            new_config = AppSettings.model_validate(current_dict)
             self.config_service.set_config(new_config)
             self.config_service.save_config_file()
             
             # 通知UI更新 - 使用转换后的配置字典
-            config_dict_for_ui = self.config_service._convert_config_for_ui(new_config.dict())
+            config_dict_for_ui = self.config_service._convert_config_for_ui(new_config.model_dump())
             self.config_loaded.emit(config_dict_for_ui)
             
             self.logger.info(self._t("log_config_imported", path=file_path))
@@ -1440,15 +1441,19 @@ class MainAppLogic(QObject):
         self.saved_files_count = 0
         self.saved_files_list = []
         
+        # 生成新的任务ID
+        self.current_task_id += 1
+        task_id = self.current_task_id
+        
         # ✅ 使用线程池运行翻译任务
         translation_worker = TranslationRunnable(
             files=files_to_process,
-            config_dict=self.config_service.get_config().dict(),
+            config_dict=self.config_service.get_config().model_dump(),
             output_folder=self.config_service.get_config().app.last_output_path,
             root_dir=self.config_service.root_dir,
             file_to_folder_map=self.file_to_folder_map.copy(),
-            finished_callback=self.on_task_finished,
-            error_callback=self.on_task_error,
+            finished_callback=lambda results: self.on_task_finished(results, task_id),
+            error_callback=lambda error: self.on_task_error(error, task_id),
             progress_callback=self.on_task_progress,
             log_callback=self.on_worker_log,
             file_processed_callback=self.on_file_completed
@@ -1456,7 +1461,7 @@ class MainAppLogic(QObject):
         
         self.current_worker = translation_worker
         self.thread_pool.start(translation_worker)
-        self._ui_log("翻译任务已启动")
+        self._ui_log(f"翻译任务已启动 (任务ID: {task_id})")
         self.state_manager.set_translating(True)
         self.state_manager.set_status_message("正在翻译...")
 
@@ -1513,8 +1518,12 @@ class MainAppLogic(QObject):
         # 启动后台文件扫描
         self.start_file_scanning()
 
-    def on_task_finished(self, results):
+    def on_task_finished(self, results, task_id):
         """处理任务完成信号，并根据需要保存批量任务的结果"""
+        # 检查任务ID是否匹配，防止已停止的任务更新状态
+        if task_id != self.current_task_id:
+            return
+        
         saved_files = []
         # The `results` list will only contain items from a batch job now.
         # Sequential jobs handle saving in `on_file_completed`.
@@ -1644,7 +1653,11 @@ class MainAppLogic(QObject):
             # ✅ 清理worker引用
             self.current_worker = None
     
-    def on_task_error(self, error_message):
+    def on_task_error(self, error_message, task_id):
+        # 检查任务ID是否匹配，防止已停止的任务更新状态
+        if task_id != self.current_task_id:
+            return
+        
         # 错误信息已在 worker 中通过详细错误提示框显示，这里不再重复输出
         self.state_manager.set_translating(False)
         self.state_manager.set_status_message(f"任务失败: {error_message}")
@@ -1674,18 +1687,22 @@ class MainAppLogic(QObject):
             if hasattr(self, 'main_view') and self.main_view:
                 self.main_view.set_stopping_state()
             
+            # 增加任务ID，使旧任务的回调失效
+            self.current_task_id += 1
+            
             # 通知worker停止
             self.current_worker.stop()
             
-            # ✅ 线程池会自动管理线程生命周期，无需手动等待
-            # 直接更新状态
-            self._ui_log("已发送停止信号")
+            # 立即更新状态
             self.state_manager.set_translating(False)
             self.state_manager.set_status_message("任务已停止")
             if hasattr(self, 'main_view') and self.main_view:
                 self.main_view.reset_progress()
             
-            self.current_worker = None
+            # 延迟清理资源
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, self._cleanup_after_task)
+            
             return True
         
         self._ui_log("请求停止任务，但没有正在运行的任务", "WARNING")
@@ -1703,7 +1720,7 @@ class MainAppLogic(QObject):
             config = self.config_service.get_config()
 
             # Manually emit the signal to populate UI options
-            self.config_loaded.emit(config.dict())
+            self.config_loaded.emit(config.model_dump())
 
             # Manually emit the signal to update the output path display in the UI
             if config.app.last_output_path:
@@ -1748,6 +1765,17 @@ class MainAppLogic(QObject):
             try:
                 from desktop_qt_ui.widgets.file_list_view import shutdown_thumbnail_executor
                 shutdown_thumbnail_executor()
+            except Exception:
+                pass
+            
+            # 关闭轻量级修复器线程池
+            try:
+                from desktop_qt_ui.services.lightweight_inpainter import get_lightweight_inpainter
+                inpainter = get_lightweight_inpainter()
+                if inpainter:
+                    inpainter.shutdown()
+            except Exception:
+                pass
             except Exception:
                 pass
             
@@ -2400,7 +2428,7 @@ class TranslationWorker(QObject):
             explicit_keys = {'render', 'upscale', 'translator', 'detector', 'colorizer', 'inpainter', 'ocr'}
             remaining_config = {
                 k: v for k, v in self.config_dict.items() 
-                if k in Config.__fields__ and k not in explicit_keys
+                if k in Config.model_fields and k not in explicit_keys
             }
 
             render_config_data = self.config_dict.get('render', {}).copy()
@@ -2858,8 +2886,6 @@ class TranslationWorker(QObject):
                     del results
                 if 'all_contexts' in locals():
                     del all_contexts
-                if 'batch_data' in locals():
-                    del batch_data
                 if 'images_with_configs' in locals():
                     del images_with_configs
                 

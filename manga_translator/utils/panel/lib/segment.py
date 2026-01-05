@@ -64,56 +64,94 @@ class Segment:
 		])
 
 	def intersect(self, other):
-		gutter = max(self.dist(), other.dist()) * 5 / 100
+		# 添加保护性检查，避免除零和无效数据
+		try:
+			self_dist = self.dist()
+			other_dist = other.dist()
+			
+			# 如果任一线段长度为0，无法计算交集
+			if self_dist == 0 or other_dist == 0:
+				return None
+			
+			# 检查是否有无效值（NaN或Inf）
+			if not (math.isfinite(self_dist) and math.isfinite(other_dist)):
+				return None
+			
+			gutter = max(self_dist, other_dist) * 5 / 100
 
-		# angle too big ?
-		if not self.angle_ok_with(other):
+			# angle too big ?
+			if not self.angle_ok_with(other):
+				return None
+
+			# from here, segments are almost parallel
+
+			# segments are apart ?
+			if any(
+				[
+					self.right() < other.left() - gutter,  # self left from other
+					self.left() > other.right() + gutter,  # self right from other
+					self.bottom() < other.top() - gutter,  # self above other
+					self.top() > other.bottom() + gutter,  # self below other
+				]
+			):
+				return None
+
+			projected_c = self.projected_point(other.a)
+			dist_c_to_ab = Segment(other.a, projected_c).dist()
+
+			projected_d = self.projected_point(other.b)
+			dist_d_to_ab = Segment(other.b, projected_d).dist()
+
+			# segments are a bit too far from each other
+			if (dist_c_to_ab + dist_d_to_ab) / 2 > gutter:
+				return None
+
+			# segments overlap, or one contains the other
+			#  A----B
+			#     C----D
+			# or
+			#  A------------B
+			#      C----D
+			sorted_dots = sorted([self.a, self.b, other.a, other.b], key = sum)
+			middle_dots = sorted_dots[1:3]
+			b, c = middle_dots
+
+			return Segment(b, c)
+		except Exception as e:
+			# 捕获任何异常，避免崩溃
+			import logging
+			logging.warning(f"Segment.intersect error: {e}, self={self}, other={other}")
 			return None
-
-		# from here, segments are almost parallel
-
-		# segments are apart ?
-		if any(
-			[
-				self.right() < other.left() - gutter,  # self left from other
-				self.left() > other.right() + gutter,  # self right from other
-				self.bottom() < other.top() - gutter,  # self above other
-				self.top() > other.bottom() + gutter,  # self below other
-			]
-		):
-			return None
-
-		projected_c = self.projected_point(other.a)
-		dist_c_to_ab = Segment(other.a, projected_c).dist()
-
-		projected_d = self.projected_point(other.b)
-		dist_d_to_ab = Segment(other.b, projected_d).dist()
-
-		# segments are a bit too far from each other
-		if (dist_c_to_ab + dist_d_to_ab) / 2 > gutter:
-			return None
-
-		# segments overlap, or one contains the other
-		#  A----B
-		#     C----D
-		# or
-		#  A------------B
-		#      C----D
-		sorted_dots = sorted([self.a, self.b, other.a, other.b], key = sum)
-		middle_dots = sorted_dots[1:3]
-		b, c = middle_dots
-
-		return Segment(b, c)
 
 	def union(self, other):
-		intersect = self.intersect(other)
-		if intersect is None:
-			return None
+		try:
+			intersect = self.intersect(other)
+			if intersect is None:
+				return None
 
-		dots = [tuple(self.a), tuple(self.b), tuple(other.a), tuple(other.b)]
-		dots.remove(tuple(intersect.a))
-		dots.remove(tuple(intersect.b))
-		return Segment(dots[0], dots[1])
+			dots = [tuple(self.a), tuple(self.b), tuple(other.a), tuple(other.b)]
+			
+			# 检查交集的点是否在dots列表中
+			intersect_a = tuple(intersect.a)
+			intersect_b = tuple(intersect.b)
+			
+			if intersect_a not in dots or intersect_b not in dots:
+				# 交集点不在原始点列表中，无法计算union
+				return None
+			
+			dots.remove(intersect_a)
+			dots.remove(intersect_b)
+			
+			if len(dots) != 2:
+				# 剩余点数不对，无法构造线段
+				return None
+			
+			return Segment(dots[0], dots[1])
+		except Exception as e:
+			# 捕获任何异常，避免崩溃
+			import logging
+			logging.warning(f"Segment.union error: {e}, self={self}, other={other}")
+			return None
 
 	def angle_with(self, other):
 		return math.degrees(abs(self.angle() - other.angle()))
@@ -186,12 +224,37 @@ class Segment:
 		return dedup_segments
 
 	def projected_point(self, p):
-		a = np.array(self.a)
-		b = np.array(self.b)
-		p = np.array(p)
-		ap = p - a
-		ab = b - a
-		if ab[0] == 0 and ab[1] == 0:
-			return a
-		result = a + np.dot(ap, ab) / np.dot(ab, ab) * ab
-		return (round(result[0]), round(result[1]))
+		try:
+			a = np.array(self.a)
+			b = np.array(self.b)
+			p = np.array(p)
+			ap = p - a
+			ab = b - a
+			
+			# 检查线段长度是否为0
+			if ab[0] == 0 and ab[1] == 0:
+				return a
+			
+			# 计算点积
+			dot_ab_ab = np.dot(ab, ab)
+			
+			# 避免除零
+			if dot_ab_ab == 0:
+				return a
+			
+			# 检查是否有无效值
+			if not np.isfinite(dot_ab_ab):
+				return a
+			
+			result = a + np.dot(ap, ab) / dot_ab_ab * ab
+			
+			# 检查结果是否有效
+			if not (np.isfinite(result[0]) and np.isfinite(result[1])):
+				return a
+			
+			return (round(result[0]), round(result[1]))
+		except Exception as e:
+			# 出错时返回起点
+			import logging
+			logging.warning(f"Segment.projected_point error: {e}, self={self}, p={p}")
+			return self.a

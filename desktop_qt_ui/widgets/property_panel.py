@@ -1145,8 +1145,11 @@ class PropertyPanel(QWidget):
             # 2. 将 ↵ 替换回 \n
             text_with_newlines = text_with_tags.replace('↵', '\n')
 
-            print(f"[PropertyPanel] 翻译文本修改: region={self.current_region_index}, text='{text_with_newlines[:50]}'")
-            self.translated_text_modified.emit(self.current_region_index, text_with_newlines)
+            # 3. 将 \n 转换回 AI 换行符 [BR]（与 _on_translated_text_focus_out 保持一致）
+            text_with_br = re.sub(r'\n+', '[BR]', text_with_newlines)
+
+            print(f"[PropertyPanel] 翻译文本修改: region={self.current_region_index}, text='{text_with_br[:50]}'")
+            self.translated_text_modified.emit(self.current_region_index, text_with_br)
     
     def get_selected_ocr_model(self) -> str:
         """获取当前选择的OCR模型"""

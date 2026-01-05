@@ -143,7 +143,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     
     # 获取配置
     config = config_service.get_config()
-    config_dict = config.dict()
+    config_dict = config.model_dump()
     
     # 从配置文件读取 CLI 设置，命令行参数可以覆盖
     cli_config = config_dict.get('cli', {})
@@ -725,7 +725,7 @@ async def run_local_mode(args):
             print("\n🔍 预检查已存在的文件（覆盖检测已禁用）...")
             try:
                 from manga_translator import MangaTranslator
-                config_dict = config_service.get_config().dict()
+                config_dict = config_service.get_config().model_dump()
                 cli_config = config_dict.get('cli', {})
                 output_format = cli_config.get('format')
                 if not output_format or output_format == "不指定":
@@ -775,7 +775,7 @@ async def run_local_mode(args):
         from .subprocess_manager import translate_with_subprocess
         
         try:
-            config_dict = config_service.get_config().dict()
+            config_dict = config_service.get_config().model_dump()
             
             success_count, failed_count = await translate_with_subprocess(
                 all_files=all_files,

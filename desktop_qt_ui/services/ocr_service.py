@@ -81,8 +81,8 @@ class OcrService:
         try:
             config = self.config_service.get_config()
             # Use attribute access for Pydantic models
-            ocr_config_dict = config.ocr.dict() if hasattr(config, 'ocr') else {}
-            cli_config_dict = config.cli.dict() if hasattr(config, 'cli') else {}
+            ocr_config_dict = config.ocr.model_dump() if hasattr(config, 'ocr') else {}
+            cli_config_dict = config.cli.model_dump() if hasattr(config, 'cli') else {}
             
             # 从配置构建OcrConfig
             ocr_config = OcrConfig()

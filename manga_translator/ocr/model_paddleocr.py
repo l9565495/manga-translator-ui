@@ -219,7 +219,7 @@ class ModelPaddleOCR(OfflineOCR):
             self.color_model = None
 
     async def _infer(self, image: np.ndarray, textlines: List[Quadrilateral],
-                     config: OcrConfig, verbose: bool = False) -> List[Quadrilateral]:
+                     config: OcrConfig, verbose: bool = False, q=None) -> List[Quadrilateral]:
         """
         Perform OCR on detected text regions.
 

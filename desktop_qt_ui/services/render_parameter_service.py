@@ -109,7 +109,7 @@ class RenderParameterService:
         """获取当前配置服务的默认参数"""
         config = self.config_service.get_config()
         render_fields = RenderParameters.__dataclass_fields__.keys()
-        global_render_config = config.render.dict()
+        global_render_config = config.render.model_dump()
         valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
         return RenderParameters(**valid_global_config)
 
@@ -203,7 +203,7 @@ class RenderParameterService:
             # 创建参数对象，以配置服务的默认值为基础
             config = self.config_service.get_config()
             render_fields = RenderParameters.__dataclass_fields__.keys()
-            global_render_config = config.render.dict()
+            global_render_config = config.render.model_dump()
             valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
             params = RenderParameters(**valid_global_config)
 
@@ -227,7 +227,7 @@ class RenderParameterService:
             # 从配置服务获取默认参数
             config = self.config_service.get_config()
             render_fields = RenderParameters.__dataclass_fields__.keys()
-            global_render_config = config.render.dict()
+            global_render_config = config.render.model_dump()
             valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
             return RenderParameters(**valid_global_config)
     
@@ -306,7 +306,7 @@ class RenderParameterService:
         # 动态从配置服务获取最新的默认参数
         config = self.config_service.get_config()
         render_fields = RenderParameters.__dataclass_fields__.keys()
-        global_render_config = config.render.dict()
+        global_render_config = config.render.model_dump()
         valid_global_config = {k: v for k, v in global_render_config.items() if k in render_fields}
 
         # 创建基于配置服务的默认参数

@@ -60,7 +60,7 @@ class LightweightInpainter:
             InpainterType.STABLE_DIFFUSION: self._inpaint_simple_blur,  # 简化版(不适合实时)
         }
         
-        self.logger.info("轻量级擦除算法接口初始化完成")
+        # self.logger.info("轻量级擦除算法接口初始化完成")
     
     def _generate_cache_key(self, image: np.ndarray, mask: np.ndarray, 
                           algorithm: InpainterType, config: PreviewConfig) -> str:
@@ -262,7 +262,7 @@ class LightweightInpainter:
     def clear_cache(self):
         """清空缓存"""
         self.preview_cache.clear()
-        self.logger.info("预览缓存已清空")
+        # self.logger.info("预览缓存已清空")
     
     def get_cache_info(self) -> Dict[str, Any]:
         """获取缓存信息"""
@@ -285,7 +285,7 @@ class LightweightInpainter:
         """关闭服务"""
         self.executor.shutdown(wait=True)
         self.clear_cache()
-        self.logger.info("轻量级擦除算法接口已关闭")
+        # self.logger.info("轻量级擦除算法接口已关闭")
 
 # 全局服务实例
 _lightweight_inpainter: Optional[LightweightInpainter] = None

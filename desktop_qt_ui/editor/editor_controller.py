@@ -542,7 +542,7 @@ class EditorController(QObject):
                         try:
                             inpainted_image = Image.open(inpainted_path)
                             if inpainted_image.size != image.size:
-                                inpainted_image = inpainted_image.resize(image.size, Image.LANCZOS)
+                                inpainted_image = inpainted_image.resize(image.size, Image.Resampling.LANCZOS)
                         except Exception as e:
                             self.logger.error(f"Error loading inpainted image: {e}")
                             inpainted_path = None
@@ -621,6 +621,31 @@ class EditorController(QObject):
                 self.view.toolbar.set_export_enabled(False)
         except Exception as e:
             self.logger.error(f"Error applying translated image to model: {e}")
+    
+    def _apply_untranslated_image_to_model(self, image_path: str, image):
+        """在主线程应用未翻译图片到Model"""
+        try:
+            # 关闭加载提示
+            if hasattr(self, '_loading_toast') and self._loading_toast:
+                self._loading_toast.close()
+                self._loading_toast = None
+            
+            self.model.set_source_image_path(image_path)
+
+            if not hasattr(self, '_user_adjusted_alpha') or not self._user_adjusted_alpha:
+                self.model.set_original_image_alpha(1.0)
+
+            self.model.set_image(image)
+            self._set_regions([])
+            self.model.set_raw_mask(None)
+            self.model.set_refined_mask(None)
+            self.model.set_inpainted_image_path(None)
+
+            # 禁用导出功能
+            if self.view and hasattr(self.view, 'toolbar'):
+                self.view.toolbar.set_export_enabled(False)
+        except Exception as e:
+            self.logger.error(f"Error applying untranslated image to model: {e}")
     
     def _apply_loaded_data_to_model(self, image_path, image, regions, raw_mask, mask_is_refined, inpainted_path, inpainted_image):
         """在主线程应用加载的数据到Model"""
@@ -775,7 +800,7 @@ class EditorController(QObject):
                     original_image = self.model.get_image()
                     # 如果inpainted图尺寸与原图不同，缩放到原图尺寸
                     if original_image and inpainted_image.size != original_image.size:
-                        inpainted_image = inpainted_image.resize(original_image.size, Image.LANCZOS)
+                        inpainted_image = inpainted_image.resize(original_image.size, Image.Resampling.LANCZOS)
                     inpainted_image_np = np.array(inpainted_image.convert("RGB"))
 
                     self.model.set_inpainted_image(inpainted_image)
@@ -1686,6 +1711,10 @@ class EditorController(QObject):
 
     def _update_undo_redo_buttons(self):
         """更新撤销/重做按钮的启用状态，并检查内存限制"""
+        # 检查history_service是否已初始化
+        if not hasattr(self, 'history_service') or self.history_service is None:
+            return
+        
         can_undo = self.history_service.can_undo()
         can_redo = self.history_service.can_redo()
         
@@ -1693,11 +1722,9 @@ class EditorController(QObject):
         self._limit_undo_stack_memory()
         
         # 通过view更新工具栏按钮状态
-        if hasattr(self, 'view'):
-            if hasattr(self.view, 'toolbar'):
+        if hasattr(self, 'view') and self.view:
+            if hasattr(self.view, 'toolbar') and self.view.toolbar:
                 self.view.toolbar.update_undo_redo_state(can_undo, can_redo)
-        else:
-            print("DEBUG: Controller has no view attribute")
 
     def _limit_undo_stack_memory(self, max_items=50):
         """
@@ -1865,7 +1892,7 @@ class EditorController(QObject):
             if hasattr(config, 'model_dump'):
                 config_dict = config.model_dump()
             elif hasattr(config, 'dict'):
-                config_dict = config.dict()
+                config_dict = config.model_dump()
             else:
                 config_dict = {}
             
@@ -1969,7 +1996,7 @@ class EditorController(QObject):
             if hasattr(config, 'model_dump'):
                 config_dict = config.model_dump()
             elif hasattr(config, 'dict'):
-                config_dict = config.dict()
+                config_dict = config.model_dump()
             else:
                 config_dict = {}
             
