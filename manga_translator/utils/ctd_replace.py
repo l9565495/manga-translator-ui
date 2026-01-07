@@ -12,7 +12,7 @@ from typing import List, Tuple, Optional
 
 from ..detection.ctd import ComicTextDetector
 from ..detection.ctd_utils.textmask import refine_mask, REFINEMASK_INPAINT
-from ..detection.ctd_utils.utils.db_utils import det_rearrange_forward
+from ..utils import det_rearrange_forward
 from ..detection.ctd_utils.utils.imgproc_utils import preprocess_img
 from ..detection.ctd_utils.utils.db_utils import postprocess_mask
 from ..utils import Quadrilateral
