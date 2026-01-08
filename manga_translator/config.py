@@ -107,6 +107,7 @@ class Ocr(str, Enum):
     paddleocr = "paddleocr"
     paddleocr_korean = "paddleocr_korean"
     paddleocr_latin = "paddleocr_latin"
+    paddleocr_vl = "paddleocr_vl"  # PaddleOCR-VL for Manga (VLM-based OCR)
 
 class Translator(str, Enum):
     openai = "openai"
@@ -187,8 +188,6 @@ class RenderConfig(BaseModel):
     """Stroke/border width ratio relative to font size. Default is 0.07 (7%). Set to 0 to disable stroke."""
     enable_template_alignment: bool = False
     """Enable template matching alignment for replace translation mode. Directly extracts text from translated image and pastes to raw image."""
-    paste_connect_distance_ratio: float = 0.03
-    """Connection distance ratio for paste mode (relative to image long side). Default is 0.03 (3%). Used to connect nearby mask regions."""
     paste_mask_dilation_pixels: int = 10
     """Mask dilation size in pixels for paste mode. Default is 10. Set to 0 to disable dilation. Actual dilation = pixels // 3 iterations with 3x3 kernel."""
     _font_color_fg = None

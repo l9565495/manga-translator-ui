@@ -1937,7 +1937,8 @@ class EditorController(QObject):
                 mask=mask,
                 progress_callback=progress_callback,
                 success_callback=success_callback,
-                error_callback=error_callback
+                error_callback=error_callback,
+                source_image_path=source_path  # 传递原图路径用于PSD导出
             )
 
         except Exception as e:

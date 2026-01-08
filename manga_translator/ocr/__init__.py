@@ -16,6 +16,12 @@ def _get_manga_ocr_class():
     return ModelMangaOCR
 
 
+def _get_paddleocr_vl_class():
+    """延迟导入 ModelPaddleOCRVL，只有在真正使用 paddleocr_vl 时才导入"""
+    from .model_paddleocr_vl import ModelPaddleOCRVL
+    return ModelPaddleOCRVL
+
+
 OCRS = {
     Ocr.ocr32px: Model32pxOCR,
     Ocr.ocr48px: Model48pxOCR,
@@ -24,6 +30,7 @@ OCRS = {
     Ocr.paddleocr: ModelPaddleOCR,
     Ocr.paddleocr_korean: ModelPaddleOCRKorean,
     Ocr.paddleocr_latin: ModelPaddleOCRLatin,
+    Ocr.paddleocr_vl: _get_paddleocr_vl_class,  # 延迟导入 PaddleOCR-VL
 }
 ocr_cache = {}
 
@@ -33,8 +40,8 @@ def get_ocr(key: Ocr, *args, **kwargs) -> CommonOCR:
     # Use cache to avoid reloading models in the same translation session
     if key not in ocr_cache:
         ocr_class = OCRS[key]
-        # 处理延迟导入的情况（mocr）
-        if callable(ocr_class) and key == Ocr.mocr:
+        # 处理延迟导入的情况（mocr, paddleocr_vl）
+        if callable(ocr_class) and key in (Ocr.mocr, Ocr.paddleocr_vl):
             ocr_class = ocr_class()  # 调用函数获取真正的类
         ocr_cache[key] = ocr_class(*args, **kwargs)
     return ocr_cache[key]

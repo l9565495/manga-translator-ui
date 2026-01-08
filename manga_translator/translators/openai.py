@@ -308,12 +308,16 @@ class OpenAITranslator(CommonTranslator):
                 if retry_attempt > 0 and current_temperature != self.temperature:
                     self.logger.info(f"[重试] 温度调整: {self.temperature} -> {current_temperature}")
                 
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=self.max_tokens,
-                    temperature=current_temperature
-                )
+                # 构建API参数，只有当max_tokens有值时才传递（新模型如o1/gpt-4.1不支持null值）
+                api_params = {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": current_temperature
+                }
+                if self.max_tokens is not None:
+                    api_params["max_tokens"] = self.max_tokens
+
+                response = await self.client.chat.completions.create(**api_params)
                 
                 # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
                 if self._MAX_REQUESTS_PER_MINUTE > 0:

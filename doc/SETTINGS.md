@@ -319,6 +319,7 @@
   - **48px_ctc**：CTC 模型（识别准确率更高）
   - **mocr**：Manga OCR 专用模型（专门针对漫画优化）
   - **paddleocr**：PaddleOCR 引擎（支持多语言）
+  - **paddleocr_vl**：PaddleOCR-VL-For-Manga 模型（效果最好，最吃配置）
 
 - **启用混合OCR (use_hybrid_ocr)**：启用混合 OCR（同时使用两个模型，提高准确率）
 

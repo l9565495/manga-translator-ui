@@ -1441,6 +1441,45 @@ def update_code_force(skip_confirm=False):
     try:
         subprocess.run([git, 'reset', '--hard', 'origin/main'], check=True)
         print("[OK] 代码更新完成")
+        
+        # 清理平台特定文件
+        import platform
+        import os
+        
+        if platform.system() == 'Windows':
+            # Windows 环境清理 macOS 文件
+            files_to_remove = [
+                'macOS_1_首次安装.sh',
+                'macOS_2_启动Qt界面.sh',
+                'macOS_3_检查更新并启动.sh',
+                'macOS_4_更新维护.sh',
+                '.gitattributes',
+                '.gitignore',
+                'LICENSE.txt'
+            ]
+            print("[OK] 已清理 macOS 脚本和 Git 配置文件")
+        elif platform.system() == 'Darwin':
+            # macOS 环境清理 Windows 文件
+            files_to_remove = [
+                '步骤1-首次安装.bat',
+                '步骤2-启动Qt界面.bat',
+                '步骤3-检查更新并启动.bat',
+                '步骤4-更新维护.bat',
+                '.gitattributes',
+                '.gitignore',
+                'LICENSE.txt'
+            ]
+            print("[OK] 已清理 Windows 脚本和 Git 配置文件")
+        else:
+            files_to_remove = []
+        
+        for file in files_to_remove:
+            if os.path.exists(file):
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass  # 忽略删除失败
+        
         return True
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] 代码更新失败: {e}")

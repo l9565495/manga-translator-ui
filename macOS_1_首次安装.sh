@@ -68,6 +68,136 @@ check_xcode_tools() {
     fi
 }
 
+# 检查 Git
+check_git() {
+    echo ""
+    echo -e "${BLUE}[*] 检查 Git...${NC}"
+    
+    if command -v git &> /dev/null; then
+        echo -e "${GREEN}[OK] Git 已安装${NC}"
+        git --version
+    else
+        echo -e "${YELLOW}[警告] 未检测到 Git${NC}"
+        echo ""
+        echo "Git 通常随 Xcode 命令行工具一起安装"
+        echo "如果已安装 Xcode 命令行工具但仍未检测到 Git，"
+        echo "可以通过以下方式安装:"
+        echo ""
+        echo "  1. 使用 Homebrew: brew install git"
+        echo "  2. 重新安装 Xcode 命令行工具: xcode-select --install"
+        echo ""
+        read -p "是否继续? (y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+}
+
+# 克隆或更新代码仓库
+setup_repository() {
+    echo ""
+    echo -e "${BLUE}[*] 检查代码仓库...${NC}"
+    
+    # 检查是否已有代码（从压缩包解压或已克隆）
+    if [ -d "manga_translator" ] && [ -d "desktop_qt_ui" ] && [ -f "packaging/VERSION" ]; then
+        if [ -d ".git" ]; then
+            echo -e "${GREEN}[OK] 检测到 Git 仓库${NC}"
+            
+            # 获取当前仓库地址
+            CURRENT_REPO=$(git config --get remote.origin.url 2>/dev/null || echo "")
+            
+            if [ -n "$CURRENT_REPO" ]; then
+                echo "当前仓库: $CURRENT_REPO"
+                echo ""
+                read -p "是否更新到最新版本? (y/n) " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    echo -e "${BLUE}[*] 获取远程更新...${NC}"
+                    git fetch origin
+                    echo -e "${BLUE}[*] 强制同步到远程分支...${NC}"
+                    git reset --hard origin/main
+                    echo -e "${GREEN}[OK] 代码已更新${NC}"
+                    
+                    # 清理 Windows 文件
+                    rm -f "步骤1-首次安装.bat" "步骤2-启动Qt界面.bat" "步骤3-检查更新并启动.bat" "步骤4-更新维护.bat" 2>/dev/null
+                    rm -f ".gitattributes" ".gitignore" "LICENSE.txt" 2>/dev/null
+                    echo -e "${GREEN}[OK] 已清理 Windows 脚本和 Git 配置文件${NC}"
+                fi
+            fi
+        else
+            echo -e "${GREEN}[OK] 检测到代码文件（从压缩包解压）${NC}"
+            echo ""
+            read -p "是否初始化 Git 仓库以便后续更新? (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                git init
+                
+                # 选择仓库源
+                echo ""
+                echo "请选择仓库源:"
+                echo "  [1] GitHub 官方"
+                echo "  [2] gh-proxy.com 镜像（国内推荐）"
+                read -p "请选择 (1/2, 默认1): " repo_choice
+                
+                if [ "$repo_choice" = "2" ]; then
+                    REPO_URL="https://gh-proxy.com/https://github.com/hgmzhn/manga-translator-ui.git"
+                else
+                    REPO_URL="https://github.com/hgmzhn/manga-translator-ui.git"
+                fi
+                
+                git remote add origin "$REPO_URL"
+                git fetch origin
+                echo -e "${GREEN}[OK] Git 仓库已初始化${NC}"
+            fi
+        fi
+        return 0
+    fi
+    
+    # 需要克隆代码
+    echo -e "${YELLOW}[*] 未检测到代码，开始克隆...${NC}"
+    echo ""
+    echo "请选择仓库源:"
+    echo "  [1] GitHub 官方"
+    echo "  [2] gh-proxy.com 镜像（国内推荐）"
+    read -p "请选择 (1/2, 默认1): " repo_choice
+    
+    if [ "$repo_choice" = "2" ]; then
+        REPO_URL="https://gh-proxy.com/https://github.com/hgmzhn/manga-translator-ui.git"
+        echo "使用: gh-proxy.com 镜像"
+    else
+        REPO_URL="https://github.com/hgmzhn/manga-translator-ui.git"
+        echo "使用: GitHub 官方"
+    fi
+    
+    echo ""
+    echo -e "${BLUE}[*] 克隆代码到临时目录...${NC}"
+    TEMP_DIR="manga_translator_temp_$$"
+    
+    if git clone "$REPO_URL" "$TEMP_DIR"; then
+        echo -e "${GREEN}[OK] 克隆完成${NC}"
+        
+        # 复制文件
+        echo -e "${BLUE}[*] 复制文件...${NC}"
+        cp -r "$TEMP_DIR"/* "$SCRIPT_DIR/" 2>/dev/null || true
+        cp -r "$TEMP_DIR"/.git "$SCRIPT_DIR/" 2>/dev/null || true
+        cp "$TEMP_DIR"/.gitignore "$SCRIPT_DIR/" 2>/dev/null || true
+        
+        # 清理临时目录
+        rm -rf "$TEMP_DIR"
+        
+        # 清理 Windows 文件
+        rm -f "步骤1-首次安装.bat" "步骤2-启动Qt界面.bat" "步骤3-检查更新并启动.bat" "步骤4-更新维护.bat" 2>/dev/null
+        rm -f ".gitattributes" ".gitignore" "LICENSE.txt" 2>/dev/null
+        
+        echo -e "${GREEN}[OK] 代码克隆完成${NC}"
+    else
+        echo -e "${RED}[错误] 克隆失败${NC}"
+        rm -rf "$TEMP_DIR" 2>/dev/null
+        exit 1
+    fi
+}
+
 # 安装或检测 Miniforge
 setup_miniconda() {
     echo ""
@@ -177,15 +307,6 @@ install_dependencies() {
     echo ""
     echo -e "${BLUE}[*] 安装其他依赖...${NC}"
     pip install -r requirements_metal.txt --ignore-installed torch torchvision torchaudio
-    
-    # 编译安装 pydensecrf
-    echo ""
-    echo -e "${BLUE}[*] 编译安装 pydensecrf...${NC}"
-    if pip install git+https://github.com/lucasb-eyer/pydensecrf.git; then
-        echo -e "${GREEN}[OK] pydensecrf 安装成功${NC}"
-    else
-        echo -e "${YELLOW}[警告] pydensecrf 安装失败，部分功能可能不可用${NC}"
-    fi
 }
 
 # 验证安装
@@ -226,6 +347,8 @@ except Exception as e:
 main() {
     check_apple_silicon
     check_xcode_tools
+    check_git
+    setup_repository
     setup_miniconda
     init_conda
     setup_environment

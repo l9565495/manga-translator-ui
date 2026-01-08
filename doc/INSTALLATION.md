@@ -434,11 +434,9 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 
 ### 系统要求
 
-- **硬件**：Mac 电脑 (M1/M2/M3/M4 芯片)
+- **硬件**：Mac 电脑 (M1/M2/M3/M4 芯片，Intel Mac 也可运行但使用 CPU 模式)
 - **系统**：macOS 12.0 或更高版本
-- **软件**：Xcode Command Line Tools（脚本会自动检查安装）
-
-> ⚠️ **Intel Mac 用户**：由于缺乏 MPS 支持，请使用 [安装方式三：从源码运行](#安装方式三从源码运行) (CPU 模式) 或 Docker。
+- **软件**：Xcode Command Line Tools（脚本会自动检查并提示安装）
 
 ### 脚本说明
 
@@ -446,35 +444,51 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 
 | 脚本文件 | 说明 | 对应 Windows |
 |---------|------|-------------|
-| `macOS_1_首次安装.sh` | 首次环境配置、Miniforge 安装、依赖安装 | 步骤1-首次安装.bat |
+| `macOS_1_首次安装.sh` | 首次环境配置、代码克隆、Miniforge 安装、依赖安装 | 步骤1-首次安装.bat |
 | `macOS_2_启动Qt界面.sh` | 启动图形界面 | 步骤2-启动Qt界面.bat |
 | `macOS_3_检查更新并启动.sh` | 检查版本更新后启动 | 步骤3-检查更新并启动.bat |
-| `macOS_4_更新维护.sh` | 运行维护菜单（更新模型、清理缓存等） | 步骤4-更新维护.bat |
+| `macOS_4_更新维护.sh` | 运行维护菜单（更新代码、更新依赖、清理缓存等） | 步骤4-更新维护.bat |
 
 ### 安装步骤
 
-1. **获取代码**：
-   下载项目代码并解压，或使用 Git 克隆：
-   ```bash
-   git clone https://github.com/hgmzhn/manga-translator-ui.git
-   cd manga-translator-ui
-   ```
+**方式一：快速安装（推荐）**
 
-2. **赋予执行权限**：
-   打开终端 (Terminal)，进入项目目录，运行：
-   ```bash
-   chmod +x macOS_*.sh
-   ```
+只需下载安装脚本，其他全自动：
 
-3. **运行安装脚本**：
-   ```bash
-   ./macOS_1_首次安装.sh
-   ```
-   脚本会自动：
-   - 检测并安装 Miniforge (如未安装)
-   - 创建独立的 `manga-env` 虚拟环境 (Python 3.12)
-   - 安装所有依赖 (使用 `requirements_metal.txt`)
-   - 编译 `pydensecrf` (需要 Xcode Tools)
+```bash
+# 1. 下载安装脚本
+curl -O https://raw.githubusercontent.com/hgmzhn/manga-translator-ui/main/macOS_1_首次安装.sh
+
+# 2. 赋予执行权限
+chmod +x macOS_1_首次安装.sh
+
+# 3. 运行安装
+./macOS_1_首次安装.sh
+```
+
+脚本会自动完成：
+- 检查并提示安装 Xcode Command Line Tools（包含 Git）
+- 克隆项目代码
+- 检测并安装 Miniforge（如未安装）
+- 创建独立的 `manga-env` 虚拟环境（Python 3.12）
+- 安装所有依赖（使用 `requirements_metal.txt`）
+- 配置 MPS GPU 加速
+
+**方式二：手动克隆**
+
+如果你想先查看代码或已有 Git：
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/hgmzhn/manga-translator-ui.git
+cd manga-translator-ui
+
+# 2. 赋予执行权限
+chmod +x macOS_*.sh
+
+# 3. 运行安装
+./macOS_1_首次安装.sh
+```
 
 ### 验证与启动
 
@@ -485,15 +499,31 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
   ./macOS_2_启动Qt界面.sh
   ```
 
-- **检查更新**：
+- **检查更新并启动**：
   ```bash
   ./macOS_3_检查更新并启动.sh
   ```
 
-- **维护/重置**：
+- **更新维护**：
   ```bash
   ./macOS_4_更新维护.sh
   ```
+  维护菜单提供：
+  - 更新代码（强制同步到远程）
+  - 更新/安装依赖
+  - 完整更新（代码+依赖）
+  - 修复模式（重装所有依赖）
+
+### 常见问题
+
+**Q: 首次安装需要多长时间？**
+A: 约 10-20 分钟，取决于网络速度。需要下载约 2GB 的依赖包。
+
+**Q: Intel Mac 可以使用吗？**
+A: 可以，脚本会自动检测并使用 Intel 版本的 Miniforge，但只能使用 CPU 模式（无 MPS 加速）。
+
+**Q: 如何更新到最新版本？**
+A: 运行 `./macOS_4_更新维护.sh`，选择"完整更新"即可。
 
 ---
 

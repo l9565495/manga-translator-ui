@@ -1285,6 +1285,10 @@ class MangaTranslator:
         return result
 
     async def _run_detection(self, config: Config, ctx: Context):
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+        
         current_time = time.time()
         self._model_usage_timestamps[("detection", config.detector.detector)] = current_time
         result = await dispatch_detection(config.detector.detector, ctx.img_rgb, config.detector.detection_size, config.detector.text_threshold,
@@ -1600,6 +1604,10 @@ class MangaTranslator:
             await asyncio.sleep(1)
 
     async def _run_ocr(self, config: Config, ctx: Context):
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+        
         current_time = time.time()
         self._model_usage_timestamps[("ocr", config.ocr.ocr)] = current_time
         
@@ -2095,6 +2103,10 @@ class MangaTranslator:
         return ctx
 
     async def _run_text_translation(self, config: Config, ctx: Context):
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+        
         # Centralized prompt loading logic
         ctx = await self._load_and_prepare_prompts(config, ctx)
 
@@ -2452,16 +2464,28 @@ class MangaTranslator:
         return new_text_regions
 
     async def _run_mask_refinement(self, config: Config, ctx: Context):
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+        
         return await dispatch_mask_refinement(ctx.text_regions, ctx.img_rgb, ctx.mask_raw, 'fit_text',
                                               config.mask_dilation_offset, config.ocr.ignore_bubble, self.verbose,self.kernel_size)
 
     async def _run_inpainting(self, config: Config, ctx: Context):
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+        
         current_time = time.time()
         self._model_usage_timestamps[("inpainting", config.inpainter.inpainter)] = current_time
         return await dispatch_inpainting(config.inpainter.inpainter, ctx.img_rgb, ctx.mask, config.inpainter, config.inpainter.inpainting_size, self.device,
                                          self.verbose)
 
     async def _run_text_rendering(self, config: Config, ctx: Context):
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+        
         current_time = time.time()
         self._model_usage_timestamps[("rendering", config.render.renderer)] = current_time
         
@@ -2649,6 +2673,7 @@ class MangaTranslator:
     def _check_cancelled(self):
         """检查任务是否被取消"""
         if self._cancel_check_callback and self._cancel_check_callback():
+            logger.warning('[阶段] 任务被取消')
             raise asyncio.CancelledError("Task cancelled")
 
     async def _report_progress(self, state: str, finished: bool = False):
@@ -2832,6 +2857,7 @@ class MangaTranslator:
         
         # === 步骤4: 批量处理模式（顺序处理） ===
         logger.info(f'Starting batch translation: {len(images_with_configs)} images, batch size: {batch_size}')
+        logger.info(f'[阶段] 批量翻译任务启动')
         
         # ✅ 修复：如果 images_with_configs 中包含文件路径字符串（并发模式格式），需要先加载图片
         # 这种情况发生在：用户启用并发模式，但因为特殊模式（如仅上色）导致并发被禁用
@@ -2893,6 +2919,7 @@ class MangaTranslator:
                 global_total_batches = (display_total + batch_size - 1) // batch_size
                 
                 logger.info(f"Processing rolling batch {global_batch_num}/{global_total_batches} (images {global_batch_start}-{global_batch_end})")
+                logger.info(f'[阶段] 开始处理批次 {global_batch_num}/{global_total_batches}')
                 
                 # 报告批次进度给前端
                 await self._report_progress(f"batch:{global_batch_start}:{global_batch_end}:{display_total}")
@@ -3064,6 +3091,7 @@ class MangaTranslator:
                     continue
 
                 # 标准模式：执行检测、OCR等预处理
+                logger.info(f'[阶段] 开始预处理阶段（检测、OCR）')
                 for i, (image, config) in enumerate(current_batch_images):
                     # 检查是否被取消
                     await asyncio.sleep(0)
@@ -3088,6 +3116,7 @@ class MangaTranslator:
                         preprocessed_contexts.append((ctx, config))
 
                 # --- 阶段2: 翻译 ---
+                logger.info(f'[阶段] 预处理完成，开始翻译阶段')
                 if self.colorize_only or self.upscale_only or self.inpaint_only:
                     # 特殊情况：仅上色/仅超分/仅修复模式，跳过翻译
                     mode_name = "Colorize Only" if self.colorize_only else ("Upscale Only" if self.upscale_only else "Inpaint Only")
@@ -3186,6 +3215,7 @@ class MangaTranslator:
                     continue  # 跳过渲染，继续下一批次
 
                 # 标准流程：渲染并保存
+                logger.info(f'[阶段] 翻译完成，开始渲染阶段')
                 for idx, (ctx, config) in enumerate(translated_contexts):
                     await asyncio.sleep(0)  # 检查是否被取消
                     self._check_cancelled()  # 检查取消标志
@@ -3242,6 +3272,7 @@ class MangaTranslator:
             
             finally:
                 # ✅ 批次完成后（无论成功还是失败）立即清理内存
+                logger.info(f'[阶段] 批次 {batch_start//batch_size + 1} 处理完成，开始清理内存')
                 self._cleanup_batch_memory(
                     current_batch_images=current_batch_images,
                     preprocessed_contexts=preprocessed_contexts,
@@ -3257,6 +3288,10 @@ class MangaTranslator:
         """
         执行翻译之前的所有步骤（彩色化、上采样、检测、OCR、文本行合并）
         """
+        
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
         
         ctx = Context()
         ctx.input = image
@@ -3277,6 +3312,10 @@ class MangaTranslator:
         # preload and download models (not strictly necessary, remove to lazy load)
         if self.models_ttl == 0 and not self._models_loaded:
             logger.info('Loading models')
+            
+            # ✅ 检查停止标志
+            await asyncio.sleep(0)
+            self._check_cancelled()
             
             if config.upscale.upscale_ratio:
                 # 传递超分配置参数
@@ -3316,6 +3355,10 @@ class MangaTranslator:
         if self._detector_cleanup_task is None:
             self._detector_cleanup_task = asyncio.create_task(self._detector_cleanup_job())
 
+        # ✅ 检查停止标志
+        await asyncio.sleep(0)
+        self._check_cancelled()
+
         # -- Colorization
         if config.colorizer.colorizer != Colorizer.none:
             await self._report_progress('colorizing')
@@ -3340,6 +3383,10 @@ class MangaTranslator:
 
         # -- Upscaling
         if config.upscale.upscale_ratio:
+            # ✅ 检查停止标志
+            await asyncio.sleep(0)
+            self._check_cancelled()
+            
             await self._report_progress('upscaling')
             try:
                 ctx.upscaled = await self._run_upscaling(config, ctx)

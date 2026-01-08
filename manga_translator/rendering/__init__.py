@@ -1654,7 +1654,13 @@ def render(
     
     # 重新计算变换矩阵
     M_local, _ = cv2.findHomography(src_points, local_dst_points[0], cv2.RANSAC, 5.0)
-    
+
+    # 检查变换矩阵是否有效
+    if M_local is None:
+        logger.warning(f"[RENDER SKIPPED] Failed to compute homography matrix for text: "
+                      f"'{region.translation[:50] if hasattr(region, 'translation') else 'N/A'}...'")
+        return img
+
     # 在局部区域进行变换
     rgba_region = cv2.warpPerspective(box, M_local, (local_w, local_h), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
     

@@ -75,7 +75,6 @@ class RenderSettings(BaseModel):
     strict_smart_scaling: bool = False
     stroke_width: float = 0.07
     enable_template_alignment: bool = False  # 启用模板匹配对齐（替换翻译模式）- 直接提取翻译图文字
-    paste_connect_distance_ratio: float = 0.03  # 粘贴模式连通距离比例（相对于图像长边），默认3%
     paste_mask_dilation_pixels: int = 10  # 粘贴模式蒙版膨胀大小（像素），设为0禁用膨胀
 
 class UpscaleSettings(BaseModel):

@@ -82,14 +82,19 @@ class ConcurrentPipeline:
         检测+OCR工作线程（顺序处理，分批加载图片）
         完成后将上下文放入翻译队列和修复队列
         """
-        # 让出控制权，确保其他线程有机会启动
+        # ✅ 检查停止标志
         await asyncio.sleep(0)
+        self.translator._check_cancelled()
         
         logger.info(f"[检测+OCR线程] 开始处理 {len(file_paths)} 张图片（分批加载）")
         
         from PIL import Image
         
         for idx, (file_path, config) in enumerate(zip(file_paths, configs)):
+            # ✅ 检查停止标志
+            await asyncio.sleep(0)
+            self.translator._check_cancelled()
+            
             # 检查是否需要停止（其他线程出错）
             if self.stop_workers:
                 logger.warning(f"[检测+OCR] 收到停止信号，已处理 {idx}/{len(file_paths)} 张图片")
@@ -198,8 +203,9 @@ class ConcurrentPipeline:
         从翻译队列中取出文本，批量翻译
         一批翻译完成后才开始下一批
         """
-        # 让出控制权，确保线程能被调度
+        # ✅ 检查停止标志
         await asyncio.sleep(0)
+        self.translator._check_cancelled()
         
         logger.info(f"[翻译线程] 启动，批量大小: {self.batch_size}")
         
@@ -363,8 +369,9 @@ class ConcurrentPipeline:
         修复工作线程
         从修复队列中取出上下文，进行修复
         """
-        # 让出控制权，确保线程能被调度
+        # ✅ 检查停止标志
         await asyncio.sleep(0)
+        self.translator._check_cancelled()
         
         logger.info("[修复线程] 启动")
         
@@ -463,8 +470,9 @@ class ConcurrentPipeline:
         从渲染队列中取出上下文，进行渲染
         渲染完成后立即清理内存
         """
-        # 让出控制权，确保线程能被调度
+        # ✅ 检查停止标志
         await asyncio.sleep(0)
+        self.translator._check_cancelled()
         
         logger.info("[渲染线程] 启动")
         

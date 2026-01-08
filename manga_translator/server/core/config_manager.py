@@ -66,7 +66,6 @@ DEFAULT_ADMIN_SETTINGS = {
         # Qt UI 专属参数（替换翻译模式相关）
         'cli.replace_translation',
         'render.enable_template_alignment',
-        'render.paste_connect_distance_ratio',
         'render.paste_mask_dilation_pixels',
         # 翻译器高级配置
         'translator.enable_post_translation_check',

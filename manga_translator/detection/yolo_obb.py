@@ -51,13 +51,12 @@ class YOLOOBBDetector(OfflineDetector):
         use_cuda = False
         
         if device == 'cuda':
-            # 使用 onnxruntime.preload_dlls() 加载 PyTorch 的 CUDA 库
-            try:
-                ort.preload_dlls()
-            except AttributeError:
-                self.logger.warning("onnxruntime.preload_dlls() 不可用（需要 1.21+）")
-            except Exception as e:
-                self.logger.warning(f"preload_dlls() 失败: {e}")
+            # 使用 onnxruntime.preload_dlls() 加载 PyTorch 的 CUDA 库（仅 1.21+ 版本支持）
+            if hasattr(ort, 'preload_dlls'):
+                try:
+                    ort.preload_dlls()
+                except Exception as e:
+                    self.logger.warning(f"preload_dlls() 失败: {e}")
             
             # 检查 CUDA 是否真的可用
             try:

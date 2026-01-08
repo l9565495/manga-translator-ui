@@ -9,10 +9,10 @@
     "unload_models_after_translation": false
   },
   "filter_text_enabled": false,
-  "kernel_size": 3,
+  "kernel_size": 5,
   "mask_dilation_offset": 50,
   "translator": {
-    "translator": "openai",
+    "translator": "openai_hq",
     "target_lang": "CHS",
     "no_text_lang_skip": false,
     "high_quality_prompt_path": "dict/prompt_example.json",
@@ -81,7 +81,6 @@
     "strict_smart_scaling": false,
     "stroke_width": 0.07,
     "enable_template_alignment": false,
-    "paste_connect_distance_ratio": 0.03,
     "paste_mask_dilation_pixels": 10
   },
   "upscale": {
