@@ -656,8 +656,12 @@ class ExportService:
                             line_spacing = cfg.render.line_spacing if hasattr(cfg.render, 'line_spacing') else None
                             script_only = cfg.cli.psd_script_only
                             
+                            # 使用原图路径查找inpainted图片，而不是临时路径
+                            image_path_for_psd = source_image_path if source_image_path else (output_path if output_path else image_path)
+                            
                             self.logger.info(f"开始导出PSD: {psd_path}")
-                            photoshop_export(psd_path, ctx, default_font, image_path, False, None, line_spacing, script_only)
+                            self.logger.info(f"使用图片路径查找inpainted: {image_path_for_psd}")
+                            photoshop_export(psd_path, ctx, default_font, image_path_for_psd, False, None, line_spacing, script_only)
                             self.logger.info(f"✅ [PSD] 已导出可编辑PSD: {os.path.basename(psd_path)}")
                             
                             if progress_callback:
