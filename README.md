@@ -193,6 +193,21 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 > 📖 **详细安装教程**：[安装指南](doc/INSTALLATION.md)  
 > 📖 **使用教程**：[命令行使用指南](doc/CLI_USAGE.md)
 
+#### 方式五：macOS 原生运行 (Apple Silicon)
+
+专为 M1/M2/M3/M4 Mac 优化的原生运行方式，支持 MPS (Metal Performance Shaders) GPU 加速。
+
+1. **下载安装脚本**：
+   - 确保将项目下载/克隆到本地
+2. **运行安装**：
+   - 在终端运行 `./macOS_1_首次安装.sh`
+   - 脚本会自动安装 Miniforge、配置环境并安装 MPS 加速支持
+3. **启动程序**：
+   - 运行 `./macOS_2_启动Qt界面.sh`
+
+> ⚠️ **注意**：仅支持 Apple Silicon (M1/M2/M3/M4) 芯片，Intel Mac 请使用 CPU 模式或 Docker。
+
+
 ---
 
 ## 📖 使用教程

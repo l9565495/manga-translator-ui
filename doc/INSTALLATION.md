@@ -11,6 +11,7 @@
 - [安装方式二：下载打包版本](#安装方式二下载打包版本)
 - [安装方式三：从源码运行](#安装方式三从源码运行)
 - [安装方式四：Docker部署](#安装方式四docker部署)
+- [安装方式五：macOS 原生运行（Apple Silicon）](#安装方式五macos原生运行apple-silicon)
 - [故障排除](#故障排除)
 
 ---
@@ -19,7 +20,7 @@
 
 ### 最低配置
 
-- **操作系统**：Windows 10/11 (64位) 或 Linux
+- **操作系统**：Windows 10/11 (64位)、Linux 或 macOS 12+ (Apple Silicon)
 - **内存**：8 GB RAM
 - **存储空间**：5 GB 可用空间（用于程序和模型文件）
 - **Python 版本**（开发版）：Python 3.12
@@ -422,6 +423,77 @@ docker run -d --name manga-translator -p 8000:8000 hgmzhn/manga-translator:lates
 - 🌐 **用户界面**：`http://服务器IP:8000` - 上传图片进行翻译
 - 🔧 **管理界面**：`http://服务器IP:8000/admin.html` - 配置翻译器和参数（需要管理员密码）
 - 📖 **使用教程**：[命令行使用指南](CLI_USAGE.md) - 了解更多功能和命令行模式
+
+---
+
+---
+
+## 安装方式五：macOS 原生运行（Apple Silicon）
+
+专为搭载 Apple Silicon (M1/M2/M3/M4) 芯片的 Mac 设备设计，利用 MPS (Metal Performance Shaders) 提供原生 GPU 加速。
+
+### 系统要求
+
+- **硬件**：Mac 电脑 (M1/M2/M3/M4 芯片)
+- **系统**：macOS 12.0 或更高版本
+- **软件**：Xcode Command Line Tools（脚本会自动检查安装）
+
+> ⚠️ **Intel Mac 用户**：由于缺乏 MPS 支持，请使用 [安装方式三：从源码运行](#安装方式三从源码运行) (CPU 模式) 或 Docker。
+
+### 脚本说明
+
+项目提供了 4 个 macOS 专用脚本，对应 Windows 的批处理脚本：
+
+| 脚本文件 | 说明 | 对应 Windows |
+|---------|------|-------------|
+| `macOS_1_首次安装.sh` | 首次环境配置、Miniforge 安装、依赖安装 | 步骤1-首次安装.bat |
+| `macOS_2_启动Qt界面.sh` | 启动图形界面 | 步骤2-启动Qt界面.bat |
+| `macOS_3_检查更新并启动.sh` | 检查版本更新后启动 | 步骤3-检查更新并启动.bat |
+| `macOS_4_更新维护.sh` | 运行维护菜单（更新模型、清理缓存等） | 步骤4-更新维护.bat |
+
+### 安装步骤
+
+1. **获取代码**：
+   下载项目代码并解压，或使用 Git 克隆：
+   ```bash
+   git clone https://github.com/hgmzhn/manga-translator-ui.git
+   cd manga-translator-ui
+   ```
+
+2. **赋予执行权限**：
+   打开终端 (Terminal)，进入项目目录，运行：
+   ```bash
+   chmod +x macOS_*.sh
+   ```
+
+3. **运行安装脚本**：
+   ```bash
+   ./macOS_1_首次安装.sh
+   ```
+   脚本会自动：
+   - 检测并安装 Miniforge (如未安装)
+   - 创建独立的 `manga-env` 虚拟环境 (Python 3.12)
+   - 安装所有依赖 (使用 `requirements_metal.txt`)
+   - 编译 `pydensecrf` (需要 Xcode Tools)
+
+### 验证与启动
+
+安装完成后：
+
+- **正常启动**：
+  ```bash
+  ./macOS_2_启动Qt界面.sh
+  ```
+
+- **检查更新**：
+  ```bash
+  ./macOS_3_检查更新并启动.sh
+  ```
+
+- **维护/重置**：
+  ```bash
+  ./macOS_4_更新维护.sh
+  ```
 
 ---
 

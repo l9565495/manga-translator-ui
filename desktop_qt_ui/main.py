@@ -212,18 +212,22 @@ def main():
     from PyQt6.QtCore import qInstallMessageHandler
     qInstallMessageHandler(qt_message_handler)
     
-    # 设置应用程序图标（用于任务栏）
+    # 设置应用程序图标（用于任务栏/Dock）
     from PyQt6.QtGui import QIcon
     
     # 确定图标路径
     if getattr(sys, 'frozen', False):
         # 打包环境：图标在 _internal 目录下
-        # sys.executable 是 app.exe 的路径，_internal 在同级目录
         exe_dir = os.path.dirname(sys.executable)
         icon_path = os.path.join(exe_dir, '_internal', 'doc', 'images', 'icon.ico')
     else:
         # 开发环境
-        icon_path = os.path.join(os.path.dirname(__file__), '..', 'doc', 'images', 'icon.ico')
+        base_icon_dir = os.path.join(os.path.dirname(__file__), '..', 'doc', 'images')
+        # macOS 使用 .icns 文件
+        if sys.platform == 'darwin':
+            icon_path = os.path.join(base_icon_dir, 'icon.icns')
+        else:
+            icon_path = os.path.join(base_icon_dir, 'icon.ico')
     
     icon_path = os.path.abspath(icon_path)
     app_icon = None
