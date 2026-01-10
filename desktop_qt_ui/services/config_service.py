@@ -495,6 +495,34 @@ class ConfigService(QObject):
             self.logger.error(traceback.format_exc())
             return False
     
+    def replace_env_file(self, env_vars: Dict[str, str]) -> bool:
+        """完全替换.env文件内容"""
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.env_path), exist_ok=True)
+            
+            # 写入新的.env文件
+            with open(self.env_path, 'w', encoding='utf-8') as f:
+                for key, value in env_vars.items():
+                    # 去除首尾空格
+                    value = value.strip()
+                    # 转义双引号和反斜杠，然后用双引号包裹
+                    escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
+                    f.write(f'{key}="{escaped_value}"\n')
+            
+            # 重新加载环境变量到os.environ，使其立即生效
+            load_dotenv(self.env_path, override=True)
+            
+            # 清除缓存
+            self._env_cache = None
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"替换.env文件失败: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
+    
     def validate_translator_env_vars(self, translator_name: str) -> Dict[str, bool]:
         """验证翻译器的环境变量是否完整"""
         env_vars = self.load_env_vars()

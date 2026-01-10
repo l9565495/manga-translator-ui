@@ -414,13 +414,8 @@ class MainAppLogic(QObject):
                 # 复制当前配置模式：保存.env中所有翻译器的环境变量
                 all_env_vars = self.config_service.load_env_vars()
                 
-                # 保存所有非空的环境变量
-                filtered_env_vars = {}
-                for key, value in all_env_vars.items():
-                    if value and value.strip():
-                        filtered_env_vars[key] = value
-                
-                success = self.preset_service.save_preset(preset_name, filtered_env_vars)
+                # 保存所有环境变量，包括空值，以准确反映当前配置状态
+                success = self.preset_service.save_preset(preset_name, all_env_vars)
                 if success:
                     # 不输出日志，避免刷屏
                     pass
@@ -446,7 +441,7 @@ class MainAppLogic(QObject):
     
     @pyqtSlot(str)
     def load_preset(self, preset_name: str) -> bool:
-        """加载预设并更新环境变量到.env"""
+        """加载预设并完全替换.env文件"""
         try:
             # 加载预设文件
             preset_env_vars = self.preset_service.load_preset(preset_name)
@@ -454,18 +449,8 @@ class MainAppLogic(QObject):
                 self._ui_log(f"加载预设失败: {preset_name}", "ERROR")
                 return False
             
-            # 获取当前翻译器需要的所有环境变量
-            current_translator = self.config_service.get_config().translator.translator
-            translator_env_vars = self.config_service.get_all_env_vars(current_translator)
-            
-            # 准备要更新的环境变量
-            env_vars_to_update = {}
-            for key in translator_env_vars:
-                # 使用预设中的值，如果预设中没有或为空，则设为空字符串
-                env_vars_to_update[key] = preset_env_vars.get(key, "")
-            
-            # 更新当前翻译器的环境变量到.env文件
-            success = self.config_service.save_env_vars(env_vars_to_update)
+            # 完全替换.env文件，只保留预设中的字段
+            success = self.config_service.replace_env_file(preset_env_vars)
             if not success:
                 self._ui_log(f"应用预设失败: {preset_name}", "ERROR")
             return success
