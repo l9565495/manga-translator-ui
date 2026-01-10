@@ -1878,6 +1878,12 @@ def maintenance_menu():
             if update_success and deps_needs_update:
                 print()
                 print("[2/2] 更新依赖...")
+                
+                # 代码更新后，重新检查依赖（使用最新的 requirements 文件）
+                if code_needs_update:
+                    print("重新读取更新后的依赖文件...")
+                    _, _, _, _, req_file, missing_packages = check_all_updates()
+                
                 if req_file:
                     args.requirements = req_file
                 # 如果有缺失包列表，只安装缺失的包
