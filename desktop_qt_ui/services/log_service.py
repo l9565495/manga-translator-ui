@@ -6,6 +6,7 @@ import json
 import logging
 import logging.handlers
 import os
+import sys
 import threading
 from datetime import datetime
 from typing import Any, Dict, List
@@ -56,7 +57,16 @@ class LogService:
             logger.removeHandler(handler)
         
         # 控制台处理器（默认 INFO，可通过 set_console_log_level 调整）
-        console_handler = logging.StreamHandler()
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        
+        # ✅ 强制每次日志后刷新输出
+        class FlushingStreamHandler(logging.StreamHandler):
+            def emit(self, record):
+                super().emit(record)
+                self.flush()
+        
+        console_handler = FlushingStreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
         
         # 保存 console_handler 引用以便后续动态调整
