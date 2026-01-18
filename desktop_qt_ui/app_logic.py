@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import os
+import queue
 import threading
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -847,6 +848,7 @@ class MainAppLogic(QObject):
                     "no_text_lang_skip": self._t("label_no_text_lang_skip"),
                     "high_quality_prompt_path": self._t("label_high_quality_prompt_path"),
                     "extract_glossary": self._t("label_extract_glossary"),
+                    "use_custom_api_params": self._t("label_use_custom_api_params"),
                     "use_mocr_merge": self._t("label_use_mocr_merge"),
                     "ocr": self._t("label_ocr"),
                     "use_hybrid_ocr": self._t("label_use_hybrid_ocr"),
@@ -1842,13 +1844,26 @@ class MainAppLogic(QObject):
     # endregion
 
 class QtLogHandler(logging.Handler):
+    """线程安全的日志处理器，将日志发送到 Qt 信号"""
+    
     def __init__(self, signal):
         super().__init__()
         self.signal = signal
+        self._log_queue = queue.Queue()  # 使用队列缓冲日志
+        
+        # 检查是否在 Qt 线程中
+        from PyQt6.QtCore import QThread
+        self._main_thread = QThread.currentThread()
 
     def emit(self, record):
-        msg = self.format(record)
-        self.signal.emit(msg)
+        try:
+            msg = self.format(record)
+            # PyQt 信号在跨线程时会自动使用 QueuedConnection
+            # 直接发射信号是线程安全的
+            self.signal.emit(msg)
+        except Exception:
+            # 忽略日志发送失败
+            pass
 
 class FileScannerWorker(QObject):
     """

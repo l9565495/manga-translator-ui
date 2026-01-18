@@ -199,6 +199,14 @@ class EditorController(QObject):
                 except Exception as e:
                     self.logger.warning(f"Failed to close export toast: {e}")
             
+            # 关闭"正在保存JSON"Toast（在主线程中安全关闭）
+            if hasattr(self, '_save_json_toast') and self._save_json_toast:
+                try:
+                    self._save_json_toast.close()
+                    self._save_json_toast = None
+                except Exception as e:
+                    self.logger.warning(f"Failed to close save_json toast: {e}")
+            
             # 显示新Toast
             if hasattr(self, 'toast_manager'):
                 if success:
@@ -1982,9 +1990,10 @@ class EditorController(QObject):
             else:
                 self.logger.info(f"Found existing JSON, will replace: {json_path}")
             
-            # 显示开始Toast
+            # 显示开始Toast，保存引用以便后续关闭
+            self._save_json_toast = None
             if hasattr(self, 'toast_manager'):
-                self.toast_manager.show_info("正在保存JSON...", duration=0)
+                self._save_json_toast = self.toast_manager.show_info("正在保存JSON...", duration=0)
             
             self.async_service.submit_task(self._async_save_json(source_path, regions, json_path))
         except Exception as e:
@@ -2081,22 +2090,13 @@ class EditorController(QObject):
             # 保存快照，标记为已保存状态
             self._save_export_snapshot()
             
-            # 关闭"正在保存"的toast，显示成功toast
-            if hasattr(self, 'toast_manager'):
-                # 直接调用close_all（在主线程中执行）
-                self.toast_manager.close_all()
-            
-            # 使用信号在主线程显示Toast
+            # 使用信号在主线程显示Toast（_show_toast_in_main_thread会自动关闭_save_json_toast）
             self._show_toast_signal.emit(f"JSON保存成功\n{json_path}", 3000, True, json_path)
             
         except Exception as e:
             self.logger.error(f"Error during async save JSON: {e}", exc_info=True)
             
-            # 关闭"正在保存"的toast
-            if hasattr(self, 'toast_manager'):
-                self.toast_manager.close_all()
-            
-            # 使用信号在主线程显示Toast
+            # 使用信号在主线程显示Toast（_show_toast_in_main_thread会自动关闭_save_json_toast）
             self._show_toast_signal.emit(f"保存JSON失败：{str(e)}", 3000, False, "")
 
     @pyqtSlot()

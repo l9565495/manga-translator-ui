@@ -2742,7 +2742,13 @@ class MangaTranslator:
             logger.info("Load text mode detected: Auto-importing translations from TXT to JSON...")
             self._preprocess_load_text_mode(images_with_configs)
         
-        # === 步骤1: 检查是否需要使用高质量翻译模式 ===
+        # === 步骤1: 替换翻译模式优先检查 ===
+        # 替换翻译模式应该优先于高质量翻译模式，因为它是一个独立的工作流程
+        if self.replace_translation and images_with_configs:
+            logger.info("Replace translation mode detected: Will extract translations from translated images")
+            return await self._translate_batch_replace_translation(images_with_configs, save_info, global_offset, global_total)
+        
+        # === 步骤2: 检查是否需要使用高质量翻译模式 ===
         is_hq_translator = False
         if images_with_configs:
             first_config = images_with_configs[0][1]
@@ -2760,12 +2766,7 @@ class MangaTranslator:
                 if is_hq_translator and is_import_export_mode:
                     logger.warning("检测到导入/导出翻译模式，高质量翻译流程将被跳过，将使用标准流程进行渲染。")
         
-        # === 步骤1.5: 替换翻译模式 ===
-        if self.replace_translation and images_with_configs:
-            logger.info("Replace translation mode detected: Will extract translations from translated images")
-            return await self._translate_batch_replace_translation(images_with_configs, save_info, global_offset, global_total)
-        
-        # === 步骤2: 检查是否需要使用顺序处理模式 ===
+        # === 步骤3: 检查是否需要使用顺序处理模式 ===
         # 注意：不要在这里调用 translate()，因为 translate() 会调用 translate_batch()，造成无限循环
         # 相反，我们直接使用批量处理逻辑，但 batch_size 设置为 1
         is_template_save_mode = self.template and self.save_text

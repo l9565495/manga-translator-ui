@@ -156,8 +156,20 @@ class TranslationService:
                 translator_args.image = image
             if regions is not None:
                 try:
+                    # 转换 direction 字段
+                    converted_regions = []
+                    for r in regions:
+                        region_copy = r.copy()
+                        if 'direction' in region_copy:
+                            dir_val = region_copy['direction']
+                            if dir_val == 'horizontal':
+                                region_copy['direction'] = 'h'
+                            elif dir_val == 'vertical':
+                                region_copy['direction'] = 'v'
+                        converted_regions.append(region_copy)
+                    
                     # FIX: Instantiate TextBlock using dictionary unpacking, not a non-existent class method.
-                    translator_args.text_regions = [TextBlock(**r) for r in regions]
+                    translator_args.text_regions = [TextBlock(**r) for r in converted_regions]
                 except (TypeError, KeyError) as e:
                     self.logger.warning(f"Could not convert all regions to TextBlock: {e}")
                     translator_args.text_regions = regions # Fallback to passing raw dicts

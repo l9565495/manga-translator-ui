@@ -267,6 +267,7 @@ class ConfigService(QObject):
                     config_dict['app']['theme'] = 'light'
                     config_dict['app']['ui_language'] = 'auto'  # 模板配置始终为 auto
                     config_dict['app']['current_preset'] = '默认'  # 模板配置始终为默认预设
+                    config_dict['app']['saved_colors'] = None  # 模板配置中保存的颜色始终为空
                     
                     if 'cli' in config_dict:
                         config_dict['cli']['verbose'] = False

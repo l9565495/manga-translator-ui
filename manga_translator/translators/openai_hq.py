@@ -145,6 +145,11 @@ class OpenAIHighQualityTranslator(CommonTranslator):
             self._MAX_REQUESTS_PER_MINUTE = max_rpm
             self.logger.info(f"Setting OpenAI HQ max requests per minute to: {max_rpm}")
         
+        # 读取自定义API参数配置
+        use_custom_params = getattr(args, 'use_custom_api_params', False)
+        if use_custom_params:
+            self._load_custom_api_params()
+        
         # 从配置中读取用户级 API Key（优先于环境变量）
         # 这允许 Web 服务器为每个用户使用不同的 API Key
         need_rebuild_client = False
@@ -171,8 +176,27 @@ class OpenAIHighQualityTranslator(CommonTranslator):
             self.client = None
             self._setup_client()
     
-    def _setup_client(self):
-        """设置OpenAI客户端"""
+    def _setup_client(self, force_recreate: bool = False):
+        """设置OpenAI客户端
+        
+        Args:
+            force_recreate: 是否强制重建客户端（用于重试时断开旧连接）
+        """
+        if force_recreate and self.client:
+            # 关闭旧客户端，断开连接
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果事件循环正在运行，创建任务异步关闭
+                    asyncio.create_task(self.client.close())
+                else:
+                    # 否则同步关闭
+                    loop.run_until_complete(self.client.close())
+            except Exception as e:
+                self.logger.debug(f"关闭旧客户端时出错（可忽略）: {e}")
+            self.client = None
+        
         if not self.client:
             # 使用浏览器式请求头，避免被 Cloudflare 阻止
             self.client = AsyncOpenAI(
@@ -442,6 +466,11 @@ This is an incorrect response because it includes extra text and explanations.
                 }
                 if self.max_tokens is not None:
                     api_params["max_tokens"] = self.max_tokens
+                
+                # 合并自定义API参数
+                if self._custom_api_params:
+                    api_params.update(self._custom_api_params)
+                    self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
 
                 response = await self.client.chat.completions.create(**api_params)
                 
@@ -511,6 +540,9 @@ This is an incorrect response because it includes extra text and explanations.
                         if not is_infinite and attempt >= max_retries:
                             raise Exception(f"Translation count mismatch after {max_retries} attempts: expected {len(texts)}, got {len(translations)}")
 
+                        # 重试前断开连接，重建客户端
+                        self.logger.info("重试前断开旧连接，重建客户端...")
+                        self._setup_client(force_recreate=True)
                         await asyncio.sleep(2)
                         continue
 
@@ -528,6 +560,9 @@ This is an incorrect response because it includes extra text and explanations.
                         if not is_infinite and attempt >= max_retries:
                             raise Exception(f"Quality check failed after {max_retries} attempts: {error_msg}")
 
+                        # 重试前断开连接，重建客户端
+                        self.logger.info("重试前断开旧连接，重建客户端...")
+                        self._setup_client(force_recreate=True)
                         await asyncio.sleep(2)
                         continue
 
@@ -557,6 +592,9 @@ This is an incorrect response because it includes extra text and explanations.
                                 tolerance=max(1, len(texts) // 10)
                             )
                         
+                        # 重试前断开连接，重建客户端
+                        self.logger.info("重试前断开旧连接，重建客户端...")
+                        self._setup_client(force_recreate=True)
                         await asyncio.sleep(2)
                         continue
 
@@ -592,6 +630,9 @@ This is an incorrect response because it includes extra text and explanations.
                     self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")
                     raise last_exception
                 
+                # 重试前断开连接，重建客户端
+                self.logger.info("重试前断开旧连接，重建客户端...")
+                self._setup_client(force_recreate=True)
                 await asyncio.sleep(1)
 
             except openai.BadRequestError as e:
@@ -619,6 +660,9 @@ This is an incorrect response because it includes extra text and explanations.
                         self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")
                         raise last_exception
                     
+                    # 重试前断开连接，重建客户端
+                    self.logger.info("重试前断开旧连接，重建客户端...")
+                    self._setup_client(force_recreate=True)
                     await asyncio.sleep(1)
                     
             except Exception as e:
@@ -637,6 +681,9 @@ This is an incorrect response because it includes extra text and explanations.
                     self.logger.error("OpenAI翻译在多次重试后仍然失败。即将终止程序。")
                     raise last_exception
                 
+                # 重试前断开连接，重建客户端
+                self.logger.info("重试前断开旧连接，重建客户端...")
+                self._setup_client(force_recreate=True)
                 await asyncio.sleep(1)
 
         # 只有在所有重试都失败后才会执行到这里
@@ -701,6 +748,11 @@ This is an incorrect response because it includes extra text and explanations.
             }
             if self.max_tokens is not None:
                 api_params["max_tokens"] = self.max_tokens
+            
+            # 合并自定义API参数
+            if self._custom_api_params:
+                api_params.update(self._custom_api_params)
+                self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
 
             response = await self.client.chat.completions.create(**api_params)
             

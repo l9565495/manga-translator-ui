@@ -97,6 +97,9 @@ examples/config.json
 # Ignore filter list (用户自定义过滤列表)
 examples/filter_list.txt
 
+# Ignore custom API params (用户自定义API参数配置)
+examples/custom_api_params.json
+
 # Ignore API test files (本地测试文件)
 examples/api_test_ui.py
 examples/API_TEST_README.md

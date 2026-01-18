@@ -107,6 +107,7 @@ class Ocr(str, Enum):
     paddleocr = "paddleocr"
     paddleocr_korean = "paddleocr_korean"
     paddleocr_latin = "paddleocr_latin"
+    paddleocr_thai = "paddleocr_thai"
     paddleocr_vl = "paddleocr_vl"  # PaddleOCR-VL for Manga (VLM-based OCR)
 
 class Translator(str, Enum):
@@ -262,6 +263,10 @@ class TranslatorConfig(BaseModel):
     # API请求频率限制配置
     max_requests_per_minute: int = 0
     """Maximum API requests per minute. 0 means no limit."""
+    
+    # 自定义API参数配置
+    use_custom_api_params: bool = False
+    """Use custom API parameters from examples/custom_api_params.json"""
     
     # 译后检查配置项
     enable_post_translation_check: bool = False

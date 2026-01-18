@@ -111,6 +111,11 @@ class GeminiTranslator(CommonTranslator):
             self._MAX_REQUESTS_PER_MINUTE = max_rpm
             self.logger.info(f"Setting Gemini max requests per minute to: {max_rpm}")
         
+        # 读取自定义API参数配置
+        use_custom_params = getattr(args, 'use_custom_api_params', False)
+        if use_custom_params:
+            self._load_custom_api_params()
+        
         # 从配置中读取用户级 API Key（优先于环境变量）
         # 这允许 Web 服务器为每个用户使用不同的 API Key
         need_rebuild_client = False
@@ -331,6 +336,13 @@ class GeminiTranslator(CommonTranslator):
                 max_output_tokens=self.max_tokens,
                 safety_settings=None if should_retry_without_safety else self.safety_settings,
             )
+            
+            # 合并自定义API参数
+            if self._custom_api_params:
+                for key, value in self._custom_api_params.items():
+                    if hasattr(generation_config, key):
+                        setattr(generation_config, key, value)
+                self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
 
             try:
                 # RPM限制

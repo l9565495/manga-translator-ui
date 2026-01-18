@@ -13,6 +13,7 @@ class TranslatorSettings(BaseModel):
     extract_glossary: bool = False
     max_requests_per_minute: int = 0
     attempts: int = -1  # 翻译重试次数，-1 表示无限重试
+    use_custom_api_params: bool = False  # 是否使用自定义API参数配置文件
 
 class OcrSettings(BaseModel):
     use_mocr_merge: bool = False
@@ -122,6 +123,7 @@ class AppSection(BaseModel):
     ui_language: str = "auto"  # UI语言：auto(自动检测), zh_CN, en_US, ja_JP, ko_KR 等
     current_preset: str = "默认"  # 当前使用的预设名称
     unload_models_after_translation: bool = False  # 翻译完成后卸载模型（释放内存更彻底，但下次使用需要重新加载）
+    saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
 
 class AppSettings(BaseModel):
     app: AppSection = Field(default_factory=AppSection)

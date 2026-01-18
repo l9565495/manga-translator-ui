@@ -563,9 +563,29 @@ class MainView(QWidget):
                 widget = container
 
             elif isinstance(value, bool):
-                widget = QCheckBox()
-                widget.setChecked(value)
-                widget.stateChanged.connect(lambda state, k=full_key: self._on_setting_changed(bool(state), k, None))
+                # 特殊处理：use_custom_api_params 需要添加"打开文件"按钮
+                if full_key == "translator.use_custom_api_params":
+                    container = QWidget()
+                    container_layout = QHBoxLayout(container)
+                    container_layout.setContentsMargins(0, 0, 0, 0)
+                    
+                    checkbox = QCheckBox()
+                    checkbox.setChecked(value)
+                    checkbox.stateChanged.connect(lambda state, k=full_key: self._on_setting_changed(bool(state), k, None))
+                    
+                    open_file_button = QPushButton(self._t("Open File"))
+                    open_file_button.setFixedWidth(100)
+                    open_file_button.clicked.connect(self._on_open_custom_api_params_file)
+                    
+                    container_layout.addWidget(checkbox)
+                    container_layout.addWidget(open_file_button)
+                    container_layout.addStretch()
+                    
+                    widget = container
+                else:
+                    widget = QCheckBox()
+                    widget.setChecked(value)
+                    widget.stateChanged.connect(lambda state, k=full_key: self._on_setting_changed(bool(state), k, None))
 
             # 特殊处理：upscale_ratio 动态下拉框（必须在 int/float 判断之前）
             elif full_key == "upscale.upscale_ratio":
@@ -1158,6 +1178,58 @@ class MainView(QWidget):
             pass  # No connection to disconnect, which is fine.
         self._env_debounce_timer.timeout.connect(lambda: self.env_var_changed.emit(key, text))
         self._env_debounce_timer.start()
+
+    def _on_open_custom_api_params_file(self):
+        """打开自定义API参数配置文件"""
+        import subprocess
+        import sys
+        
+        # 获取配置文件路径（使用与 text_filter 相同的逻辑）
+        if getattr(sys, 'frozen', False):
+            # 打包环境
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller 打包：_MEIPASS 指向 _internal 目录
+                config_path = os.path.join(sys._MEIPASS, 'examples', 'custom_api_params.json')
+            else:
+                # 其他打包方式
+                config_path = os.path.join(os.path.dirname(sys.executable), 'examples', 'custom_api_params.json')
+        else:
+            # 开发环境：从当前文件向上找到项目根目录
+            # main_view.py -> desktop_qt_ui -> 项目根目录
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            config_path = os.path.join(project_root, 'examples', 'custom_api_params.json')
+        
+        # 如果文件不存在，创建默认文件
+        if not os.path.exists(config_path):
+            try:
+                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    import json
+                    json.dump({}, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    self._t("Error"),
+                    f"创建配置文件失败: {e}"
+                )
+                return
+        
+        # 使用系统默认程序打开文件
+        try:
+            if sys.platform == 'win32':
+                os.startfile(config_path)
+            elif sys.platform == 'darwin':
+                subprocess.run(['open', config_path])
+            else:
+                subprocess.run(['xdg-open', config_path])
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                self._t("Error"),
+                f"打开文件失败: {e}"
+            )
 
     def _on_test_api_clicked(self, key: str):
         """测试API连接"""

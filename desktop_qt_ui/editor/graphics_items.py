@@ -110,8 +110,7 @@ class RegionTextItem(QGraphicsItemGroup):
         # 设置 text_item 的 Z-order 为负数,让它在父 item 的绘制内容(绿框、白框)之下
         self.text_item.setZValue(-1)
 
-        # 保留 ItemIsSelectable 以支持 setSelected()，但在 mousePressEvent 中手动控制选择
-        # ItemIsMovable 会在需要时动态设置
+        # 启用 Qt 的标准选择行为，但移动功能动态控制
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setAcceptHoverEvents(True)
         self._interaction_mode = 'none'
@@ -641,124 +640,66 @@ class RegionTextItem(QGraphicsItemGroup):
                     # 没有 view/model，使用默认行为
                     super().mousePressEvent(event)
                     return
-            else:
-                # 其他按钮的默认行为
+                
+                # 检测手柄
+                handle, indices = self._get_handle_at(local_pos)
+                
+                # 让 Qt 处理选择（支持 Ctrl 多选）
                 super().mousePressEvent(event)
+                
+                # 同步 Qt 的选择状态到 model
+                selected_items = [item for item in view._region_items if isinstance(item, RegionTextItem) and item.isSelected()]
+                selected_indices = [item.region_index for item in selected_items]
+                view.model.set_selection(selected_indices)
+                
+                # 如果选中，准备拖动/编辑
+                if self.isSelected():
+                    self._drag_start_pos = local_pos
+                    self._drag_start_polygons = [QPolygonF(poly) for poly in self.polygons]
+                    self._drag_start_rotation = self.rotation()
+                    self._drag_start_angle = self.rotation_angle
+                    self._drag_start_center = QPointF(0, 0)
+                    self._drag_start_scene_rect = self.sceneBoundingRect() if self.scene() else None
+                    self._drag_start_visual_center = QPointF(self.visual_center)
+                    self.setTransformOriginPoint(QPointF(0, 0))
+                    
+                    if handle:
+                        self._interaction_mode = handle
+                        self._drag_handle_indices = indices
+                        
+                        if self._interaction_mode in ['vertex', 'edge']:
+                            self._drag_start_geometry = DesktopUIGeometry(self.region_data)
+                        
+                        if self._interaction_mode == 'rotate':
+                            center_scene = self.mapToScene(self._drag_start_center)
+                            start_pos_scene = event.scenePos()
+                            start_vec_scene = start_pos_scene - center_scene
+                            self._drag_start_angle_rad = np.arctan2(start_vec_scene.y(), start_vec_scene.x())
+                        elif self._interaction_mode in ['white_corner', 'white_edge']:
+                            self._drag_start_geometry = DesktopUIGeometry(self.region_data)
+                    else:
+                        # 没有点击手柄，进入移动模式
+                        self._interaction_mode = 'move'
+                        self._is_dragging = True
+                        # 只在移动模式下启用 ItemIsMovable
+                        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                
+                event.accept()
                 return
-            
-            # 检查 Ctrl 键
-            ctrl_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            current_selection = view.model.get_selection()
-            is_selected = self.region_index in current_selection
-            
-            # === 先检测手柄，避免选择逻辑干扰手柄操作 ===
-            handle, indices = self._get_handle_at(local_pos)
-            
-            # 如果点击的是手柄，确保 item 被选中（但不改变其他选择）
-            if handle:
-                if not is_selected:
-                    # 点击手柄时，如果未选中，则选中它（单选，除非按了 Ctrl）
-                    if ctrl_pressed:
-                        # Ctrl+手柄：添加到选择
-                        view.model.set_selection(current_selection + [self.region_index])
-                    else:
-                        # 普通手柄点击：单选
-                        view.model.set_selection([self.region_index])
-                    is_selected = True
-                
-                # 继续处理手柄操作（跳到后面的手柄处理逻辑）
-            else:
-                # 没有点击手柄，处理选择逻辑
-                # 临时禁用 Qt 的自动选择，避免与我们的手动选择冲突
-                was_selectable = bool(self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-                if was_selectable:
-                    self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-                
-                if ctrl_pressed:
-                    # Ctrl+点击：切换选择
-                    if is_selected:
-                        # 取消选择
-                        new_selection = [idx for idx in current_selection if idx != self.region_index]
-                    else:
-                        # 添加到选择
-                        new_selection = current_selection + [self.region_index]
-                    view.model.set_selection(new_selection)
-                    
-                    # 恢复 selectable 标志
-                    if was_selectable:
-                        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                    
-                    event.accept()
-                    return  # Ctrl+点击只处理选择，不进入拖动模式
-                else:
-                    # 普通点击（无 Ctrl）
-                    if not is_selected:
-                        # 点击未选中的：单选
-                        view.model.set_selection([self.region_index])
-                        
-                        # 恢复 selectable 标志
-                        if was_selectable:
-                            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                        
-                        event.accept()
-                        return
-                    # 点击已选中的：继续处理拖动/编辑（不改变选择）
-                    # 恢复 selectable 标志
-                    if was_selectable:
-                        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-            
-            # === 处理拖动/编辑逻辑（仅当已选中时） ===
-            if is_selected:
-                
-                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-
-                # --- CRITICAL: Snapshot all initial state for the drag operation ---
-                self._drag_start_pos = local_pos
-                self._drag_start_polygons = [QPolygonF(poly) for poly in self.polygons]
-                self._drag_start_rotation = self.rotation()  # Qt的当前旋转（应该是0）
-                self._drag_start_angle = self.rotation_angle  # 我们的内部角度（真实的起始角度）
-                self._drag_start_center = QPointF(0, 0)  # 局部坐标的中心点
-                self._drag_start_scene_rect = self.sceneBoundingRect() if self.scene() else None  # 保存初始场景边界
-                self._drag_start_visual_center = QPointF(self.visual_center)  # 保存拖动开始时的visual_center
-                # 确保Qt变换的transform origin是局部坐标的(0,0)
-
-                self.setTransformOriginPoint(QPointF(0, 0))
-                # --- End Snapshot ---
-
-                # handle 已经在前面检测过了
-                if handle:
-                    self._interaction_mode = handle
-                    self._drag_handle_indices = indices
-
-                    # 为蓝色框编辑保存 desktop-ui 几何状态
-                    if self._interaction_mode in ['vertex', 'edge']:
-                        self._drag_start_geometry = DesktopUIGeometry(self.region_data)
-
-
-                    if self._interaction_mode == 'rotate':
-                        center_scene = self.mapToScene(self._drag_start_center)
-                        start_pos_scene = event.scenePos()
-                        start_vec_scene = start_pos_scene - center_scene
-                        self._drag_start_angle_rad = np.arctan2(start_vec_scene.y(), start_vec_scene.x())
-                    elif self._interaction_mode in ['white_corner', 'white_edge']:
-                        # 保存 desktop-ui 几何状态
-                        self._drag_start_geometry = DesktopUIGeometry(self.region_data)
-
-
-                    if self._interaction_mode != 'move':
-                        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            elif event.button() == Qt.MouseButton.RightButton:
+                # 右键点击：如果当前item已经在选择中，保持选择状态不变
+                # 这样可以在多选时右键打开菜单而不会取消选择
+                if self.isSelected():
+                    # 已经选中，不改变选择状态，直接接受事件
                     event.accept()
                     return
                 else:
-                    # 点击多边形时进入移动模式
-                    self._interaction_mode = 'move'
-                    self._is_dragging = True
-                
-                # 处理拖动，但禁用 Qt 的选择行为避免干扰
-                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+                    # 未选中，使用默认行为（会选中当前item）
+                    super().mousePressEvent(event)
+                    return
+            else:
+                # 其他按钮的默认行为
                 super().mousePressEvent(event)
-                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                event.accept()
                 return
         except (RuntimeError, AttributeError) as e:
             # Item可能已被删除
@@ -859,13 +800,14 @@ class RegionTextItem(QGraphicsItemGroup):
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         try:
             if self._interaction_mode != 'none':
-                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-                
                 # 保存当前交互模式，因为后面会重置
                 current_mode = self._interaction_mode
                 
                 # 【关键修复】先重置交互模式，避免在 callback 触发重建后访问无效状态
                 self._interaction_mode = 'none'
+                
+                # 禁用 ItemIsMovable，恢复光标控制
+                self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
 
                 # 处理移动模式
                 if current_mode == 'move':

@@ -51,6 +51,7 @@ const hiddenKeys = [
     'translator.translator_chain',  // 链式翻译
     'translator.selective_translation',  // Selective Translation
     'translator.skip_lang',  // Skip Lang
+    'translator.use_custom_api_params',  // 仅用于服务器端，用户端不显示
     // 废弃参数
     'render.gimp_font',  // 已废弃，使用 font_path 代替
 ];

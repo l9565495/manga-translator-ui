@@ -86,6 +86,20 @@ class ModelPaddleOCR(OfflineOCR):
             'hash': '3c0a8a79b612653c25f765271714f71281e4e955962c153e272b7b8c1d2b13ff',
             'file': '.',
         },
+        'thai_onnx': {
+            'url': [
+                'https://www.modelscope.cn/models/hgmzhn/manga-translator-ui/resolve/master/thai_PP-OCRv5_rec_mobile_infer.onnx',
+            ],
+            'hash': '2b6e56b1872200349e227574c25aeb0e0f9af9b8356e9ff5f75ac543a535669a',
+            'file': '.',
+        },
+        'thai_dict': {
+            'url': [
+                'https://www.modelscope.cn/models/hgmzhn/manga-translator-ui/resolve/master/ppocrv5_thai_dict.txt',
+            ],
+            'hash': '57f5406f94bb6688fb7077f7be65f08bbd71cecf48c01ea26c522cb5c4836b7a',
+            'file': '.',
+        },
         # 48px 模型用于颜色预测
         'model_48px': {
             'url': [
@@ -115,13 +129,17 @@ class ModelPaddleOCR(OfflineOCR):
         'latin': {  # Latin alphabet languages (English, Spanish, etc.)
             'onnx': 'latin_PP-OCRv5_rec_mobile_infer.onnx',
             'dict': 'ppocrv5_latin_dict.txt',
+        },
+        'thai': {  # Thai
+            'onnx': 'thai_PP-OCRv5_rec_mobile_infer.onnx',
+            'dict': 'ppocrv5_thai_dict.txt',
         }
     }
 
     def __init__(self, model_type='ch', *args, **kwargs):
         """
         Args:
-            model_type: 'ch' for Chinese/Japanese/English, 'korean' for Korean/English, 'latin' for Latin/English
+            model_type: 'ch' for Chinese/Japanese/English, 'korean' for Korean/English, 'latin' for Latin/English, 'thai' for Thai
         """
         super().__init__(*args, **kwargs)
         self.model_type = model_type
@@ -744,3 +762,9 @@ class ModelPaddleOCRLatin(ModelPaddleOCR):
     """Latin/English OCR"""
     def __init__(self, *args, **kwargs):
         super().__init__(model_type='latin', *args, **kwargs)
+
+
+class ModelPaddleOCRThai(ModelPaddleOCR):
+    """Thai OCR"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(model_type='thai', *args, **kwargs)

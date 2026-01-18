@@ -38,6 +38,35 @@
   - 后续翻译时会参考这些术语，保持翻译一致性
   - 特别适合长篇漫画的连续翻译，确保角色名等专有名词前后一致
 
+- **使用自定义 API 参数 (use_custom_api_params)**：启用自定义 API 参数
+  - 适用于：OpenAI、OpenAI HQ、Gemini、Gemini HQ 四个翻译器
+  - 勾选后，程序会从 `examples/custom_api_params.json` 读取自定义参数并传递给 API
+  - 点击"打开文件"按钮可自动创建并打开配置文件
+  - 配置文件为标准 JSON 格式，支持实时生效（每次翻译都会重新加载）
+  - 使用场景：
+    - 控制 Ollama 等本地模型的特殊参数（如关闭思考模式）
+    - 调整 API 的温度、最大 token 数等参数
+    - 传递模型特定的配置选项
+  - 配置示例：
+    ```json
+    {
+      "temperature": 0.7,
+      "max_tokens": 2000
+    }
+    ```
+  - DeepSeek 关闭思考模式示例：
+    ```json
+    {
+      "thinking": {"type": "disabled"}
+    }
+    ```
+  - Gemini 关闭思考模式示例：
+    ```json
+    {
+      "thinking_budget": 0
+    }
+    ```
+
 - **最大请求速率 (max_requests_per_minute)**：每分钟最大请求数（0 = 不限制）
 
 ### CLI 选项

@@ -383,6 +383,26 @@ class CommonTranslator(InfererModule):
         self._global_attempt_count = 0  # 全局尝试计数器
         self._max_total_attempts = -1  # 全局最大尝试次数
         self._cancel_check_callback = None  # 取消检查回调
+        self._custom_api_params = {}  # 存储自定义API参数
+    
+    def _load_custom_api_params(self):
+        """从固定目录加载自定义API参数配置文件"""
+        try:
+            from ..utils import BASE_PATH
+            import os
+            import json
+            
+            config_path = os.path.join(BASE_PATH, 'examples', 'custom_api_params.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    self._custom_api_params = json.load(f)
+                self.logger.info(f"已加载自定义API参数配置: {self._custom_api_params}")
+            else:
+                self.logger.warning(f"自定义API参数配置文件不存在: {config_path}")
+                self._custom_api_params = {}
+        except Exception as e:
+            self.logger.error(f"加载自定义API参数配置失败: {e}")
+            self._custom_api_params = {}
     
     def set_cancel_check_callback(self, callback):
         """设置取消检查回调"""

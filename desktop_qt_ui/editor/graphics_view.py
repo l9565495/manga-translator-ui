@@ -662,6 +662,14 @@ class GraphicsView(QGraphicsView):
                 if 'bg_colors' in constructor_args:
                     constructor_args['bg_color'] = constructor_args.pop('bg_colors')
 
+                # 【关键修复】转换direction字段：'horizontal'→'h', 'vertical'→'v'
+                if 'direction' in constructor_args:
+                    dir_val = constructor_args['direction']
+                    if dir_val == 'horizontal':
+                        constructor_args['direction'] = 'h'
+                    elif dir_val == 'vertical':
+                        constructor_args['direction'] = 'v'
+
                 # 使用缓存中计算好的 font_size（经过 resize_regions_to_font_size 计算的）
                 if text_block is not None and hasattr(text_block, 'font_size'):
                     constructor_args['font_size'] = text_block.font_size
@@ -839,13 +847,27 @@ class GraphicsView(QGraphicsView):
 
         from manga_translator.config import Config, RenderConfig
 
-        # Hotfix for direction enum validation
-        if global_params_dict.get('direction') == 'h':
-            global_params_dict['direction'] = 'horizontal'
-        elif global_params_dict.get('direction') == 'v':
-            global_params_dict['direction'] = 'vertical'
+        # 【修复】使用区域自己的参数覆盖全局参数
+        region_specific_params = global_params_dict.copy()
+        
+        # 从 text_block 获取区域特定的 direction
+        if hasattr(text_block, 'direction'):
+            region_direction = text_block.direction
+            # 转换为 RenderConfig 需要的格式
+            if region_direction == 'h':
+                region_specific_params['direction'] = 'horizontal'
+            elif region_direction == 'v':
+                region_specific_params['direction'] = 'vertical'
+            elif region_direction in ['horizontal', 'vertical', 'auto']:
+                region_specific_params['direction'] = region_direction
+        else:
+            # Hotfix for direction enum validation (fallback)
+            if global_params_dict.get('direction') == 'h':
+                region_specific_params['direction'] = 'horizontal'
+            elif global_params_dict.get('direction') == 'v':
+                region_specific_params['direction'] = 'vertical'
 
-        config_obj = Config(render=RenderConfig(**global_params_dict))
+        config_obj = Config(render=RenderConfig(**region_specific_params))
 
         # 3. 调用后端进行布局计算（只计算单个区域）
         try:
@@ -1013,6 +1035,16 @@ class GraphicsView(QGraphicsView):
             if 'bg_colors' in constructor_args:
                 constructor_args['bg_color'] = constructor_args.pop('bg_colors')
 
+            # 【关键修复】转换direction字段：'horizontal'→'h', 'vertical'→'v'
+            # TextBlock.direction只认'h', 'v', 'hr', 'vr'，不认'horizontal'/'vertical'
+            if 'direction' in constructor_args:
+                dir_val = constructor_args['direction']
+                if dir_val == 'horizontal':
+                    constructor_args['direction'] = 'h'
+                elif dir_val == 'vertical':
+                    constructor_args['direction'] = 'v'
+                # 'h', 'v', 'hr', 'vr', 'auto' 保持不变
+
             # 创建未旋转的 text block 用于计算 dst_points
             # 因为 Qt 会通过 setRotation() 来应用旋转,所以这里需要使用 angle=0
             constructor_args['angle'] = 0
@@ -1037,7 +1069,9 @@ class GraphicsView(QGraphicsView):
         
         from manga_translator.config import Config, RenderConfig
         
-        # Hotfix for direction enum validation
+        # 【注意】这里使用全局参数是合理的，因为 resize_regions_to_font_size 会
+        # 从每个 TextBlock 对象中读取其自己的 direction 属性
+        # 只需要确保全局参数的格式正确即可
         if global_params_dict.get('direction') == 'h':
             global_params_dict['direction'] = 'horizontal'
         elif global_params_dict.get('direction') == 'v':
@@ -1298,6 +1332,8 @@ class GraphicsView(QGraphicsView):
                 try:
                     select_rect = self._box_select_rect_item.rect()
                     self._box_select_rect_item.setVisible(False)
+                    # 重置矩形数据，避免下次显示时出现上次的框
+                    self._box_select_rect_item.setRect(0, 0, 0, 0)
                     
                     # 查找框内的所有 RegionTextItem
                     selected_indices = []
@@ -1334,6 +1370,8 @@ class GraphicsView(QGraphicsView):
             self._is_drawing_geometry = False
             if self._geometry_preview_item:
                 self._geometry_preview_item.setVisible(False)
+                # 清空多边形数据，避免下次显示时出现上次的矩形
+                self._geometry_preview_item.setPolygon(QPolygonF())
 
                 selected_indices = self.model.get_selection()
                 if selected_indices and self._image_item:
