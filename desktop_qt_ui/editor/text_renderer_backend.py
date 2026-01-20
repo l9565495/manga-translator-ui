@@ -75,6 +75,11 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
         # 检测文本中是否有BR标记
         has_br = bool(re.search(r'(\[BR\]|【BR】|<br>|\n)', processed_text, flags=re.IGNORECASE))
         
+        # 如果检测到换行符，强制开启AI断句
+        if has_br and not disable_auto_wrap_param:
+            disable_auto_wrap_param = True
+            logger.debug(f"[EDITOR RENDER] 检测到换行符，强制开启AI断句")
+        
         # 核心逻辑同步：当AI断句开启(disable_auto_wrap=True)时：
         # 1. 如果有 [BR] 标记 -> 强制不换行 (依赖标记)
         # 2. 如果是 Strict/SmartScaling 模式且为单行 -> 强制不换行

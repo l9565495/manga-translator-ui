@@ -106,9 +106,6 @@ class PropertyPanel(QWidget):
     mask_tool_changed = pyqtSignal(str)
     brush_size_changed = pyqtSignal(int)
     toggle_mask_visibility = pyqtSignal(bool)
-    toggle_removed_mask_visibility = pyqtSignal(bool)
-    mask_config_changed = pyqtSignal(dict) # New signal with dict payload
-    update_mask_requested = pyqtSignal()
 
     def __init__(self, model, app_logic, parent=None):
         super().__init__(parent)
@@ -129,8 +126,6 @@ class PropertyPanel(QWidget):
         self.block_updates = False
         self.current_region_index = -1
         self.clear_and_disable_selection_dependent()
-        # 初始化时从配置加载蒙版参数
-        self._load_mask_config_from_settings()
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -226,23 +221,10 @@ class PropertyPanel(QWidget):
         brush_size_layout.addWidget(self.brush_size_slider)
         brush_size_layout.addWidget(self.brush_size_label)
         mask_layout.addLayout(brush_size_layout)
-        mask_params_layout = QFormLayout()
-        self.mask_dilation_offset_entry = QLineEdit()
-        self.mask_kernel_size_entry = QLineEdit()
-        self.mask_dilation_label = QLabel(self._t("Dilation Offset:"))
-        self.mask_kernel_label = QLabel(self._t("Kernel Size:"))
-        mask_params_layout.addRow(self.mask_dilation_label, self.mask_dilation_offset_entry)
-        mask_params_layout.addRow(self.mask_kernel_label, self.mask_kernel_size_entry)
-        mask_layout.addLayout(mask_params_layout)
-        self.ignore_bubble_checkbox = QCheckBox(self._t("Ignore Bubble"))
-        self.update_mask_button = QPushButton(self._t("Update Mask"))
+        # 显示精炼蒙版复选框
         self.show_refined_mask_checkbox = QCheckBox(self._t("Show Refined Mask"))
         self.show_refined_mask_checkbox.setChecked(False)  # 默认关闭
-        self.show_removed_checkbox = QCheckBox(self._t("Show Optimized Regions"))
-        mask_layout.addWidget(self.ignore_bubble_checkbox)
-        mask_layout.addWidget(self.update_mask_button)
         mask_layout.addWidget(self.show_refined_mask_checkbox)
-        mask_layout.addWidget(self.show_removed_checkbox)
         layout.addWidget(self.mask_edit_frame)
 
     def _create_text_section(self, layout):
@@ -488,11 +470,6 @@ class PropertyPanel(QWidget):
         self.mask_tool_group.buttonClicked.connect(self._on_mask_tool_changed)
         self.brush_size_slider.valueChanged.connect(self._on_brush_size_changed)
         self.show_refined_mask_checkbox.stateChanged.connect(lambda state: self.toggle_mask_visibility.emit(bool(state)))
-        self.show_removed_checkbox.stateChanged.connect(lambda state: self.toggle_removed_mask_visibility.emit(bool(state)))
-        self.update_mask_button.clicked.connect(self.update_mask_requested) # Changed
-        self.mask_dilation_offset_entry.textChanged.connect(self._on_mask_config_changed) # Changed
-        self.mask_kernel_size_entry.textChanged.connect(self._on_mask_config_changed) # Changed
-        self.ignore_bubble_checkbox.stateChanged.connect(self._on_mask_config_changed) # Changed
 
         # Style
         self.font_family_combo.currentIndexChanged.connect(self._on_font_family_changed)
@@ -529,84 +506,9 @@ class PropertyPanel(QWidget):
         self.delete_button.clicked.connect(self.delete_region_requested.emit)
 
 
-    def _on_mask_config_changed(self):
-        """Gathers mask settings from UI and emits a signal."""
-        try:
-            dilation_offset = int(self.mask_dilation_offset_entry.text())
-            kernel_size = int(self.mask_kernel_size_entry.text())
-            ignore_bubble = self.ignore_bubble_checkbox.isChecked()
-
-            # Basic validation
-            if kernel_size <= 0 or kernel_size % 2 == 0:
-                # Kernel size must be a positive odd number
-                return
-
-            update_dict = {
-                "mask_dilation_offset": dilation_offset,
-                "kernel_size": kernel_size,
-                "ocr": {"ignore_bubble": ignore_bubble}
-            }
-            self.mask_config_changed.emit(update_dict)
-        except ValueError:
-            # Handle cases where text is not a valid integer
-            pass
-
-    def update_view_from_config(self, config_dict):
-        """Updates the mask setting widgets based on the provided config dictionary."""
-        # Block signals to prevent feedback loops
-        self.mask_dilation_offset_entry.blockSignals(True)
-        self.mask_kernel_size_entry.blockSignals(True)
-        self.ignore_bubble_checkbox.blockSignals(True)
-
-        self.mask_dilation_offset_entry.setText(str(config_dict.get("mask_dilation_offset", 70)))
-        self.mask_kernel_size_entry.setText(str(config_dict.get("kernel_size", 3)))
-        
-        ocr_settings = config_dict.get("ocr", {})
-        # ignore_bubble 是 float (0-1)，转换为 bool：0 = False, >0 = True
-        ignore_bubble_value = ocr_settings.get("ignore_bubble", 0.0)
-        self.ignore_bubble_checkbox.setChecked(bool(ignore_bubble_value > 0))
-
-        # Unblock signals
-        self.mask_dilation_offset_entry.blockSignals(False)
-        self.mask_kernel_size_entry.blockSignals(False)
-        self.ignore_bubble_checkbox.blockSignals(False)
-
-    def _load_mask_config_from_settings(self):
-        """从主页配置加载蒙版参数"""
-        try:
-            config = self.config_service.get_config()
-
-            # 读取配置中的蒙版参数
-            mask_dilation_offset = getattr(config, 'mask_dilation_offset', 70)
-            kernel_size = getattr(config, 'kernel_size', 3)
-            ignore_bubble = getattr(config.ocr, 'ignore_bubble', 0.0) if hasattr(config, 'ocr') else 0.0
-
-            # 更新UI控件
-            self.mask_dilation_offset_entry.blockSignals(True)
-            self.mask_kernel_size_entry.blockSignals(True)
-            self.ignore_bubble_checkbox.blockSignals(True)
-
-            self.mask_dilation_offset_entry.setText(str(mask_dilation_offset))
-            self.mask_kernel_size_entry.setText(str(kernel_size))
-            # ignore_bubble 是 float (0-1)，转换为 bool：0 = False, >0 = True
-            self.ignore_bubble_checkbox.setChecked(bool(ignore_bubble > 0))
-
-            self.mask_dilation_offset_entry.blockSignals(False)
-            self.mask_kernel_size_entry.blockSignals(False)
-            self.ignore_bubble_checkbox.blockSignals(False)
-
-        except Exception as e:
-            print(f"Error loading mask config from settings: {e}")
-            # 设置默认值
-            self.mask_dilation_offset_entry.setText("70")
-            self.mask_kernel_size_entry.setText("3")
-            self.ignore_bubble_checkbox.setChecked(False)
-
-
     def reload_config_settings(self):
         """公共方法：重新加载主页配置设置"""
-        self._load_mask_config_from_settings()
-        self.repopulate_options()  # 也重新加载其他选项
+        self.repopulate_options()  # 重新加载选项
 
     def _connect_model_signals(self):
         self.model.display_mask_type_changed.connect(self._on_display_mask_type_changed)
@@ -708,10 +610,6 @@ class PropertyPanel(QWidget):
             self.size_row_label.setText(self._t("Size:"))
         if hasattr(self, 'angle_row_label'):
             self.angle_row_label.setText(self._t("Angle:"))
-        if hasattr(self, 'mask_dilation_label'):
-            self.mask_dilation_label.setText(self._t("Dilation Offset:"))
-        if hasattr(self, 'mask_kernel_label'):
-            self.mask_kernel_label.setText(self._t("Kernel Size:"))
         if hasattr(self, 'brush_size_label'):
             self.brush_size_label.setText(self._t("Brush Size:"))
         if hasattr(self, 'translator_row_label'):
@@ -746,8 +644,6 @@ class PropertyPanel(QWidget):
             self.ocr_button.setText(self._t("Recognize"))
         if hasattr(self, 'translate_button'):
             self.translate_button.setText(self._t("Translate"))
-        if hasattr(self, 'update_mask_button'):
-            self.update_mask_button.setText(self._t("Update Mask"))
         if hasattr(self, 'brush_button'):
             self.brush_button.setText(self._t("Brush"))
             self.brush_button.setToolTip(self._t("Brush Tool") + " (W)")
@@ -777,12 +673,8 @@ class PropertyPanel(QWidget):
             self.delete_button.setToolTip(self._t("Delete") + " (Del)")
         
         # 刷新复选框
-        if hasattr(self, 'ignore_bubble_checkbox'):
-            self.ignore_bubble_checkbox.setText(self._t("Ignore Bubble"))
         if hasattr(self, 'show_refined_mask_checkbox'):
             self.show_refined_mask_checkbox.setText(self._t("Show Refined Mask"))
-        if hasattr(self, 'show_removed_checkbox'):
-            self.show_removed_checkbox.setText(self._t("Show Optimized Regions"))
         
         # 刷新字体下拉菜单的"默认字体"选项
         if hasattr(self, 'font_family_combo') and self.font_family_combo.count() > 0:

@@ -557,11 +557,11 @@ class LamaLargeInpainter(LamaMPEInpainter):
             await self._download()
             self._downloaded = True
         
-        self.model = load_lama_mpe(ckpt_path, device='cpu', use_mpe=False, large_arch=True)
+        # 直接加载到目标设备，避免重复移动
+        target_device = device if (device.startswith('cuda') or device == 'mps') else 'cpu'
+        self.model = load_lama_mpe(ckpt_path, device=target_device, use_mpe=False, large_arch=True)
         self.model.eval()
         self.backend = 'torch'
-        if device.startswith('cuda') or device == 'mps':
-            self.model.to(device)
     
     async def _unload(self):
         if hasattr(self, 'backend'):
@@ -1383,9 +1383,26 @@ class LamaFourier:
 
 def load_lama_mpe(model_path, device, use_mpe: bool = True, large_arch: bool = False) -> LamaFourier:
     model = LamaFourier(build_discriminator=False, use_mpe=use_mpe, large_arch=large_arch)
-    sd = torch.load(model_path, map_location = 'cpu')
+    sd = torch.load(model_path, map_location='cpu', weights_only=False)
     model.generator.load_state_dict(sd['gen_state_dict'])
     if use_mpe:
         model.mpe.load_state_dict(sd['str_state_dict'])
-    model.eval().to(device)
+    model.eval()
+    
+    # 使用 to_empty() 来避免 meta tensor 错误
+    if device != 'cpu':
+        try:
+            # 先尝试直接移动
+            model.to(device)
+        except NotImplementedError as e:
+            if 'meta tensor' in str(e):
+                # 如果遇到 meta tensor 错误，使用 to_empty()
+                model.generator = model.generator.to_empty(device=device)
+                model.generator.load_state_dict(sd['gen_state_dict'])
+                if use_mpe and model.mpe is not None:
+                    model.mpe = model.mpe.to_empty(device=device)
+                    model.mpe.load_state_dict(sd['str_state_dict'])
+            else:
+                raise
+    
     return model

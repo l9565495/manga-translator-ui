@@ -18,7 +18,6 @@ class EditorModel(QObject):
     selection_changed = pyqtSignal(list)
     inpainted_image_changed = pyqtSignal(object)
     region_display_mode_changed = pyqtSignal(str) # New signal
-    show_removed_mask_changed = pyqtSignal(bool) # New signal
     source_image_path_changed = pyqtSignal(str)
     original_image_alpha_changed = pyqtSignal(float)
     region_style_updated = pyqtSignal(int) # NEW SIGNAL for targeted style updates
@@ -38,7 +37,6 @@ class EditorModel(QObject):
         self._display_mask_type: str = 'none'
         self._selected_indices: List[int] = []
         self._region_display_mode: str = 'full'
-        self._show_removed_mask: bool = False
         self._original_image_alpha: float = 0.0
         self._active_tool: str = 'select'
         self._brush_size: int = 30
@@ -137,13 +135,6 @@ class EditorModel(QObject):
         """获取inpainted图片路径"""
         return self._inpainted_image_path
 
-    def set_removed_mask_visible(self, visible: bool):
-        if self._show_removed_mask != visible:
-            self._show_removed_mask = visible
-            self.show_removed_mask_changed.emit(visible)
-
-    def get_show_removed_mask(self) -> bool:
-        return self._show_removed_mask
 
     def set_selection(self, indices: List[int]):
         if self._selected_indices != indices:

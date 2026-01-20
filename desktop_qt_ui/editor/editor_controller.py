@@ -537,11 +537,10 @@ class EditorController(QObject):
                     # 如果没有JSON，作为可编辑的空白图片加载（允许用户添加编辑）
                     regions = []
                     raw_mask = None
-                    mask_is_refined = False
                     inpainted_image = image.copy()  # 使用原图作为底图
                     inpainted_path = None
                 else:
-                    regions, raw_mask, original_size, mask_is_refined = self.file_service.load_translation_json(image_path)
+                    regions, raw_mask, original_size = self.file_service.load_translation_json(image_path)
     
                     # 4. 查找和加载inpainted图片
                     inpainted_path = find_inpainted_path(image_path)
@@ -562,7 +561,6 @@ class EditorController(QObject):
                     'image': image,
                     'regions': regions,
                     'raw_mask': raw_mask,
-                    'mask_is_refined': mask_is_refined,
                     'inpainted_path': inpainted_path,
                     'inpainted_image': inpainted_image
                 }
@@ -598,7 +596,6 @@ class EditorController(QObject):
                     result['image'],
                     result['regions'],
                     result['raw_mask'],
-                    result['mask_is_refined'],
                     result['inpainted_path'],
                     result['inpainted_image']
                 )
@@ -660,7 +657,7 @@ class EditorController(QObject):
         except Exception as e:
             self.logger.error(f"Error applying untranslated image to model: {e}")
     
-    def _apply_loaded_data_to_model(self, image_path, image, regions, raw_mask, mask_is_refined, inpainted_path, inpainted_image):
+    def _apply_loaded_data_to_model(self, image_path, image, regions, raw_mask, inpainted_path, inpainted_image):
         """在主线程应用加载的数据到Model"""
         try:
             # 关闭加载提示
@@ -691,9 +688,6 @@ class EditorController(QObject):
                 from desktop_qt_ui.editor.core.types import MaskType
                 self.resource_manager.set_mask(MaskType.RAW, raw_mask)
                 self.model.set_raw_mask(raw_mask)
-
-            # 保存 mask_is_refined 标志到 model
-            self.model.mask_is_refined = mask_is_refined
 
             self.model.set_refined_mask(None)
 
@@ -749,39 +743,14 @@ class EditorController(QObject):
                     InpaintPrecision,
                 )
                 from manga_translator.inpainting import dispatch as inpaint_dispatch
-                from manga_translator.mask_refinement import (
-                    dispatch as refine_mask_dispatch,
-                )
-                from manga_translator.utils import TextBlock
             except ImportError as e:
                 self.logger.error(f"Failed to import backend modules: {e}")
                 return
 
-            # 检查是否需要跳过蒙版优化
-            mask_is_refined = getattr(self.model, 'mask_is_refined', False)
-            
-            if mask_is_refined:
-                # 蒙版已优化，直接使用 raw_mask 作为 refined_mask
-                self.logger.info("蒙版已优化，跳过蒙版优化步骤")
-                raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
-                refined_mask = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
-            else:
-                # 1. Refine Mask
-                image_np = np.array(image.convert("RGB"))
-                text_blocks = [TextBlock(**region_data) for region_data in regions]
-                raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
-                raw_mask_contiguous = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
-
-                # 从配置服务获取mask参数
-                config = self.config_service.get_config()
-                dilation_offset = config.mask_dilation_offset
-                kernel_size = config.kernel_size
-                ignore_bubble = config.ocr.ignore_bubble
-
-                refined_mask = await refine_mask_dispatch(
-                    text_blocks, image_np, raw_mask_contiguous, method='fit_text',
-                    dilation_offset=dilation_offset, ignore_bubble=ignore_bubble, kernel_size=kernel_size
-                )
+            # JSON 中保存的已经是优化后的蒙版，直接使用
+            self.logger.info("使用已优化的蒙版")
+            raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
+            refined_mask = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
 
             if refined_mask is None:
                 self.logger.error("Mask refinement failed.")

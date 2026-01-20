@@ -112,21 +112,19 @@ def to_translation(ctx: Context) -> TranslationResponse:
             if hasattr(config.colorizer, 'colorizer') and config.colorizer.colorizer and config.colorizer.colorizer != 'none':
                 response_data['colorizer'] = config.colorizer.colorizer
     
-    # 添加蒙版（如果有）
-    if hasattr(ctx, 'mask_raw') and ctx.mask_raw is not None:
+    # 保存优化后的蒙版（ctx.mask），而不是原始蒙版（ctx.mask_raw）
+    # 这样加载后可以直接使用，无需再次进行蒙版优化
+    if hasattr(ctx, 'mask') and ctx.mask is not None:
         try:
             import base64
             import cv2
-            _, buffer = cv2.imencode('.png', ctx.mask_raw)
+            _, buffer = cv2.imencode('.png', ctx.mask)
             mask_base64 = base64.b64encode(buffer).decode('utf-8')
             response_data['mask_raw'] = mask_base64
         except Exception as _e:
             pass
     
-    # 添加 mask_is_refined 标志（如果有）
-    if hasattr(ctx, 'mask_is_refined') and ctx.mask_is_refined is not None:
-        response_data['mask_is_refined'] = ctx.mask_is_refined
-    else:
-        response_data['mask_is_refined'] = False
+    # 保存的是优化后的蒙版，标记为已优化
+    response_data['mask_is_refined'] = True
 
     return TranslationResponse(**response_data)

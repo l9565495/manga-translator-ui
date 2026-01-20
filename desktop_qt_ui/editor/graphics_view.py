@@ -48,7 +48,6 @@ class GraphicsView(QGraphicsView):
         self._image_item: QGraphicsPixmapItem = None
         self._raw_mask_item: QGraphicsPixmapItem = None
         self._refined_mask_item: QGraphicsPixmapItem = None
-        self._removed_mask_item: QGraphicsPixmapItem = None # For removed area
         self._inpainted_image_item: QGraphicsPixmapItem = None
         self._q_image_ref = None # Keep a reference to the QImage to prevent crashes
         self._inpainted_q_image_ref = None
@@ -133,7 +132,6 @@ class GraphicsView(QGraphicsView):
         self.model.raw_mask_changed.connect(lambda mask: self.on_mask_data_changed('raw', mask))
         self.model.refined_mask_changed.connect(lambda mask: self.on_mask_data_changed('refined', mask))
         self.model.display_mask_type_changed.connect(self.on_display_mask_type_changed)
-        self.model.show_removed_mask_changed.connect(self.on_show_removed_mask_changed)
         self.model.inpainted_image_changed.connect(self.on_inpainted_image_changed)
         self.model.region_display_mode_changed.connect(self.on_region_display_mode_changed)
         self.model.original_image_alpha_changed.connect(self.on_original_image_alpha_changed)
@@ -196,9 +194,6 @@ class GraphicsView(QGraphicsView):
                 self.scene.removeItem(self._refined_mask_item)
                 self._refined_mask_item = None
 
-            if self._removed_mask_item and self._removed_mask_item.scene():
-                self.scene.removeItem(self._removed_mask_item)
-                self._removed_mask_item = None
 
             # 清空预览项（文本框、几何编辑、蒙版绘制等）
             if self._textbox_preview_item and self._textbox_preview_item.scene():
@@ -258,7 +253,6 @@ class GraphicsView(QGraphicsView):
         self._image_item = None
         self._raw_mask_item = None
         self._refined_mask_item = None
-        self._removed_mask_item = None
         self._inpainted_image_item = None
         self._preview_item = None
         self._image_np = None
@@ -352,54 +346,6 @@ class GraphicsView(QGraphicsView):
         current_display_type = self.model.get_display_mask_type()
         if mask_type == current_display_type and target_item:
             target_item.setVisible(True)
-
-        # Update the removed mask view if it's active
-        self.on_show_removed_mask_changed(self.model.get_show_removed_mask())
-
-    @pyqtSlot(bool)
-    def on_show_removed_mask_changed(self, visible: bool):
-        """Calculates and shows the difference between raw and refined masks."""
-        if not visible:
-            if self._removed_mask_item:
-                self._removed_mask_item.setVisible(False)
-            return
-
-        raw_mask = self.model.get_raw_mask()
-        refined_mask = self.model.get_refined_mask()
-
-        if raw_mask is None or refined_mask is None:
-            if self._removed_mask_item:
-                self._removed_mask_item.setVisible(False)
-            return
-
-        # Ensure masks are 2D and same shape
-        if len(raw_mask.shape) > 2: raw_mask = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY)
-        if len(refined_mask.shape) > 2: refined_mask = cv2.cvtColor(refined_mask, cv2.COLOR_BGR2GRAY)
-        
-        if raw_mask.shape != refined_mask.shape:
-            # Handle potential shape mismatch, e.g., by resizing
-            refined_mask = cv2.resize(refined_mask, (raw_mask.shape[1], raw_mask.shape[0]))
-
-        # Calculate difference: pixels in raw but not in refined
-        removed_mask = cv2.subtract(raw_mask, refined_mask)
-
-        h, w = removed_mask.shape
-        color_mask = np.zeros((h, w, 4), dtype=np.uint8)
-        color_mask[removed_mask > 128] = [0, 0, 255, 128]  # Blue for removed parts
-        # 【关键修复】使用.copy()确保QImage拥有自己的内存
-        q_image = QImage(color_mask.data, w, h, w * 4, QImage.Format.Format_ARGB32).copy()
-        pixmap = QPixmap.fromImage(q_image)
-
-        if self._removed_mask_item is None:
-            self._removed_mask_item = TransparentPixmapItem()
-            self._removed_mask_item.setPixmap(pixmap)
-            self._removed_mask_item.setZValue(12) # On top of other masks
-            self.scene.addItem(self._removed_mask_item)
-            self._scale_mask_item(self._removed_mask_item)
-        else:
-            self._removed_mask_item.setPixmap(pixmap)
-
-        self._removed_mask_item.setVisible(True)
 
     def on_display_mask_type_changed(self, mask_type: str):
         """根据模型状态，切换哪个蒙版图层可见"""
@@ -1595,6 +1541,12 @@ class GraphicsView(QGraphicsView):
 
     def _update_cursor(self):
         """Updates the cursor to match the selected tool and brush size."""
+        from PyQt6.QtWidgets import QApplication
+        
+        # 先清除所有应用级别的光标覆盖
+        while QApplication.overrideCursor():
+            QApplication.restoreOverrideCursor()
+        
         if self._active_tool in ['pen', 'eraser', 'brush']:
             size = max(10, int(self._brush_size * self.transform().m11()))
 
@@ -1627,24 +1579,21 @@ class GraphicsView(QGraphicsView):
             painter.end()
 
             cursor = QCursor(pixmap, center, center)
-
-            # 使用应用级别覆盖确保光标显示
-            from PyQt6.QtWidgets import QApplication
-            QApplication.setOverrideCursor(cursor)
+            # 在视图和viewport上都设置光标
+            self.setCursor(cursor)
+            self.viewport().setCursor(cursor)
         elif self._active_tool == 'geometry_edit':
-            from PyQt6.QtWidgets import QApplication
-            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.CrossCursor))
+            # 在视图和viewport上都设置光标
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+            self.viewport().setCursor(QCursor(Qt.CursorShape.CrossCursor))
         elif self._active_tool == 'draw_textbox':
-            from PyQt6.QtWidgets import QApplication
-            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.CrossCursor))
+            # 在视图和viewport上都设置光标
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+            self.viewport().setCursor(QCursor(Qt.CursorShape.CrossCursor))
         else:
             # 对于选择工具或其他工具，恢复默认箭头光标
-            from PyQt6.QtWidgets import QApplication
-            # 清除所有应用级别的光标覆盖
-            while QApplication.overrideCursor():
-                QApplication.restoreOverrideCursor()
-            # 确保设置为默认箭头光标
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
 
     def enterEvent(self, event):
         """Handle mouse enter event."""

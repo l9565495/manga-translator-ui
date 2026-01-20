@@ -40,22 +40,21 @@ class FileService:
             '.json', '.yaml', '.yml', '.toml'
         }
 
-    def load_translation_json(self, image_path: str, image: Image.Image = None) -> Tuple[List[dict], Optional[np.ndarray], Optional[Tuple[int, int]], bool]:
+    def load_translation_json(self, image_path: str, image: Image.Image = None) -> Tuple[List[dict], Optional[np.ndarray], Optional[Tuple[int, int]]]:
         """
         根据给定的图片路径，加载关联的 _translations.json 文件。
         优先从新目录结构加载，支持向后兼容。
-        返回 regions, raw_mask, original_size, 和 mask_is_refined。
+        返回 regions, raw_mask, original_size。
         """
         # 使用path_manager查找JSON文件（新位置优先）
         json_path = find_json_path(image_path)
         regions = []
         raw_mask = None
         original_size = None
-        mask_is_refined = False
 
         if not json_path:
             self.logger.warning(f"JSON file not found for {os.path.basename(image_path)}")
-            return regions, raw_mask, original_size, mask_is_refined
+            return regions, raw_mask, original_size
 
         self.logger.debug(f"Loading JSON from: {json_path}")
 
@@ -164,19 +163,16 @@ class FileService:
                     self.logger.info(f"蒙版已缩小到原图比例: {raw_mask.shape}")
             
             original_size = (image_data.get('original_width'), image_data.get('original_height'))
-            
-            # 读取 mask_is_refined 标志
-            mask_is_refined = image_data.get('mask_is_refined', False)
 
-            self.logger.debug(f"Loaded {len(regions)} regions from {os.path.basename(json_path)}, mask_is_refined={mask_is_refined}")
+            self.logger.debug(f"Loaded {len(regions)} regions from {os.path.basename(json_path)}")
 
         except Exception as e:
             import traceback
             self.logger.error(f"Failed to load or parse JSON file {json_path}: {e}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return [], None, None, False
+            return [], None, None
 
-        return regions, raw_mask, original_size, mask_is_refined
+        return regions, raw_mask, original_size
         
     def validate_image_file(self, file_path: str) -> bool:
         """验证是否为有效的图片文件或压缩包文件"""

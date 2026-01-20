@@ -537,15 +537,17 @@ class MangaTranslator:
                 data_to_save['colorizer'] = config.colorizer.colorizer
                 logger.info(f"在JSON中记录上色信息: colorizer={config.colorizer.colorizer}")
 
-        if self.save_mask and ctx.mask_raw is not None:
+        # 保存优化后的蒙版（ctx.mask），而不是原始蒙版（ctx.mask_raw）
+        # 这样加载后可以直接使用，无需再次进行蒙版优化
+        if self.save_mask and ctx.mask is not None:
             try:
                 import base64
                 import cv2
-                _, buffer = cv2.imencode('.png', ctx.mask_raw)
+                _, buffer = cv2.imencode('.png', ctx.mask)
                 mask_base64 = base64.b64encode(buffer).decode('utf-8')
                 data_to_save['mask_raw'] = mask_base64
-                # 保存蒙版是否已优化的标志
-                data_to_save['mask_is_refined'] = getattr(ctx, 'mask_is_refined', False)
+                # 保存的是优化后的蒙版，标记为已优化
+                data_to_save['mask_is_refined'] = True
             except Exception as e:
                 logger.error(f"Failed to encode mask to base64: {e}")
 

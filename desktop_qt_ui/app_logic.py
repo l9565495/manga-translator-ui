@@ -1751,9 +1751,15 @@ class MainAppLogic(QObject):
             def wait_for_thread_finish():
                 if self.current_thread and self.current_thread.is_alive():
                     self._ui_log("等待翻译进程结束...")
-                    self.current_thread.join(timeout=5.0)  # 最多等5秒
+                    self.current_thread.join(timeout=10.0)  # 增加到10秒
                     if self.current_thread.is_alive():
-                        self._ui_log("翻译进程未能在5秒内结束", "WARNING")
+                        self._ui_log("翻译进程未能在10秒内结束，继续等待...", "WARNING")
+                        # 继续等待，直到线程真正结束
+                        self.current_thread.join(timeout=30.0)  # 再等30秒
+                        if self.current_thread.is_alive():
+                            self._ui_log("翻译进程未能在40秒内结束，强制标记为已停止", "ERROR")
+                        else:
+                            self._ui_log("翻译进程已结束")
                     else:
                         self._ui_log("翻译进程已结束")
                 

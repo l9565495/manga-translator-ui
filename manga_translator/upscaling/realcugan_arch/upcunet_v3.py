@@ -9,8 +9,10 @@ from torch import nn as nn
 from torch.nn import functional as F
 import os,sys
 import numpy as np
-root_path=os.path.abspath('.')
-sys.path.append(root_path)
+# 使用模块所在目录的绝对路径，避免依赖当前工作目录
+root_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if root_path not in sys.path:
+    sys.path.append(root_path)
 def q(inp,cache_mode):
     maxx = inp.max()
     minn = inp.min()

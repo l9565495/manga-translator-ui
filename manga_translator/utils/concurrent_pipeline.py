@@ -164,11 +164,27 @@ class ConcurrentPipeline:
                 
                 logger.info(f"[检测+OCR] 处理 {idx+1}/{self.total_images}: {ctx.image_name}")
                 
+                # 检查取消
+                try:
+                    self.translator._check_cancelled()
+                except:
+                    self.stop_workers = True
+                    logger.warning(f"[检测+OCR] 用户取消，已处理 {idx}/{len(file_paths)} 张图片")
+                    break
+                
                 # 预处理：上色、超分
                 if config.colorizer.colorizer.value != 'none':
                     ctx.img_colorized = await self.translator._run_colorizer(config, ctx)
                 else:
                     ctx.img_colorized = ctx.input
+
+                # 检查取消
+                try:
+                    self.translator._check_cancelled()
+                except:
+                    self.stop_workers = True
+                    logger.warning(f"[检测+OCR] 用户取消，已处理 {idx}/{len(file_paths)} 张图片")
+                    break
 
                 if config.upscale.upscale_ratio:
                     ctx.upscaled = await self.translator._run_upscaling(config, ctx)
@@ -178,11 +194,35 @@ class ConcurrentPipeline:
                 # 统一转换为 numpy
                 ctx.img_rgb, ctx.img_alpha = load_image(ctx.upscaled)
                 
+                # 检查取消
+                try:
+                    self.translator._check_cancelled()
+                except:
+                    self.stop_workers = True
+                    logger.warning(f"[检测+OCR] 用户取消，已处理 {idx}/{len(file_paths)} 张图片")
+                    break
+                
                 # 检测
                 ctx.textlines, ctx.mask_raw, ctx.mask = await self.translator._run_detection(config, ctx)
                 
+                # 检查取消
+                try:
+                    self.translator._check_cancelled()
+                except:
+                    self.stop_workers = True
+                    logger.warning(f"[检测+OCR] 用户取消，已处理 {idx}/{len(file_paths)} 张图片")
+                    break
+                
                 # OCR
                 ctx.textlines = await self.translator._run_ocr(config, ctx)
+                
+                # 检查取消
+                try:
+                    self.translator._check_cancelled()
+                except:
+                    self.stop_workers = True
+                    logger.warning(f"[检测+OCR] 用户取消，已处理 {idx}/{len(file_paths)} 张图片")
+                    break
                 
                 # 文本行合并
                 if ctx.textlines:
@@ -515,6 +555,10 @@ class ConcurrentPipeline:
                 try:
                     ctx, config = self.render_queue.get(timeout=1.0)
                 except queue.Empty:
+                    # 检查是否应该退出
+                    if self.stop_workers:
+                        logger.info(f"[渲染] 收到停止信号，已渲染 {rendered_count}/{self.total_images} 张图片")
+                        break
                     if rendered_count >= self.total_images:
                         break
                     if self.has_critical_error:
@@ -568,8 +612,8 @@ class ConcurrentPipeline:
                     try:
                         if hasattr(self.translator, '_current_save_info') and self.translator._current_save_info:
                             save_info = self.translator._current_save_info
-                            self.translator._save_and_cleanup_context(ctx, save_info, config, "CONCURRENT")
                             
+                            # ✅ 先保存修复图（在PSD导出之前），这样PSD导出时可以找到修复图文件
                             if img_inpainted_copy is not None:
                                 try:
                                     from .path_manager import get_inpainted_path
@@ -584,6 +628,9 @@ class ConcurrentPipeline:
                                 finally:
                                     del img_inpainted_copy
                                     img_inpainted_copy = None
+                            
+                            # 保存翻译结果和导出PSD
+                            self.translator._save_and_cleanup_context(ctx, save_info, config, "CONCURRENT")
                             
                             if (self.translator.save_text or self.translator.text_output_file) and ctx.text_regions is not None:
                                 self.translator._save_text_to_file(ctx.image_name, ctx, config)
@@ -727,9 +774,27 @@ class ConcurrentPipeline:
                 for f in done:
                     if f.exception():
                         raise f.exception()
-                # 让出控制权
+                # 让出控制权，检查取消
                 await asyncio.sleep(0)
                 
+        except asyncio.CancelledError:
+            # 用户取消了任务
+            logger.warning(f"[并发流水线] 用户取消任务")
+            self.stop_workers = True
+            # 等待所有线程停止（最多等待10秒）
+            logger.info("[并发流水线] 等待所有线程停止...")
+            done, not_done = wait(futures, timeout=10.0)
+            if not_done:
+                # 显示哪些线程没有停止
+                thread_names = []
+                for i, future in enumerate(futures):
+                    if future in not_done:
+                        names = ["检测+OCR", "翻译", "修复", "渲染"]
+                        thread_names.append(names[i])
+                logger.warning(f"[并发流水线] {len(not_done)} 个线程未能在10秒内停止: {', '.join(thread_names)}")
+            else:
+                logger.info("[并发流水线] 所有线程已停止")
+            raise
         except Exception as e:
             logger.error(f"[并发流水线] 错误: {e}")
             logger.error(traceback.format_exc())
