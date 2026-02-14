@@ -26,7 +26,11 @@ def _erode_bubble_mask(bubble_mask: np.ndarray) -> np.ndarray:
     kernel_size = 2 * erode_px + 1
     erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
     logger.info(f"Bubble mask erosion: image={w}x{h}, erode_px={erode_px}")
-    return cv2.erode(bubble_mask, erode_kernel, iterations=1)
+    eroded = cv2.erode(bubble_mask, erode_kernel, iterations=1)
+    if np.count_nonzero(eroded) == 0:
+        logger.warning("Bubble mask fully eroded; falling back to original mask")
+        return bubble_mask
+    return eroded
 
 
 def _build_model_bubble_mask(image_shape: Tuple[int, int], result: Any) -> Tuple[np.ndarray, str]:
