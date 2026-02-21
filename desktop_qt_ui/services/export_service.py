@@ -277,14 +277,41 @@ class ExportService:
         # 使用文件名作为键（向后兼容）
         image_key = os.path.splitext(os.path.basename(json_path.replace('_translations.json', '')))[0]
         self._save_regions_data_internal(regions_data, json_path, image_key, mask, config)
+
+    def _normalize_font_path_for_save(self, font_path: str) -> str:
+        """Normalize font path to portable relative form when possible."""
+        if not font_path:
+            return ''
+
+        from manga_translator.utils import BASE_PATH
+
+        if os.path.isabs(font_path):
+            norm_path = os.path.normpath(font_path)
+            base_path = os.path.normpath(BASE_PATH)
+            fonts_dir = os.path.normpath(os.path.join(base_path, 'fonts'))
+            try:
+                if os.path.commonpath([norm_path, fonts_dir]) == fonts_dir:
+                    return os.path.relpath(norm_path, base_path).replace('\\', '/')
+                if os.path.commonpath([norm_path, base_path]) == base_path:
+                    return os.path.relpath(norm_path, base_path).replace('\\', '/')
+            except ValueError:
+                return norm_path
+            return norm_path
+
+        if font_path.lower().startswith('fonts/') or font_path.lower().startswith('fonts\\'):
+            return font_path.replace('\\', '/')
+        return f"fonts/{font_path}".replace('\\', '/')
     
     def _save_regions_data_internal(self, regions_data: List[Dict[str, Any]], json_path: str, image_key: str, mask: Optional[np.ndarray] = None, config: Optional[Dict[str, Any]] = None):
         """保存区域数据到JSON文件的内部实现"""
         # 获取超分倍率，用于放大坐标
         upscale_ratio = 1
+        default_region_font_path = ''
         if config:
             upscale_config = config.get('upscale', {})
             upscale_ratio = upscale_config.get('upscale_ratio', 0) or 1
+            render_config = config.get('render', {})
+            default_region_font_path = self._normalize_font_path_for_save(render_config.get('font_path') or '')
         
         # 准备保存数据，确保数据格式正确
         save_data = []
@@ -394,6 +421,15 @@ class ExportService:
                 region_copy['angle'] = 0
             if 'target_lang' not in region_copy:
                 region_copy['target_lang'] = 'CHS'  # 默认目标语言
+
+            # 统一保存字体路径格式（优先相对路径）
+            region_font_path = region_copy.get('font_path')
+            if region_font_path:
+                region_copy['font_path'] = self._normalize_font_path_for_save(region_font_path)
+
+            # 区域未显式设置字体时，补全当前全局字体到区域字段
+            if not region_copy.get('font_path') and default_region_font_path:
+                region_copy['font_path'] = default_region_font_path
             
             # 转换 direction 值：'v' -> 'vertical', 'h' -> 'horizontal'
             if 'direction' in region_copy:
@@ -545,19 +581,14 @@ class ExportService:
         """准备翻译器参数"""
         translator_params = {}
         
-        # 字体路径处理：让后端自己处理，不在这里转换
-        # 后端的 set_font 会在路径不存在时自动回退到 DEFAULT_FONT
-        # 只有当配置中是绝对路径且存在时才传递
+        # 字体路径透传：后端会在渲染时解析路径并回退默认字体
         render_config = config.get('render', {})
         font_path_value = render_config.get('font_path')
-        if font_path_value and os.path.isabs(font_path_value) and os.path.exists(font_path_value):
+        if font_path_value:
             translator_params['font_path'] = font_path_value
-            self.logger.info(f"设置字体路径: {font_path_value}")
+            self.logger.info(f"透传字体路径: {font_path_value}")
         else:
-            # 清除相对路径，让后端使用默认字体
-            if 'render' in config and 'font_path' in config['render']:
-                config['render']['font_path'] = None
-            self.logger.info("使用后端默认字体")
+            self.logger.info("未设置全局字体路径，使用区域字体或后端默认字体")
         
         # 提取输出格式
         output_format = self.get_output_format_from_config(config)

@@ -1256,9 +1256,29 @@ class EditorController(QObject):
         if not old_region_data:
             return
         
-        # Convert filename to full path
+        # Convert selected value to region font_path
         if font_filename:
-            font_path = os.path.join(BASE_PATH, 'fonts', font_filename)
+            if os.path.isabs(font_filename):
+                norm_path = os.path.normpath(font_filename)
+                base_path = os.path.normpath(BASE_PATH)
+                fonts_dir = os.path.normpath(os.path.join(base_path, 'fonts'))
+                try:
+                    if os.path.commonpath([norm_path, fonts_dir]) == fonts_dir:
+                        # Prefer repo-relative path for bundled fonts
+                        font_path = os.path.relpath(norm_path, base_path).replace('\\', '/')
+                    elif os.path.commonpath([norm_path, base_path]) == base_path:
+                        font_path = os.path.relpath(norm_path, base_path).replace('\\', '/')
+                    else:
+                        # External absolute path: keep absolute
+                        font_path = norm_path
+                except ValueError:
+                    font_path = norm_path
+            else:
+                # Persist relative path to keep JSON portable
+                if font_filename.lower().startswith('fonts/') or font_filename.lower().startswith('fonts\\'):
+                    font_path = font_filename.replace('\\', '/')
+                else:
+                    font_path = f"fonts/{font_filename}".replace('\\', '/')
         else:
             font_path = ""
         
@@ -1736,6 +1756,35 @@ class EditorController(QObject):
             if hasattr(self, 'toast_manager'):
                 self.toast_manager.show_error("导出失败")
 
+    @staticmethod
+    def _apply_white_frame_center(region: dict):
+        """若存在白框局部坐标，将白框中心世界坐标覆盖写入 region['center']。
+
+        region_data 里 center 是旋转中心，white_frame_rect_local 是以 center
+        为原点、angle 为旋转角度的局部坐标 [left, top, right, bottom]。
+        白框中心世界坐标 = center + local_to_world(wf_cx, wf_cy)。
+        """
+        import math
+        wf_local = region.get('white_frame_rect_local')
+        base_center = region.get('center')
+        if not (
+            isinstance(wf_local, (list, tuple)) and len(wf_local) == 4 and
+            isinstance(base_center, (list, tuple)) and len(base_center) >= 2
+        ):
+            return
+        try:
+            left, top, right, bottom = (float(v) for v in wf_local)
+            lx = (left + right) / 2.0
+            ly = (top + bottom) / 2.0
+            cx, cy = float(base_center[0]), float(base_center[1])
+            angle = float(region.get('angle') or 0.0)
+            rad = math.radians(angle)
+            cos_a, sin_a = math.cos(rad), math.sin(rad)
+            region['center'] = [cx + lx * cos_a - ly * sin_a,
+                                 cy + lx * sin_a + ly * cos_a]
+        except (TypeError, ValueError):
+            pass
+
     async def _async_export_with_desktop_ui_service(self, image, regions, mask):
         """使用desktop-ui导出服务进行异步导出"""
         try:
@@ -1852,26 +1901,8 @@ class EditorController(QObject):
                 if not enhanced_region.get('direction'):
                     enhanced_region['direction'] = 'auto'
 
-                # 白框编辑后的导出：将白框中心同步到 center，确保后端渲染位置与预览一致
-                wf_local = enhanced_region.get('white_frame_rect_local')
-                center = enhanced_region.get('center')
-                if (
-                    isinstance(wf_local, (list, tuple)) and len(wf_local) == 4 and
-                    isinstance(center, (list, tuple)) and len(center) >= 2
-                ):
-                    try:
-                        cx, cy = float(center[0]), float(center[1])
-                        left, top, right, bottom = (float(v) for v in wf_local)
-                        local_cx = (left + right) / 2.0
-                        local_cy = (top + bottom) / 2.0
-
-                        theta = math.radians(float(enhanced_region.get('angle') or 0.0))
-                        cos_t, sin_t = math.cos(theta), math.sin(theta)
-                        render_cx = cx + local_cx * cos_t - local_cy * sin_t
-                        render_cy = cy + local_cx * sin_t + local_cy * cos_t
-                        enhanced_region['center'] = [render_cx, render_cy]
-                    except (TypeError, ValueError):
-                        pass
+                # 白框编辑后：将白框中心世界坐标覆盖到 center，确保后端渲染位置与预览一致
+                self._apply_white_frame_center(enhanced_region)
 
                 # 从渲染参数服务获取完整的渲染参数
                 from services import get_render_parameter_service
@@ -1961,7 +1992,10 @@ class EditorController(QObject):
                 mask = self.model.get_raw_mask()
             
             # 保存JSON文件 - 传入source_path用于生成正确的键
-            export_service._save_regions_data_with_path(regions, json_path, source_path, mask, config_dict)
+            json_regions = [dict(r) for r in regions]
+            for r in json_regions:
+                self._apply_white_frame_center(r)
+            export_service._save_regions_data_with_path(json_regions, json_path, source_path, mask, config_dict)
             
             # 直接调用后端inpainting模块生成并保存inpainted图片
             try:

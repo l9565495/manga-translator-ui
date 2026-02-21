@@ -276,8 +276,8 @@ def prepare_translator_params(config: Config, workflow: str = "normal") -> dict:
             config.cli.use_gpu = False
         if hasattr(config.cli, 'attempts'):
             attempts = config.cli.attempts
-            # -1 表示无限重试，也是有效值，不应该被忽略
-            if attempts is not None and (attempts > 0 or attempts == -1):
+            # -1 表示无限重试；0 表示不重试（仅首次请求）
+            if attempts is not None and (attempts >= 0 or attempts == -1):
                 translator_params['attempts'] = attempts
                 # 将 cli.attempts 复制到 translator.attempts（与 Qt UI 保持一致）
                 # 这样翻译器的 parse_args 就能正确读取到 attempts 值

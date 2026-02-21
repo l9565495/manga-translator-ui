@@ -2,6 +2,8 @@ import re
 import time
 import asyncio
 import json
+import contextlib
+from typing import Callable, Awaitable, Optional
 from typing import List, Tuple, Dict, Any
 from abc import abstractmethod
 import numpy as np
@@ -939,6 +941,38 @@ class CommonTranslator(InfererModule):
         self._max_total_attempts = -1  # 全局最大尝试次数
         self._cancel_check_callback = None  # 取消检查回调
         self._custom_api_params = {}  # 存储自定义API参数
+
+    def _normalize_retry_attempts(self, attempts: Any) -> int:
+        """
+        规范化重试次数配置：
+        -1: 无限重试
+         0: 不重试（仅首次请求）
+        >=1: 重试 N 次
+        其他负值会回退为 0。
+        """
+        try:
+            value = int(attempts)
+        except (TypeError, ValueError):
+            self.logger.warning(f"Invalid attempts value '{attempts}', fallback to -1 (infinite)")
+            return -1
+
+        if value == -1:
+            return -1
+        if value < -1:
+            self.logger.warning(f"Invalid attempts value '{value}', fallback to 0 (no retry)")
+            return 0
+        return value
+
+    def _resolve_max_total_attempts(self) -> int:
+        """
+        将“重试次数”转换为“总尝试次数”：
+        -1 -> -1（无限）
+         0 -> 1（仅首次请求）
+         N -> N+1（首次 + N 次重试）
+        """
+        if self.attempts == -1:
+            return -1
+        return self.attempts + 1
     
     def _load_custom_api_params(self):
         """从固定目录加载自定义API参数配置文件"""
@@ -967,6 +1001,51 @@ class CommonTranslator(InfererModule):
         """检查任务是否被取消"""
         if self._cancel_check_callback and self._cancel_check_callback():
             raise asyncio.CancelledError("Translation cancelled by user")
+
+    async def _await_with_cancel_polling(
+        self,
+        awaitable: Awaitable,
+        poll_interval: float = 0.2,
+        on_cancel: Optional[Callable[[], Awaitable[None] | None]] = None,
+    ):
+        """
+        等待一个长耗时 awaitable，并定期轮询取消状态。
+        在收到取消时，尝试取消内部任务并执行 on_cancel 清理回调。
+        """
+        task = asyncio.create_task(awaitable)
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=poll_interval)
+                if done:
+                    return task.result()
+                self._check_cancelled()
+        except asyncio.CancelledError:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(Exception):
+                    done, _ = await asyncio.wait({task}, timeout=max(poll_interval, 0.2))
+                    if not done:
+                        self.logger.debug("取消请求任务超时，直接退出等待")
+            if on_cancel:
+                try:
+                    cleanup_result = on_cancel()
+                    if asyncio.iscoroutine(cleanup_result):
+                        await asyncio.wait_for(cleanup_result, timeout=max(poll_interval, 0.3))
+                except asyncio.TimeoutError:
+                    self.logger.debug("取消时清理请求超时，直接退出等待")
+                except Exception as cleanup_error:
+                    self.logger.debug(f"取消时清理请求失败（可忽略）: {cleanup_error}")
+            raise
+
+    async def _sleep_with_cancel_polling(self, seconds: float, poll_interval: float = 0.2):
+        """可取消的 sleep，避免等待期间无法响应停止。"""
+        if seconds <= 0:
+            self._check_cancelled()
+            return
+        await self._await_with_cancel_polling(
+            asyncio.sleep(seconds),
+            poll_interval=min(poll_interval, max(seconds, 0.05)),
+        )
 
     def _get_retry_temperature(self, base_temperature: float, retry_attempt: int, retry_reason: str = "") -> float:
         """
@@ -1348,7 +1427,7 @@ class CommonTranslator(InfererModule):
     def _reset_global_attempt_count(self):
         """重置全局尝试计数器（每次新的翻译任务开始时调用）"""
         self._global_attempt_count = 0
-        self._max_total_attempts = self.attempts
+        self._max_total_attempts = self._resolve_max_total_attempts()
 
     def _increment_global_attempt(self) -> bool:
         """
@@ -1364,9 +1443,9 @@ class CommonTranslator(InfererModule):
         if self._max_total_attempts == -1:
             return True
 
-        # 检查是否超过上限
-        if self._global_attempt_count >= self._max_total_attempts:
-            self.logger.warning(f"Reached max total attempts: {self._global_attempt_count}/{self._max_total_attempts}")
+        # 检查是否超过上限（注意：允许等于上限的这次请求执行）
+        if self._global_attempt_count > self._max_total_attempts:
+            self.logger.warning(f"Exceeded max total attempts: {self._global_attempt_count}/{self._max_total_attempts}")
             return False
 
         return True
@@ -1450,7 +1529,9 @@ class CommonTranslator(InfererModule):
         self.enable_post_translation_check = getattr(config, 'enable_post_translation_check', self.enable_post_translation_check)
         self.post_check_repetition_threshold = getattr(config, 'post_check_repetition_threshold', self.post_check_repetition_threshold)
         self.post_check_max_retry_attempts = getattr(config, 'post_check_max_retry_attempts', self.post_check_max_retry_attempts)
-        self.attempts = getattr(config, 'attempts', self.attempts)
+        raw_attempts = getattr(config, 'attempts', self.attempts)
+        self.attempts = self._normalize_retry_attempts(raw_attempts)
+        self._max_total_attempts = self._resolve_max_total_attempts()
 
     def supports_languages(self, from_lang: str, to_lang: str, fatal: bool = False) -> bool:
         supported_src_languages = ['auto'] + list(self._LANGUAGE_CODE_MAP)

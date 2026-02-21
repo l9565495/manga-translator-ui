@@ -305,7 +305,8 @@ class TextBlock(object):
             'source_lang': self.source_lang,
             'line_spacing': self.line_spacing,
             'stroke_width': self.default_stroke_width,  # 统一使用 stroke_width（后端加载时会转换为 default_stroke_width）
-            'prob': self.prob
+            'prob': self.prob,
+            'font_path': getattr(self, 'font_path', ''),  # 区域特定字体路径（空字符串=使用全局默认字体）
         }
 
     def get_transformed_region(self, img: np.ndarray, line_idx: int, textheight: int, maxwidth: int = None) -> np.ndarray:

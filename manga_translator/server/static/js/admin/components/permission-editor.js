@@ -495,7 +495,6 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_inpainter', '修复模型'), this.createSelect('inpainter', 'inpainter', opts.inpainter), '', 'inpainter', 'inpainter')}
                 ${this.createFormRow(this.t('label_inpainting_size', '修复大小'), this.createInput('inpainter', 'inpainting_size', 'number'), '太大会导致OOM', 'inpainter', 'inpainting_size')}
                 ${this.createFormRow(this.t('label_inpainting_precision', '修复精度'), this.createSelect('inpainter', 'inpainting_precision', opts.inpainting_precision), '', 'inpainter', 'inpainting_precision')}
-                ${this.createFormRow(this.t('label_inpainting_split_ratio', '极端长宽比切割阈值'), this.createInput('inpainter', 'inpainting_split_ratio', 'number'), '宽高比阈值，超过则分块处理，默认3.0', 'inpainter', 'inpainting_split_ratio')}
                 ${this.createFormRow(this.t('label_force_use_torch_inpainting', '强制使用PyTorch修复'), this.createCheckbox('inpainter', 'force_use_torch_inpainting'), '不使用ONNX，在ONNX内存问题时有用', 'inpainter', 'force_use_torch_inpainting')}
             </div>
             <div class="form-section">

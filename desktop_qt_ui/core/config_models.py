@@ -50,7 +50,6 @@ class InpainterSettings(BaseModel):
     inpainter: str = "lama_mpe"
     inpainting_size: int = 2048
     inpainting_precision: str = "fp32"
-    inpainting_split_ratio: float = 3.0
     force_use_torch_inpainting: bool = False
 
 class RenderSettings(BaseModel):

@@ -85,7 +85,6 @@
   "lang_THA": "泰语",
   "log_config_saved": "設定已儲存: '{config_key}' = '{value}'",
   "Target Language:": "目標語言：",
-  "label_inpainting_split_ratio": "极端长宽比切割阈值",
   "label_force_use_torch_inpainting": "強制使用PyTorch修復",
   "Stop Translation": "停止翻譯",
   "Stopping...": "停止中...",

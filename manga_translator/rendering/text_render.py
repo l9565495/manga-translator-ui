@@ -224,9 +224,9 @@ def auto_add_horizontal_tags(text: str) -> str:
     - 独立的短英文单词：添加<H>标签
     - 符号（!?）2-3个：横排显示，4个以上不包裹
 
-    渲染规则（在渲染时根据长度决定）：
-    - 2个字符：横排显示
-    - 3个及以上字符：竖排显示但每个字符旋转90度
+    渲染规则：
+    - 仅字母/数字且长度>=3：旋转90度显示
+    - 其他情况（含符号）：保持横排显示
     """
     # 如果文本中已有<H>标签，则不进行处理，以尊重手动设置
     if '<H>' in text or '<h>' in text.lower():
@@ -274,6 +274,14 @@ def auto_add_horizontal_tags(text: str) -> str:
         result_parts.append(seg)
 
     return ''.join(result_parts)
+
+
+def should_rotate_horizontal_block_90(content: str) -> bool:
+    """Only rotate 90 degrees for alphanumeric blocks in vertical layout."""
+    if not content:
+        return False
+    alnum_only = re.fullmatch(r'[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19]+', content)
+    return bool(alnum_only) and len(content) >= 3
     
 def rotate_image(image, angle):
     if angle == 0:
@@ -486,14 +494,14 @@ def calc_horizontal_block_height(font_size: int, content: str) -> int:
     用于准确计算竖排文本的总高度，特别是在智能缩放模式下
 
     注意：需要与 put_text_vertical 中的渲染逻辑保持一致
-    - 2个字符：横排显示，返回横排块的实际高度
-    - 3个及以上字符：竖排显示但每个字符旋转90度，返回所有字符的累计高度
+    - 字母/数字块且长度>=3：旋转90度，返回旋转后的实际高度
+    - 其他情况（含符号）：横排显示，返回横排块的实际高度
     """
     if not content:
         return font_size
 
-    # 判断：2个字符横排，3个及以上字符竖排但旋转90度
-    if len(content) >= 3:
+    # 仅对字母/数字块启用90度旋转
+    if should_rotate_horizontal_block_90(content):
         # --- 计算竖排旋转块的高度 ---
         # 使用与渲染相同的方式：横排渲染后旋转90度
         # 旋转后，原来的宽度变成高度
@@ -501,7 +509,7 @@ def calc_horizontal_block_height(font_size: int, content: str) -> int:
         # 旋转90度后，宽度变成高度
         return total_width
     else:
-        # --- 计算横排块的高度（2个字符） ---
+        # --- 计算横排块的高度（所有非旋转块） ---
         h_font_size = font_size
 
         # 创建临时画布来渲染横排内容
@@ -861,9 +869,9 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
                 if not content:
                     continue
 
-                # 判断：2个字符横排，3个及以上字符竖排但旋转90度
-                if len(content) >= 3:
-                    # --- RENDER ROTATED BLOCK (竖排但每个字符旋转90度) ---
+                # 仅字母/数字块（长度>=3）旋转90度；符号块保持横排
+                if should_rotate_horizontal_block_90(content):
+                    # --- RENDER ROTATED BLOCK (字母/数字块旋转90度) ---
                     # 使用与2个字符横排相同的渲染方式，确保字符间距一致
                     r_font_size = font_size
                     

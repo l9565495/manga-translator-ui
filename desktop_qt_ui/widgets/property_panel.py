@@ -1,7 +1,8 @@
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QWheelEvent
+from PyQt6.QtGui import QColor, QIntValidator, QWheelEvent
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -159,6 +160,12 @@ class PropertyPanel(QWidget):
         # 不再使用语法高亮器,改用符号替换
         # self.highlighter = HorizontalTagHighlighter(self.translated_text_box.document())
 
+    def _set_selection_controls_blocked(self, blocked: bool):
+        """统一阻止/恢复与区域样式相关控件信号，避免切换选区时误写回。"""
+        for child in self.findChildren(QWidget):
+            if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider, QAbstractSpinBox)):
+                child.blockSignals(blocked)
+
     def _create_region_info_section(self, layout):
         self.info_group = QGroupBox(self._t("Region Info"))
         info_layout = QFormLayout(self.info_group)
@@ -298,20 +305,32 @@ class PropertyPanel(QWidget):
                 current_data = self.itemData(self.currentIndex())
                 
                 # 刷新字体列表
-                self.parent_widget._populate_font_list()
-                
-                # 恢复之前选择的值
-                if current_data:
-                    # 根据 itemData 查找
-                    for i in range(self.count()):
-                        if self.itemData(i) == current_data:
-                            self.setCurrentIndex(i)
-                            break
-                elif current_text:
-                    # 根据文本查找
-                    index = self.findText(current_text)
-                    if index >= 0:
-                        self.setCurrentIndex(index)
+                self.blockSignals(True)
+                try:
+                    self.parent_widget._populate_font_list()
+
+                    # 恢复之前选择的值
+                    restored_index = -1
+                    if isinstance(current_data, str) and current_data:
+                        import os
+                        current_filename = os.path.basename(current_data)
+                        for i in range(self.count()):
+                            item_data = self.itemData(i)
+                            if item_data == current_data or item_data == current_filename:
+                                restored_index = i
+                                break
+
+                        # 外部字体不在 fonts 目录时，保留并恢复当前项
+                        if restored_index < 0:
+                            display_name = os.path.splitext(current_filename)[0] or current_text or current_data
+                            self.addItem(display_name, current_data)
+                            restored_index = self.count() - 1
+                    elif current_text:
+                        restored_index = self.findText(current_text)
+
+                    self.setCurrentIndex(restored_index if restored_index >= 0 else -1)
+                finally:
+                    self.blockSignals(False)
                 
                 super().showPopup()
         
@@ -324,6 +343,7 @@ class PropertyPanel(QWidget):
         # Font size
         font_size_layout = QHBoxLayout()
         self.font_size_input = QLineEdit()
+        self.font_size_input.setValidator(QIntValidator(8, 1000, self))
         font_size_layout.addWidget(self.font_size_input)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
         self.font_size_slider.setRange(8, 150)
@@ -406,10 +426,7 @@ class PropertyPanel(QWidget):
         
         # Sort by display name
         font_files.sort(key=lambda x: x[0])
-        
-        # Add default option
-        self.font_family_combo.addItem(self._t("Default Font"), "")
-        
+
         # Add font files
         for display_name, filename in font_files:
             self.font_family_combo.addItem(display_name, filename)
@@ -647,18 +664,6 @@ class PropertyPanel(QWidget):
         if hasattr(self, 'show_refined_mask_checkbox'):
             self.show_refined_mask_checkbox.setText(self._t("Show Refined Mask"))
         
-        # 刷新字体下拉菜单的"默认字体"选项
-        if hasattr(self, 'font_family_combo') and self.font_family_combo.count() > 0:
-            # 保存当前选中的索引
-            current_index = self.font_family_combo.currentIndex()
-            current_data = self.font_family_combo.itemData(0)
-            # 如果第一项是默认字体（data为空字符串），更新其文本
-            if current_data == "":
-                self.font_family_combo.setItemText(0, self._t("Default Font"))
-            # 恢复选中的索引
-            self.font_family_combo.setCurrentIndex(current_index)
-        
-
         # 刷新下拉菜单（重新填充以使用新的翻译）
         self._refresh_combo_boxes()
     
@@ -785,28 +790,24 @@ class PropertyPanel(QWidget):
 
         self.current_region_index = -1
 
-        # Block signals to prevent them from firing during programmatic clear
-        for child in self.findChildren(QWidget):
-            if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
-                child.blockSignals(True)
-        
-        self.original_text_box.clear()
-        self.translated_text_box.clear()
-        self.font_size_input.clear()
-        self.stroke_width_spinbox.setValue(0.07)  # 重置为默认值
-        self.line_spacing_spinbox.setValue(1.0)  # 重置为默认值
-        default_color = self.config_service.get_config().render.font_color or "#000000"
-        self.font_color_picker.reset(default_color)
-        self.stroke_color_picker.reset("#ffffff")
-        self.index_label.setText("-")
-        self.bbox_label.setText("-")
-        self.size_label.setText("-")
-        self.angle_label.setText("-")
-        
-        # Re-enable signals
-        for child in self.findChildren(QWidget):
-            if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
-                child.blockSignals(False)
+        self.block_updates = True
+        self._set_selection_controls_blocked(True)
+        try:
+            self.original_text_box.clear()
+            self.translated_text_box.clear()
+            self.font_size_input.clear()
+            self.stroke_width_spinbox.setValue(0.07)  # 重置为默认值
+            self.line_spacing_spinbox.setValue(1.0)  # 重置为默认值
+            default_color = self.config_service.get_config().render.font_color or "#000000"
+            self.font_color_picker.reset(default_color)
+            self.stroke_color_picker.reset("#ffffff")
+            self.index_label.setText("-")
+            self.bbox_label.setText("-")
+            self.size_label.setText("-")
+            self.angle_label.setText("-")
+        finally:
+            self._set_selection_controls_blocked(False)
+            self.block_updates = False
 
     def _update_display(self, region_data, region_index, force=False):
         """Populate all widgets with data from the selected region.
@@ -816,125 +817,129 @@ class PropertyPanel(QWidget):
             region_index: 区域索引
             force: 是否强制更新文本框（忽略焦点状态），用于OCR/翻译完成后
         """
-        # Block signals on all widgets to prevent feedback loops
-        for child in self.findChildren(QWidget):
-            if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
-                child.blockSignals(True)
-
-        # --- Update Region Info ---
-        self.index_label.setText(str(region_index))
-        bbox = self._calculate_bbox(region_data)
-        if bbox:
-            self.bbox_label.setText(f"({bbox[0]:.0f}, {bbox[1]:.0f})")
-            self.size_label.setText(f"{bbox[2]-bbox[0]:.0f} × {bbox[3]-bbox[1]:.0f}")
-        else:
-            self.bbox_label.setText("-")
-            self.size_label.setText("-")
-        angle = region_data.get('angle', 0)
-        self.angle_label.setText(f"{angle:.1f}°")
-
-        # --- Update Text & Styles ---
-        # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
-        if force or not self.original_text_box.hasFocus():
-            # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
-            original_text = region_data.get("text", "")
-            self.original_text_box.setText(original_text)
-
-        # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
-        if force or not self.translated_text_box.hasFocus():
-            import re
-
-            # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
-            translation_text = region_data.get("translation", "")
-            translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
-
-            # 2. 如果是竖排且开启了自动旋转符号,自动添加 <H> 标签(仅用于显示)
-            direction = region_data.get('direction', 'auto')
-            is_vertical = direction in ('v', 'vertical')
-            if direction == 'auto':
-                is_vertical = not region_data.get('horizontal', True)
-
-            if is_vertical and self.config_service.get_config().render.auto_rotate_symbols:
-                # 使用与后端一致的正则表达式(英文数字2+字符，符号2-4字符)
-                # 注意：移除了点号(.)以避免匹配省略号
-                # 但是要避免重复添加:如果已经有 <H> 标签,就不添加
-                if '<H>' not in translation_text.upper():
-                    horizontal_char_pattern = r'([a-zA-Z0-9_-]{2,}|[!?！？]{2,4})'
-                    translation_text = re.sub(horizontal_char_pattern, r'<H>\1</H>', translation_text)
-
-            # 3. 将 <H> 标签替换为符号 ⇄ 显示在文本框中
-            display_text = translation_text.replace('<H>', '⇄').replace('</H>', '⇄')
-
-            # 4. 将 \n 替换为 ↵ 显示在文本框中
-            display_text = display_text.replace('\n', '↵')
-            self.translated_text_box.setText(display_text)
-        
-        self.font_size_input.setText(str(region_data.get("font_size", "")))
-        self.font_size_slider.setValue(region_data.get("font_size", 12))
-        
-        default_color = self.config_service.get_config().render.font_color or "#000000"
-        color_hex = default_color
-        fg_colors = region_data.get('fg_colors')
-        font_color = region_data.get("font_color")
-
-        # 优先使用用户设置的font_color，然后才是原始的fg_colors
-        if font_color:
-             color_hex = font_color
-        elif isinstance(fg_colors, (list, tuple)) and len(fg_colors) == 3:
-             color_hex = f"#{int(fg_colors[0]):02x}{int(fg_colors[1]):02x}{int(fg_colors[2]):02x}"
-
-        self.font_color_picker.set_color(color_hex)
-
-        # Update stroke color display
-        bg_colors = region_data.get('bg_colors')
-        bg_color = region_data.get('bg_color')
-        stroke_hex = "#ffffff"
-        if isinstance(bg_color, (list, tuple)) and len(bg_color) == 3:
-            stroke_hex = f"#{int(bg_color[0]):02x}{int(bg_color[1]):02x}{int(bg_color[2]):02x}"
-        elif isinstance(bg_colors, (list, tuple)) and len(bg_colors) == 3:
-            stroke_hex = f"#{int(bg_colors[0]):02x}{int(bg_colors[1]):02x}{int(bg_colors[2]):02x}"
-        self.stroke_color_picker.set_color(stroke_hex)
-
-        # Update stroke width
-        stroke_width = region_data.get("stroke_width", region_data.get("default_stroke_width", 0.07))
-        self.stroke_width_spinbox.setValue(stroke_width if stroke_width is not None else 0.07)
-        
-        # Update line spacing
-        line_spacing = region_data.get("line_spacing", 1.0)
-        self.line_spacing_spinbox.setValue(line_spacing if line_spacing is not None else 1.0)
-        
-        # Update font family selector
-        font_path = region_data.get("font_path", "")
-        if font_path:
-            # Extract filename from path
-            import os
-            font_filename = os.path.basename(font_path)
-            # Find and select the item with this filename
-            for i in range(self.font_family_combo.count()):
-                if self.font_family_combo.itemData(i) == font_filename:
-                    self.font_family_combo.setCurrentIndex(i)
-                    break
+        self.block_updates = True
+        self._set_selection_controls_blocked(True)
+        try:
+            # --- Update Region Info ---
+            self.index_label.setText(str(region_index))
+            wf_info = self._calculate_white_frame_info(region_data)
+            if wf_info:
+                cx, cy, w, h = wf_info
+                self.bbox_label.setText(f"({cx:.0f}, {cy:.0f})")
+                self.size_label.setText(f"{w:.0f} × {h:.0f}")
             else:
-                # Not found, set to default
-                self.font_family_combo.setCurrentIndex(0)
-        else:
-            # Use default font
-            self.font_family_combo.setCurrentIndex(0)
-        
-        alignment_map = {"auto": "自动", "left": "左对齐", "center": "居中", "right": "右对齐"}
-        self.alignment_combo.setCurrentText(alignment_map.get(region_data.get("alignment", "auto"), "自动"))
-        
-        direction_map = {"auto": "自动", "horizontal": "横排", "vertical": "竖排", "h": "横排", "v": "竖排"}
-        self.direction_combo.setCurrentText(direction_map.get(region_data.get("direction", "auto"), "自动"))
+                self.bbox_label.setText("-")
+                self.size_label.setText("-")
+            angle = region_data.get('angle', 0)
+            self.angle_label.setText(f"{angle:.1f}°")
 
-        # --- Update Mask Checkboxes ---
-        display_mask_type = self.model.get_display_mask_type()
-        self.show_refined_mask_checkbox.setChecked(display_mask_type == 'refined')
+            # --- Update Text & Styles ---
+            # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
+            if force or not self.original_text_box.hasFocus():
+                # 统一使用 text 字段（用户编辑和OCR识别都使用这个字段）
+                original_text = region_data.get("text", "")
+                self.original_text_box.setText(original_text)
 
-        # Unblock signals
-        for child in self.findChildren(QWidget):
-            if isinstance(child, (QLineEdit, QTextEdit, QComboBox, QSlider)):
-                child.blockSignals(False)
+            # 如果force=True（OCR/翻译完成），或文本框没有焦点时才更新
+            if force or not self.translated_text_box.hasFocus():
+                import re
+
+                # 1. 将所有 AI 换行符 ([BR], <br>, 【BR】) 转换为 \n
+                translation_text = region_data.get("translation", "")
+                translation_text = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', translation_text, flags=re.IGNORECASE)
+
+                # 2. 如果是竖排且开启了自动旋转符号,自动添加 <H> 标签(仅用于显示)
+                direction = region_data.get('direction', 'auto')
+                is_vertical = direction in ('v', 'vertical')
+                if direction == 'auto':
+                    is_vertical = not region_data.get('horizontal', True)
+
+                if is_vertical and self.config_service.get_config().render.auto_rotate_symbols:
+                    # 使用与后端一致的正则表达式(英文数字2+字符，符号2-4字符)
+                    # 注意：移除了点号(.)以避免匹配省略号
+                    # 但是要避免重复添加:如果已经有 <H> 标签,就不添加
+                    if '<H>' not in translation_text.upper():
+                        horizontal_char_pattern = r'([a-zA-Z0-9_-]{2,}|[!?！？]{2,4})'
+                        translation_text = re.sub(horizontal_char_pattern, r'<H>\1</H>', translation_text)
+
+                # 3. 将 <H> 标签替换为符号 ⇄ 显示在文本框中
+                display_text = translation_text.replace('<H>', '⇄').replace('</H>', '⇄')
+
+                # 4. 将 \n 替换为 ↵ 显示在文本框中
+                display_text = display_text.replace('\n', '↵')
+                self.translated_text_box.setText(display_text)
+            
+            self.font_size_input.setText(str(region_data.get("font_size", "")))
+            self.font_size_slider.setValue(region_data.get("font_size", 12))
+            
+            default_color = self.config_service.get_config().render.font_color or "#000000"
+            color_hex = default_color
+            fg_colors = region_data.get('fg_colors')
+            font_color = region_data.get("font_color")
+
+            # 优先使用用户设置的font_color，然后才是原始的fg_colors
+            if font_color:
+                 color_hex = font_color
+            elif isinstance(fg_colors, (list, tuple)) and len(fg_colors) == 3:
+                 color_hex = f"#{int(fg_colors[0]):02x}{int(fg_colors[1]):02x}{int(fg_colors[2]):02x}"
+
+            self.font_color_picker.set_color(color_hex)
+
+            # Update stroke color display
+            bg_colors = region_data.get('bg_colors')
+            bg_color = region_data.get('bg_color')
+            stroke_hex = "#ffffff"
+            if isinstance(bg_color, (list, tuple)) and len(bg_color) == 3:
+                stroke_hex = f"#{int(bg_color[0]):02x}{int(bg_color[1]):02x}{int(bg_color[2]):02x}"
+            elif isinstance(bg_colors, (list, tuple)) and len(bg_colors) == 3:
+                stroke_hex = f"#{int(bg_colors[0]):02x}{int(bg_colors[1]):02x}{int(bg_colors[2]):02x}"
+            self.stroke_color_picker.set_color(stroke_hex)
+
+            # Update stroke width
+            stroke_width = region_data.get("stroke_width", region_data.get("default_stroke_width", 0.07))
+            self.stroke_width_spinbox.setValue(stroke_width if stroke_width is not None else 0.07)
+            
+            # Update line spacing
+            line_spacing = region_data.get("line_spacing", 1.0)
+            self.line_spacing_spinbox.setValue(line_spacing if line_spacing is not None else 1.0)
+            
+            # Update font family selector
+            font_path = region_data.get("font_path", "")
+            if font_path:
+                import os
+                font_filename = os.path.basename(font_path)
+
+                # 优先按完整路径匹配，其次按文件名匹配（fonts 目录内字体）
+                target_index = -1
+                for i in range(self.font_family_combo.count()):
+                    item_data = self.font_family_combo.itemData(i)
+                    if item_data == font_path or item_data == font_filename:
+                        target_index = i
+                        break
+
+                # 若不在列表中（例如外部绝对路径字体），临时加入并显示该区域字体
+                if target_index < 0:
+                    display_name = os.path.splitext(font_filename)[0] or font_filename
+                    self.font_family_combo.addItem(display_name, font_path)
+                    target_index = self.font_family_combo.count() - 1
+
+                self.font_family_combo.setCurrentIndex(target_index)
+            else:
+                # 区域未设置字体
+                self.font_family_combo.setCurrentIndex(-1)
+            
+            alignment_map = {"auto": "自动", "left": "左对齐", "center": "居中", "right": "右对齐"}
+            self.alignment_combo.setCurrentText(alignment_map.get(region_data.get("alignment", "auto"), "自动"))
+            
+            direction_map = {"auto": "自动", "horizontal": "横排", "vertical": "竖排", "h": "横排", "v": "竖排"}
+            self.direction_combo.setCurrentText(direction_map.get(region_data.get("direction", "auto"), "自动"))
+
+            # --- Update Mask Checkboxes ---
+            display_mask_type = self.model.get_display_mask_type()
+            self.show_refined_mask_checkbox.setChecked(display_mask_type == 'refined')
+        finally:
+            self._set_selection_controls_blocked(False)
+            self.block_updates = False
 
     def _make_focus_out_handler(self, text_edit, callback):
         """创建一个焦点丢失事件处理器，保存原始的focusOutEvent"""
@@ -1047,11 +1052,16 @@ class PropertyPanel(QWidget):
             return self.lang_name_to_code.get(display_name, display_name)
         return display_name
     def _on_font_size_editing_finished(self):
+        if self.block_updates:
+            return
         text = self.font_size_input.text()
         if text.isdigit():
             value = int(text)
-            if self.font_size_slider.value() != value:
-                self.font_size_slider.setValue(value)
+            value = max(8, min(1000, value))
+            self.font_size_input.setText(str(value))
+            if self.font_size_slider.minimum() <= value <= self.font_size_slider.maximum():
+                if self.font_size_slider.value() != value:
+                    self.font_size_slider.setValue(value)
             
             # 支持多选批量设置
             selected_indices = self.model.get_selection()
@@ -1059,6 +1069,8 @@ class PropertyPanel(QWidget):
                 self.font_size_changed.emit(region_index, value)
 
     def _on_font_size_slider_changed(self, value): 
+        if self.block_updates:
+            return
         # 支持多选批量设置
         selected_indices = self.model.get_selection()
         if selected_indices:
@@ -1067,6 +1079,8 @@ class PropertyPanel(QWidget):
                 self.font_size_changed.emit(region_index, value)
     def _on_font_family_changed(self, index):
         if self.block_updates:
+            return
+        if index < 0:
             return
         
         # 支持多选批量设置
@@ -1085,21 +1099,29 @@ class PropertyPanel(QWidget):
     
     def _on_font_color_changed(self, hex_color):
         """字体颜色变化时的处理"""
+        if self.block_updates:
+            return
         for idx in self.model.get_selection():
             self.font_color_changed.emit(idx, hex_color)
 
     def _on_stroke_color_changed(self, hex_color):
         """描边颜色变化时的处理"""
+        if self.block_updates:
+            return
         for idx in self.model.get_selection():
             self.stroke_color_changed.emit(idx, hex_color)
 
     def _on_stroke_width_changed(self, value):
         """处理描边宽度变化"""
+        if self.block_updates:
+            return
         for region_index in self.model.get_selection():
             self.stroke_width_changed.emit(region_index, value)
 
     def _on_line_spacing_changed(self, value):
         """处理行间距倍率变化"""
+        if self.block_updates:
+            return
         # 支持多选批量设置
         selected_indices = self.model.get_selection()
         for region_index in selected_indices:
@@ -1126,31 +1148,56 @@ class PropertyPanel(QWidget):
         self.brush_size_slider.blockSignals(False)
 
     def _on_alignment_changed(self, text: str):
+        if self.block_updates:
+            return
         # 支持多选批量设置
         selected_indices = self.model.get_selection()
         for region_index in selected_indices:
             self.alignment_changed.emit(region_index, text)
 
     def _on_direction_changed(self, text: str):
+        if self.block_updates:
+            return
         # 支持多选批量设置
         selected_indices = self.model.get_selection()
         for region_index in selected_indices:
             self.direction_changed.emit(region_index, text)
 
-    def _calculate_bbox(self, region_data):
-        """计算区域边界框"""
+    def _calculate_white_frame_info(self, region_data):
+        """计算白框中心世界坐标和宽高，返回 (cx, cy, w, h) 或 None。"""
+        import math
+        wf_local = region_data.get('white_frame_rect_local')
+        center = region_data.get('center')
+        angle = float(region_data.get('angle', 0))
+
+        if wf_local and len(wf_local) == 4:
+            left, top, right, bottom = wf_local
+            w = max(0.0, right - left)
+            h = max(0.0, bottom - top)
+            lx = (left + right) / 2.0
+            ly = (top + bottom) / 2.0
+            if center and len(center) >= 2:
+                rad = math.radians(angle)
+                cos_a, sin_a = math.cos(rad), math.sin(rad)
+                cx_base, cy_base = float(center[0]), float(center[1])
+                cx = cx_base + lx * cos_a - ly * sin_a
+                cy = cy_base + lx * sin_a + ly * cos_a
+            else:
+                cx, cy = lx, ly
+            return (cx, cy, w, h)
+
+        # 兜底：从 lines[0] bbox 计算
         lines = region_data.get('lines', [])
         if not lines or not lines[0]:
             return None
-        
         all_points = lines[0]
         if not all_points:
             return None
-        
         x_coords = [p[0] for p in all_points]
         y_coords = [p[1] for p in all_points]
-        
-        return (min(x_coords), min(y_coords), max(x_coords), max(y_coords))
+        x0, x1 = min(x_coords), max(x_coords)
+        y0, y1 = min(y_coords), max(y_coords)
+        return ((x0 + x1) / 2.0, (y0 + y1) / 2.0, x1 - x0, y1 - y0)
 
     def _insert_placeholder(self):
         """插入占位符 ＿ (全角下划线)"""

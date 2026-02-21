@@ -1,5 +1,5 @@
-
 import logging
+import os
 
 import cv2
 import numpy as np
@@ -25,17 +25,51 @@ def resource_path(relative_path):
         base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     return os.path.join(base_path, relative_path)
 
-def update_font_config(font_filename: str):
-    """更新字体配置"""
-    if not font_filename:
-        return
-    import os
-    font_path = resource_path(os.path.join('fonts', font_filename))
+def resolve_font_path(font_path: str) -> str:
+    """Resolve absolute/relative font path for both dev and packaged runtime.
+
+    When an absolute path does not exist on the current machine (e.g., the path
+    was saved on a different machine or the install directory changed), we fall
+    back to searching for the font file by name inside the local fonts/ directory.
+    """
+    if not font_path:
+        return ''
     if os.path.exists(font_path):
-        try:
-            set_font(font_path)
-        except Exception as e:
-            pass  # Silently ignore font update errors
+        return font_path
+
+    # 路径不存在时（含绝对路径盘符不同的情况），用文件名在 fonts/ 目录里继续找
+    font_basename = os.path.basename(font_path)
+    candidates = (
+        resource_path(os.path.join('fonts', font_basename)),
+        resource_path(font_basename),
+    )
+    if not os.path.isabs(font_path):
+        # 相对路径还额外尝试直接 join
+        candidates = (
+            resource_path(font_path),
+        ) + candidates
+
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return ''
+
+def apply_font_for_render(font_path: str) -> str:
+    """Apply font for current render call; fallback to built-in default."""
+    resolved_font_path = resolve_font_path(font_path)
+    try:
+        if resolved_font_path:
+            set_font(resolved_font_path)
+        else:
+            set_font(text_render.DEFAULT_FONT)
+    except Exception:
+        set_font(text_render.DEFAULT_FONT)
+        return ''
+    return resolved_font_path
+
+def update_font_config(font_filename: str):
+    """兼容旧调用：更新字体配置（现转为按路径解析设置）。"""
+    apply_font_for_render(font_filename)
 
 def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transform, render_params: dict, pure_zoom: float = 1.0, total_regions: int = 1):
     """
@@ -51,6 +85,12 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
             return None
 
         text_block.translation = text_to_render
+
+        # 区域级字体优先：render_params.font_path -> text_block.font_path -> 默认字体
+        region_font_path = render_params.get('font_path') or getattr(text_block, 'font_path', '')
+        resolved_font_path = apply_font_for_render(region_font_path)
+        if not resolved_font_path and region_font_path:
+            logger.warning(f"[EDITOR RENDER] Font path not found: {region_font_path}, fallback to default font")
 
         # --- 2. 渲染 ---
         disable_font_border = render_params.get('disable_font_border', False)

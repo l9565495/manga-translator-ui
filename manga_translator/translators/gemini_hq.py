@@ -147,8 +147,8 @@ class GeminiHighQualityTranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         
-        # 同步 attempts 到 _max_total_attempts
-        self._max_total_attempts = self.attempts
+        # 同步重试次数到“总尝试次数”（首次请求 + 重试）
+        self._max_total_attempts = self._resolve_max_total_attempts()
         
         # 从配置中读取RPM限制
         max_rpm = getattr(args, 'max_requests_per_minute', 0)
@@ -242,6 +242,22 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     self.logger.info("Gemini HQ客户端初始化完成（标准模式）")
 
             self.logger.info("安全设置策略：默认发送 OFF，如遇错误自动回退")
+
+    async def _abort_inflight_request(self):
+        """取消时尝试关闭当前客户端连接，尽快中断阻塞请求。"""
+        if not self.client:
+            return
+
+        close_fn = getattr(self.client, "close", None)
+        try:
+            if callable(close_fn):
+                close_result = close_fn()
+                if asyncio.iscoroutine(close_result):
+                    await close_result
+        except Exception as e:
+            self.logger.debug(f"中断Gemini HQ请求时关闭客户端失败（可忽略）: {e}")
+        finally:
+            self.client = None
 
     
     
@@ -379,7 +395,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
         retry_reason = ""
         
         # 发送请求
-        max_retries = self.attempts
+        max_retries = self._resolve_max_total_attempts()
         attempt = 0
         is_infinite = max_retries == -1
         last_exception = None
@@ -477,7 +493,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     if elapsed < delay:
                         sleep_time = delay - elapsed
                         self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
-                        await asyncio.sleep(sleep_time)
+                        await self._sleep_with_cancel_polling(sleep_time)
                 
                 if retry_attempt > 0 and current_temperature != self.temperature:
                     self.logger.info(f"[重试] 温度调整: {self.temperature} -> {current_temperature}")
@@ -485,19 +501,27 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 # 根据客户端类型调用不同的 API
                 if getattr(self, '_use_curl_cffi', False):
                     # 使用 curl_cffi 异步客户端
-                    response = await self.client.models.generate_content(
-                        model=self.model_name,
-                        contents=content_parts,
-                        generation_config=generation_config,
-                        safety_settings=None if should_retry_without_safety else self.safety_settings
+                    response = await self._await_with_cancel_polling(
+                        self.client.models.generate_content(
+                            model=self.model_name,
+                            contents=content_parts,
+                            generation_config=generation_config,
+                            safety_settings=None if should_retry_without_safety else self.safety_settings
+                        ),
+                        poll_interval=0.2,
+                        on_cancel=self._abort_inflight_request,
                     )
                 else:
                     # 使用标准 SDK（同步调用包装为异步）
-                    response = await asyncio.to_thread(
-                        self.client.models.generate_content,
-                        model=self.model_name,
-                        contents=content_parts,
-                        config=generation_config
+                    response = await self._await_with_cancel_polling(
+                        asyncio.to_thread(
+                            self.client.models.generate_content,
+                            model=self.model_name,
+                            contents=content_parts,
+                            config=generation_config
+                        ),
+                        poll_interval=0.2,
+                        on_cancel=self._abort_inflight_request,
                     )
                 
                 # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
@@ -531,7 +555,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                             if not is_infinite and attempt >= max_retries:
                                 self.logger.error(f"Gemini翻译在多次重试后仍失败: {finish_reason}")
                                 break
-                            await asyncio.sleep(1)
+                            await self._sleep_with_cancel_polling(1)
                             continue
 
                 # 尝试访问 .text 属性，如果API因安全原因等返回空内容，这里会触发异常
@@ -578,7 +602,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     if not is_infinite and attempt >= max_retries:
                         raise Exception(f"Translation count mismatch after {max_retries} attempts: expected {len(texts)}, got {len(translations)}")
 
-                    await asyncio.sleep(2)
+                    await self._sleep_with_cancel_polling(2)
                     continue
 
                 # 质量验证：检查空翻译、合并翻译、可疑符号等
@@ -595,7 +619,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     if not is_infinite and attempt >= max_retries:
                         raise Exception(f"Quality check failed after {max_retries} attempts: {error_msg}")
 
-                    await asyncio.sleep(2)
+                    await self._sleep_with_cancel_polling(2)
                     continue
 
                 # 打印原文和译文的对应关系
@@ -625,7 +649,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                             tolerance=max(1, len(texts) // 10)
                         )
                     
-                    await asyncio.sleep(2)
+                    await self._sleep_with_cancel_polling(2)
                     continue
 
                 return translations[:len(texts)]
@@ -662,7 +686,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     self.logger.warning(f"检测到安全设置相关错误，将在下次重试时移除安全设置参数: {error_message}")
                     should_retry_without_safety = True
                     # 不增加attempt计数，直接重试
-                    await asyncio.sleep(1)
+                    await self._sleep_with_cancel_polling(1)
                     continue
                     
                 attempt += 1
@@ -678,7 +702,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                     self.logger.error("Gemini翻译在多次重试后仍然失败。即将终止程序。")
                     raise e
                 
-                await asyncio.sleep(1) # Wait before retrying
+                await self._sleep_with_cancel_polling(1)
         
         return texts # Fallback in case loop finishes unexpectedly
 
@@ -695,152 +719,36 @@ class GeminiHighQualityTranslator(CommonTranslator):
         # 重置全局尝试计数器
         self._reset_global_attempt_count()
 
-        # 检查是否为高质量批量翻译模式
-        if ctx and hasattr(ctx, 'high_quality_batch_data'):
-            batch_data = ctx.high_quality_batch_data
-            if batch_data and len(batch_data) > 0:
-                self.logger.info(f"高质量翻译模式：正在打包 {len(batch_data)} 张图片并发送，最大尝试次数: {self._max_total_attempts}...")
-                custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
-                line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
+        batch_data = getattr(ctx, 'high_quality_batch_data', None) if ctx else None
+        if not batch_data:
+            # 统一后备路径：仍走高质量批量函数，不再保留第二套 API 请求实现
+            self.logger.info("Gemini HQ未提供batch_data，使用统一后备批次路径")
+            fallback_regions = getattr(ctx, 'text_regions', []) if ctx else []
+            batch_data = [{
+                'image': getattr(ctx, 'input', None) if ctx else None,
+                'text_regions': fallback_regions if fallback_regions else [],
+                'text_order': list(range(1, len(queries) + 1)),
+                'upscaled_size': None,
+                'original_texts': queries,
+            }]
 
-                # 使用分割包装器进行翻译
-                translations = await self._translate_with_split(
-                    self._translate_batch_high_quality,
-                    queries,
-                    split_level=0,
-                    batch_data=batch_data,
-                    source_lang=from_lang,
-                    target_lang=to_lang,
-                    custom_prompt_json=custom_prompt_json,
-                    line_break_prompt_json=line_break_prompt_json,
-                    ctx=ctx
-                )
+        self.logger.info(f"使用Gemini高质量翻译统一路径，批次图片数: {len(batch_data)}，最大尝试次数: {self._max_total_attempts}")
+        custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
+        line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
 
-                # 应用文本后处理（与普通翻译器保持一致）
-                translations = [self._clean_translation_output(q, r, to_lang) for q, r in zip(queries, translations)]
-                return translations
-        
-        # 普通单文本翻译（后备方案）
-        if not self.client:
-            self._setup_client()
-        
-        if not self.client:
-            self.logger.error("Gemini客户端初始化失败，请检查 GEMINI_API_KEY 是否已在UI或.env文件中正确设置。")
-            return queries
-        
-        try:
-            simple_prompt = f"Translate the following {from_lang} text to {to_lang}. Provide only the translation:\n\n" + "\n".join(queries)
-            
-            # 构建生成配置
-            config_params = {
-                "temperature": self.temperature,
-                "top_p": 0.95,
-                "top_k": 64,
-                "safety_settings": self.safety_settings,
-            }
-            # 只在 max_tokens 不为 None 时才设置（兼容新模型）
-            if self.max_tokens is not None:
-                config_params["max_output_tokens"] = self.max_tokens
-            
-            generation_config = types.GenerateContentConfig(**config_params)
-            
-            # 合并自定义API参数
-            if self._custom_api_params:
-                for key, value in self._custom_api_params.items():
-                    if hasattr(generation_config, key):
-                        setattr(generation_config, key, value)
-                self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
+        # 使用分割包装器进行翻译
+        translations = await self._translate_with_split(
+            self._translate_batch_high_quality,
+            queries,
+            split_level=0,
+            batch_data=batch_data,
+            source_lang=from_lang,
+            target_lang=to_lang,
+            custom_prompt_json=custom_prompt_json,
+            line_break_prompt_json=line_break_prompt_json,
+            ctx=ctx
+        )
 
-            # RPM限制
-            if self._MAX_REQUESTS_PER_MINUTE > 0:
-                import time
-                now = time.time()
-                delay = 60.0 / self._MAX_REQUESTS_PER_MINUTE
-                elapsed = now - GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key]
-                if elapsed < delay:
-                    sleep_time = delay - elapsed
-                    self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
-                    await asyncio.sleep(sleep_time)
-            
-            try:
-                # 根据客户端类型调用不同的 API
-                if getattr(self, '_use_curl_cffi', False):
-                    # 使用 curl_cffi 异步客户端
-                    response = await self.client.models.generate_content(
-                        model=self.model_name,
-                        contents=simple_prompt,
-                        generation_config=generation_config,
-                        safety_settings=self.safety_settings
-                    )
-                else:
-                    # 使用标准 SDK（同步调用包装为异步）
-                    response = await asyncio.to_thread(
-                        self.client.models.generate_content,
-                        model=self.model_name,
-                        contents=simple_prompt,
-                        config=generation_config
-                    )
-            except Exception as e:
-                # 如果是安全设置错误，尝试移除安全设置后重试
-                error_message = str(e)
-                is_safety_error = any(keyword in error_message.lower() for keyword in [
-                    'safety_settings', 'safetysettings', 'harm', 'block', 'safety'
-                ]) or "400" in error_message
-
-                if is_safety_error:
-                    self.logger.warning(f"后备翻译检测到安全设置错误，移除安全设置后重试: {error_message}")
-                    if getattr(self, '_use_curl_cffi', False):
-                        response = await self.client.models.generate_content(
-                            model=self.model_name,
-                            contents=simple_prompt,
-                            generation_config=generation_config,
-                            safety_settings=None
-                        )
-                    else:
-                        config_params_no_safety = {
-                            "temperature": self.temperature,
-                            "top_p": 0.95,
-                            "top_k": 64,
-                            "safety_settings": None,
-                        }
-                        # 只在 max_tokens 不为 None 时才设置（兼容新模型）
-                        if self.max_tokens is not None:
-                            config_params_no_safety["max_output_tokens"] = self.max_tokens
-                        
-                        generation_config_no_safety = types.GenerateContentConfig(**config_params_no_safety)
-                        response = await asyncio.to_thread(
-                            self.client.models.generate_content,
-                            model=self.model_name,
-                            contents=simple_prompt,
-                            config=generation_config_no_safety
-                        )
-                else:
-                    raise
-            
-            # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
-            if self._MAX_REQUESTS_PER_MINUTE > 0:
-                import time
-                GeminiHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
-            
-            # 验证响应对象是否有效
-            validate_gemini_response(response, self.logger)
-            
-            if response and response.text:
-                result = response.text.strip()
-                translations = result.split('\n')
-                translations = [t.strip() for t in translations if t.strip()]
-                
-                # Strict validation: must match input count
-                if len(translations) != len(queries):
-                    error_msg = f"Translation count mismatch: expected {len(queries)}, got {len(translations)}"
-                    self.logger.error(error_msg)
-                    self.logger.error(f"Queries: {queries}")
-                    self.logger.error(f"Translations: {translations}")
-                    raise Exception(error_msg)
-                
-                return translations
-                
-        except Exception as e:
-            self.logger.error(f"Gemini翻译出错: {e}")
-        
-        return queries
+        # 应用文本后处理（与普通翻译器保持一致）
+        translations = [self._clean_translation_output(q, r, to_lang) for q, r in zip(queries, translations)]
+        return translations

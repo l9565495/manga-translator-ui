@@ -86,8 +86,8 @@ class OpenAITranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         
-        # 同步 attempts 到 _max_total_attempts
-        self._max_total_attempts = self.attempts
+        # 同步重试次数到“总尝试次数”（首次请求 + 重试）
+        self._max_total_attempts = self._resolve_max_total_attempts()
         
         # 从配置中读取RPM限制
         max_rpm = getattr(args, 'max_requests_per_minute', 0)
@@ -179,6 +179,17 @@ class OpenAITranslator(CommonTranslator):
                 await self.client.close()
             except Exception:
                 pass  # 忽略清理时的错误
+
+    async def _abort_inflight_request(self):
+        """取消时中断当前请求连接，避免长时间阻塞。"""
+        if not self.client:
+            return
+        try:
+            await self.client.close()
+        except Exception as e:
+            self.logger.debug(f"中断请求时关闭客户端失败（可忽略）: {e}")
+        finally:
+            self.client = None
     
     def __del__(self):
         """析构函数，确保资源被清理"""
@@ -186,10 +197,7 @@ class OpenAITranslator(CommonTranslator):
             try:
                 import asyncio
                 loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # 如果事件循环还在运行，创建清理任务
-                    asyncio.create_task(self._cleanup())
-                elif not loop.is_closed():
+                if not loop.is_running() and not loop.is_closed():
                     # 如果事件循环未关闭，同步执行清理
                     loop.run_until_complete(self._cleanup())
             except Exception:
@@ -294,7 +302,7 @@ class OpenAITranslator(CommonTranslator):
         _line_break_prompt_json = line_break_prompt_json
         
         # 发送请求
-        max_retries = self.attempts
+        max_retries = self._resolve_max_total_attempts()
         attempt = 0
         is_infinite = max_retries == -1
         last_exception = None
@@ -339,7 +347,7 @@ class OpenAITranslator(CommonTranslator):
                     if elapsed < delay:
                         sleep_time = delay - elapsed
                         self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
-                        await asyncio.sleep(sleep_time)
+                        await self._sleep_with_cancel_polling(sleep_time)
                 
                 # 动态调整温度：质量检查或BR检查失败时提高温度帮助跳出错误模式
                 current_temperature = self._get_retry_temperature(self.temperature, retry_attempt, retry_reason)
@@ -360,7 +368,11 @@ class OpenAITranslator(CommonTranslator):
                     api_params.update(self._custom_api_params)
                     self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
 
-                response = await self.client.chat.completions.create(**api_params)
+                response = await self._await_with_cancel_polling(
+                    self.client.chat.completions.create(**api_params),
+                    poll_interval=0.2,
+                    on_cancel=self._abort_inflight_request,
+                )
                 
                 # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
                 if self._MAX_REQUESTS_PER_MINUTE > 0:
@@ -430,7 +442,7 @@ class OpenAITranslator(CommonTranslator):
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
                         self._setup_client(force_recreate=True)
-                        await asyncio.sleep(2)
+                        await self._sleep_with_cancel_polling(2)
                         continue
 
                     # 质量验证：检查空翻译、合并翻译、可疑符号等
@@ -450,7 +462,7 @@ class OpenAITranslator(CommonTranslator):
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
                         self._setup_client(force_recreate=True)
-                        await asyncio.sleep(2)
+                        await self._sleep_with_cancel_polling(2)
                         continue
 
                     self.logger.info("--- Translation Results ---")
@@ -481,7 +493,7 @@ class OpenAITranslator(CommonTranslator):
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
                         self._setup_client(force_recreate=True)
-                        await asyncio.sleep(2)
+                        await self._sleep_with_cancel_polling(2)
                         continue
 
                     return translations[:len(texts)]
@@ -519,7 +531,7 @@ class OpenAITranslator(CommonTranslator):
                 # 重试前断开连接，重建客户端
                 self.logger.info("重试前断开旧连接，重建客户端...")
                 self._setup_client(force_recreate=True)
-                await asyncio.sleep(1)
+                await self._sleep_with_cancel_polling(1)
 
             except Exception as e:
                 attempt += 1
@@ -534,7 +546,7 @@ class OpenAITranslator(CommonTranslator):
                 # 重试前断开连接，重建客户端
                 self.logger.info("重试前断开旧连接，重建客户端...")
                 self._setup_client(force_recreate=True)
-                await asyncio.sleep(1)
+                await self._sleep_with_cancel_polling(1)
 
         # 只有在所有重试都失败后才会执行到这里
         raise last_exception if last_exception else Exception("OpenAI translation failed after all retries")

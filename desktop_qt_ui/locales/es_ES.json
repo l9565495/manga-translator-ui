@@ -90,7 +90,6 @@
   "label_inpainter": "Modelo de inpainting",
   "label_inpainting_size": "Tamaño de inpainting",
   "label_inpainting_precision": "Precisión de inpainting",
-  "label_inpainting_split_ratio": "Umbral de corte de relación de aspecto extrema",
   "label_force_use_torch_inpainting": "Forzar uso de PyTorch para inpainting",
   "label_renderer": "Renderizador",
   "label_alignment": "Alineación",

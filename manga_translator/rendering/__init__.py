@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from . import text_render
 from . import text_render_hq
+from .auto_linebreak import solve_no_br_layout
 from .text_render_eng import render_textblock_list_eng
 from .text_render_pillow_eng import render_textblock_list_eng as render_textblock_list_eng_pillow
 from .ballon_extractor import extract_ballon_region
@@ -28,11 +29,33 @@ from ..config import Config
 
 logger = get_logger('render')
 
-# Global variable to store default font path for regions without specific fonts
-_global_default_font_path = ''
-
 # 基准字体大小，用于模拟文本块
 BASE_FONT_SIZE = 100
+
+def _resolve_font_path(font_path: str) -> str:
+    """Resolve font path from absolute/relative/project-fonts path.
+
+    When an absolute path does not exist on the current machine (e.g., saved
+    path from a different install directory), falls back to searching by
+    filename inside the project fonts/ directory.
+    """
+    if not font_path:
+        return ''
+    if os.path.exists(font_path):
+        return font_path
+
+    # 路径不存在时（含绝对路径盘符/目录不同的情况），用文件名在 fonts/ 目录里找
+    font_basename = os.path.basename(font_path)
+    candidate = os.path.join(BASE_PATH, 'fonts', font_basename)
+    if os.path.exists(candidate):
+        return candidate
+
+    if not os.path.isabs(font_path):
+        candidate = os.path.join(BASE_PATH, font_path)
+        if os.path.exists(candidate):
+            return candidate
+
+    return ''
 
 
 def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: float = 1.0,
@@ -632,10 +655,6 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             fixed_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
             logger.debug(f"[RESIZE] skip_font_scaling: 区域 {region_idx} 使用固定字体大小 {fixed_font_size}")
 
-            # 如果用户关闭了AI断句，清除BR标记
-            if not config.render.disable_auto_wrap:
-                region.translation = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '', region.translation, flags=re.IGNORECASE)
-
             # 直接用固定字体大小计算文本框
             # 需要考虑 direction 强制覆盖（和 render() 中的判断逻辑一致）
             forced_direction = region._direction if hasattr(region, '_direction') else region.direction
@@ -650,11 +669,20 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                 actual_horizontal = region.horizontal
 
             line_spacing_multiplier = config.render.line_spacing or 1.0
+
+            # 用区域自己的字体来量度字符宽度，保证和 render() 实际渲染时一致
+            resolved_region_font_path = _resolve_font_path(getattr(region, 'font_path', '') or '')
+            if resolved_region_font_path:
+                text_render.set_font(resolved_region_font_path)
+            else:
+                text_render.set_font(text_render.DEFAULT_FONT)
+
             dst_points = calc_box_from_font(
                 fixed_font_size, region.translation, actual_horizontal,
                 line_spacing_multiplier, config, region.target_lang,
                 center=tuple(region.center), angle=region.angle
             )
+
             if dst_points is None:
                 dst_points = region.min_rect
 
@@ -674,10 +702,6 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
             # 保存应用偏移量后的字体大小，用于JSON导出
             region.offset_applied_font_size = int(target_font_size)
-
-        # 如果用户关闭了AI断句，先清除文本中已有的BR标记（在所有排版模式之前）
-        if not config.render.disable_auto_wrap:
-            region.translation = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '', region.translation, flags=re.IGNORECASE)
 
         # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
         if mode == 'balloon_fill':
@@ -988,6 +1012,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
                 # n 表示行/列数量，后续溢出重算会统一使用；默认 1 防止未赋值。
                 n = 1
+                line_spacing_multiplier = config.render.line_spacing or 1.0
 
                 # 根据有没有BR选择不同的计算方式
                 if has_br:
@@ -1000,7 +1025,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         lines, widths = text_render.calc_horizontal(target_font_size, region.translation, max_width=99999, max_height=99999, language=region.target_lang)
                         n = max(1, len(lines))
                         if widths:
-                            spacing_y = int(target_font_size * (config.render.line_spacing or 0.01))
+                            spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
                             required_width = max(widths)
                             required_height = target_font_size * n + spacing_y * max(0, n - 1)
                     else: # Vertical
@@ -1014,13 +1039,13 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         lines, heights = text_render.calc_vertical(target_font_size, text_for_calc, max_height=99999)
                         n = max(1, len(lines))
                         if heights:
-                            spacing_x = int(target_font_size * (config.render.line_spacing or 0.2))
+                            spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
                             required_height = max(heights)
                             required_width = target_font_size * n + spacing_x * max(0, n - 1)
                 else:
                     logger.debug(f"[SMART_SCALING] Region {region_idx}: 无BR分支，开始反推断句")
                     # 无BR：用精确像素反推最优行数/列数
-                    line_spacing_multiplier = config.render.line_spacing or 1.0
+                    no_br_max_font_size = target_font_size
 
                     if region.horizontal:
                         # 横排：计算单行总宽度
@@ -1071,18 +1096,28 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         target_font_size = final_font_size
                         logger.debug(f"[SMART_SCALING DEBUG] No BR Horizontal: n={n}, final_font={final_font_size}, required={required_width:.1f}x{required_height:.1f}")
 
-                        # 根据反推的行数插入BR标志
-                        if n > 1:
-                            chars_per_line = (len(region.translation) + n - 1) // n  # 向上取整
-                            logger.debug(f"[SMART_SCALING] Region {region_idx}: 横排 n={n}, chars_per_line={chars_per_line}")
-                            if chars_per_line > 0:
-                                new_text = ""
-                                for i, char in enumerate(region.translation):
-                                    new_text += char
-                                    if (i + 1) % chars_per_line == 0 and (i + 1) < len(region.translation):
-                                        new_text += "[BR]"
-                                region.translation = new_text
-                                logger.debug(f"[SMART_SCALING] Region {region_idx}: 插入BR后 translation='{region.translation}'")
+                        no_br_result = solve_no_br_layout(
+                            text=region.translation,
+                            horizontal=True,
+                            seed_segments=n,
+                            seed_font_size=final_font_size,
+                            bubble_width=bubble_width,
+                            bubble_height=bubble_height,
+                            min_font_size=min_font_size,
+                            max_font_size=no_br_max_font_size,
+                            line_spacing_multiplier=line_spacing_multiplier,
+                            target_lang=region.target_lang,
+                            config=config,
+                        )
+                        region.translation = no_br_result.text_with_br
+                        target_font_size = no_br_result.font_size
+                        n = no_br_result.n_segments
+                        required_width = no_br_result.required_width
+                        required_height = no_br_result.required_height
+                        logger.debug(
+                            f"[SMART_SCALING] Region {region_idx}: 横排融合断句后 n={n}, "
+                            f"font={target_font_size}, required={required_width:.1f}x{required_height:.1f}"
+                        )
                     else: # Vertical
                         # 竖排：计算单列总高度
                         total_height = text_render.get_string_height(target_font_size, region.translation)
@@ -1132,18 +1167,28 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         target_font_size = final_font_size
                         logger.debug(f"[SMART_SCALING DEBUG] No BR Vertical: n={n}, final_font={final_font_size}, required={required_width:.1f}x{required_height:.1f}")
 
-                        # 根据反推的列数插入BR标志
-                        if n > 1:
-                            chars_per_col = (len(region.translation) + n - 1) // n  # 向上取整
-                            logger.debug(f"[SMART_SCALING] Region {region_idx}: 竖排 n={n}, chars_per_col={chars_per_col}")
-                            if chars_per_col > 0:
-                                new_text = ""
-                                for i, char in enumerate(region.translation):
-                                    new_text += char
-                                    if (i + 1) % chars_per_col == 0 and (i + 1) < len(region.translation):
-                                        new_text += "[BR]"
-                                region.translation = new_text
-                                logger.debug(f"[SMART_SCALING] Region {region_idx}: 插入BR后 translation='{region.translation}'")
+                        no_br_result = solve_no_br_layout(
+                            text=region.translation,
+                            horizontal=False,
+                            seed_segments=n,
+                            seed_font_size=final_font_size,
+                            bubble_width=bubble_width,
+                            bubble_height=bubble_height,
+                            min_font_size=min_font_size,
+                            max_font_size=no_br_max_font_size,
+                            line_spacing_multiplier=line_spacing_multiplier,
+                            target_lang=region.target_lang,
+                            config=config,
+                        )
+                        region.translation = no_br_result.text_with_br
+                        target_font_size = no_br_result.font_size
+                        n = no_br_result.n_segments
+                        required_width = no_br_result.required_width
+                        required_height = no_br_result.required_height
+                        logger.debug(
+                            f"[SMART_SCALING] Region {region_idx}: 竖排融合断句后 n={n}, "
+                            f"font={target_font_size}, required={required_width:.1f}x{required_height:.1f}"
+                        )
 
                 # Check for overflow in either dimension
                 width_overflow = max(0, required_width - bubble_width)
@@ -1300,11 +1345,8 @@ async def dispatch(
         from ..config import Config
         config = Config()
 
-    # Save global default font path for regions without specific fonts
-    global _global_default_font_path
-    _global_default_font_path = font_path
-
-    text_render.set_font(font_path)
+    # 渲染阶段只依赖 region.font_path；这里仅设置一个稳定的初始字体兜底
+    text_render.set_font(text_render.DEFAULT_FONT)
     text_regions = list(filter(lambda region: region.translation, text_regions))
 
     result = resize_regions_to_font_size(img, text_regions, config, original_img, return_debug_img, skip_font_scaling=skip_font_scaling)
@@ -1345,43 +1387,17 @@ def render(
     disable_font_border,
     config: Config
 ):
-    global _global_default_font_path
-    
-    # Set region-specific font if specified, otherwise use global default
-    if hasattr(region, 'font_path') and region.font_path:
-        font_path = region.font_path
-        
-        # If font_path doesn't exist directly, try different resolution strategies
-        if not os.path.exists(font_path):
-            resolved_path = None
-            
-            if os.path.isabs(font_path):
-                # Absolute path but doesn't exist - no fallback
-                resolved_path = None
-            else:
-                # Try 1: Relative to BASE_PATH (e.g., "fonts/xxx.ttf")
-                candidate = os.path.join(BASE_PATH, font_path)
-                if os.path.exists(candidate):
-                    resolved_path = candidate
-                else:
-                    # Try 2: Just filename, look in fonts directory (e.g., "xxx.ttf")
-                    candidate = os.path.join(BASE_PATH, 'fonts', font_path)
-                    if os.path.exists(candidate):
-                        resolved_path = candidate
-            
-            if resolved_path:
-                font_path = resolved_path
-        
-        if os.path.exists(font_path):
-            text_render.set_font(font_path)
-        else:
-            logger.warning(f"Font path not found for region: {region.font_path}, using default font")
-            # Fall back to global default font
-            text_render.set_font(_global_default_font_path)
+    # 完全依赖区域字体，不再使用运行时全局字体参数
+    # JSON 导出时已为每个区域填入完整 font_path，这里直接用即可
+    region_font_path = getattr(region, 'font_path', '') or ''
+    resolved_font_path = _resolve_font_path(region_font_path)
+    if resolved_font_path:
+        text_render.set_font(resolved_font_path)
     else:
-        # No region-specific font, use global default font (from UI config)
-        text_render.set_font(_global_default_font_path)
-    
+        if region_font_path:
+            logger.warning(f"Font path not found for region: {region_font_path}, using built-in default font")
+        text_render.set_font(text_render.DEFAULT_FONT)
+
     # --- START BRUTEFORCE COLOR FIX ---
     fg = (0, 0, 0) # Default to black
     try:

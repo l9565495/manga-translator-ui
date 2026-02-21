@@ -2,6 +2,7 @@
 from typing import Optional, Tuple
 
 import numpy as np
+from editor import text_renderer_backend
 from manga_translator.config import Config, RenderConfig
 from manga_translator.rendering import calc_box_from_font
 from manga_translator.utils import TextBlock
@@ -15,14 +16,10 @@ def _normalize_direction(direction_value):
     return direction_value
 
 
-def prepare_layout_context(render_parameter_service, text_renderer_backend) -> Tuple[dict, Config]:
+def prepare_layout_context(render_parameter_service, _text_renderer_backend) -> Tuple[dict, Config]:
     default_params_obj = render_parameter_service.get_default_parameters()
     global_params_dict = default_params_obj.to_dict()
     global_params_dict["direction"] = _normalize_direction(global_params_dict.get("direction"))
-
-    font_path = default_params_obj.font_path
-    if font_path:
-        text_renderer_backend.update_font_config(font_path)
 
     config_obj = Config(render=RenderConfig(**global_params_dict))
     return global_params_dict, config_obj
@@ -32,6 +29,9 @@ def build_region_specific_params(global_params_dict: dict, text_block: TextBlock
     region_params = global_params_dict.copy()
     if hasattr(text_block, "direction"):
         region_params["direction"] = _normalize_direction(getattr(text_block, "direction", None))
+    region_font_path = getattr(text_block, "font_path", "")
+    if region_font_path:
+        region_params["font_path"] = region_font_path
     return region_params
 
 
@@ -57,6 +57,8 @@ def calculate_region_dst_points(
     is_horizontal = text_block.horizontal
     line_spacing = region_params.get("line_spacing") or config_obj.render.line_spacing or 1.0
     target_lang = text_block.target_lang or "en_US"
+    region_font_path = region_params.get("font_path") or getattr(text_block, "font_path", "")
+    text_renderer_backend.apply_font_for_render(region_font_path)
     box_w, box_h, _ = calc_box_from_font(
         font_size,
         translation,

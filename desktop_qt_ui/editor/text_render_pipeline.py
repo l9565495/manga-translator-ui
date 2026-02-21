@@ -1,5 +1,4 @@
 """文字渲染管线 — 构建 TextBlock、render_params、执行渲染。"""
-import os
 from typing import Optional, Tuple
 
 import numpy as np
@@ -53,23 +52,21 @@ def build_text_block_from_region(region_data: dict, font_size_override=None, log
 
 def build_region_render_params(
     render_parameter_service,
-    text_renderer_backend,
+    _text_renderer_backend,
     region_index: int,
     region_data: dict,
     text_block: TextBlock,
 ) -> dict:
     render_params = render_parameter_service.export_parameters_for_backend(region_index, region_data)
     render_params["font_size"] = text_block.font_size
-
-    region_font_path = region_data.get("font_path", "")
-    if region_font_path and os.path.exists(region_font_path):
-        text_renderer_backend.update_font_config(region_font_path)
+    region_font_path = (
+        region_data.get("font_path")
+        or getattr(text_block, "font_path", "")
+        or render_params.get("font_path", "")
+    )
+    if region_font_path:
         render_params["font_path"] = region_font_path
-    else:
-        default_params_obj = render_parameter_service.get_default_parameters()
-        font_path = default_params_obj.font_path
-        if font_path:
-            text_renderer_backend.update_font_config(font_path)
+        text_block.font_path = region_font_path
 
     return render_params
 

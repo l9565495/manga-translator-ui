@@ -479,6 +479,51 @@ class MangaTranslator:
         # Prepare data for JSON serialization
         regions_data = [region.to_dict() for region in ctx.text_regions]
 
+        def normalize_font_path_for_save(font_path: str) -> str:
+            """Normalize font path to portable relative form when possible."""
+            if not font_path:
+                return ''
+
+            if os.path.isabs(font_path):
+                norm_path = os.path.normpath(font_path)
+                base_path = os.path.normpath(BASE_PATH)
+                fonts_dir = os.path.normpath(os.path.join(base_path, 'fonts'))
+                try:
+                    if os.path.commonpath([norm_path, fonts_dir]) == fonts_dir:
+                        return os.path.relpath(norm_path, base_path).replace('\\', '/')
+                    if os.path.commonpath([norm_path, base_path]) == base_path:
+                        return os.path.relpath(norm_path, base_path).replace('\\', '/')
+                except ValueError:
+                    return norm_path
+                return norm_path
+
+            normalized = font_path.replace('\\', '/')
+            if normalized.lower().startswith('fonts/'):
+                return normalized
+            if '/' in normalized:
+                return normalized
+            return f"fonts/{normalized}"
+
+        # 补全每个区域的 font_path：若区域没有特定字体，填入当前全局字体
+        # 这样后端渲染时完全依靠区域字体，不再依赖运行时全局字体状态
+        global_font = ''
+        if config and hasattr(config, 'render') and getattr(config.render, 'font_path', None):
+            global_font = config.render.font_path
+        if not global_font:
+            global_font = self.font_path or ''
+        global_font = normalize_font_path_for_save(global_font)
+
+        # 统一 region.font_path 保存格式（优先相对路径）
+        for region in regions_data:
+            region_font_path = region.get('font_path')
+            if region_font_path:
+                region['font_path'] = normalize_font_path_for_save(region_font_path)
+
+        if global_font:
+            for region in regions_data:
+                if not region.get('font_path'):
+                    region['font_path'] = global_font
+
         # 强制使用Config中的排版方向和对齐方式覆盖（如果存在）
         # 这是为了确保即使 textline_merge 检测过程使用了 auto，
         # 最终保存时也会反映用户的强制设置（例如全书强制横排）
@@ -488,26 +533,27 @@ class MangaTranslator:
                 if hasattr(config.render, 'direction'):
                     dir_val = config.render.direction
                     if hasattr(dir_val, 'value'): dir_val = dir_val.value
-                    
+
                     forced_direction = None
                     if dir_val == 'vertical': forced_direction = 'v'
                     elif dir_val == 'horizontal': forced_direction = 'h'
-                    
+
                     if forced_direction:
                         for region in regions_data:
                             region['direction'] = forced_direction
-                
+
                 # 覆盖对齐方式
                 if hasattr(config.render, 'alignment'):
                     align_val = config.render.alignment
                     if hasattr(align_val, 'value'): align_val = align_val.value
-                    
+
                     if align_val in ('left', 'center', 'right'):
                         for region in regions_data:
                             region['alignment'] = align_val
-                            
+
             except Exception as e:
                 logger.warning(f"Failed to override region settings from config: {e}")
+
 
         # 对竖排区域的 translation 应用 auto_add_horizontal_tags
         # 确保竖排内横排标记 <H> 写入 JSON
@@ -2261,21 +2307,25 @@ class MangaTranslator:
         current_time = time.time()
         self._model_usage_timestamps[("rendering", config.render.renderer)] = current_time
 
-        # 优先使用配置文件中的 font_path，如果没有则使用命令行参数
-        font_path = config.render.font_path or self.font_path
+        # 全局字体只作为“补全区域字体”的来源，后端渲染实际只读 region.font_path
+        fallback_font_path = config.render.font_path or self.font_path or ''
+        if ctx.text_regions:
+            for region in ctx.text_regions:
+                if not getattr(region, 'font_path', ''):
+                    region.font_path = fallback_font_path
 
         if config.render.renderer == Renderer.none:
             output = ctx.img_inpainted
         # manga2eng currently only supports horizontal left to right rendering
         elif (config.render.renderer == Renderer.manga2Eng or config.render.renderer == Renderer.manga2EngPillow) and ctx.text_regions and LANGUAGE_ORIENTATION_PRESETS.get(ctx.text_regions[0].target_lang) == 'h':
             if config.render.renderer == Renderer.manga2EngPillow:
-                output = await dispatch_eng_render_pillow(ctx.img_inpainted, ctx.img_rgb, ctx.text_regions, font_path, config.render.line_spacing)
+                output = await dispatch_eng_render_pillow(ctx.img_inpainted, ctx.img_rgb, ctx.text_regions, fallback_font_path, config.render.line_spacing)
             else:
-                output = await dispatch_eng_render(ctx.img_inpainted, ctx.img_rgb, ctx.text_regions, font_path, config.render.line_spacing)
+                output = await dispatch_eng_render(ctx.img_inpainted, ctx.img_rgb, ctx.text_regions, fallback_font_path, config.render.line_spacing)
         else:
             # Request debug image for balloon_fill mode when verbose
             need_debug_img = self.verbose and config.render.layout_mode == 'balloon_fill'
-            result = await dispatch_rendering(ctx.img_inpainted, ctx.text_regions, font_path, config, ctx.img_rgb, return_debug_img=need_debug_img, skip_font_scaling=skip_font_scaling)
+            result = await dispatch_rendering(ctx.img_inpainted, ctx.text_regions, fallback_font_path, config, ctx.img_rgb, return_debug_img=need_debug_img, skip_font_scaling=skip_font_scaling)
             
             # Handle debug image if returned
             if need_debug_img and isinstance(result, tuple):

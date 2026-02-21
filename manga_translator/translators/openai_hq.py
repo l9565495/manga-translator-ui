@@ -136,8 +136,8 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         
-        # 同步 attempts 到 _max_total_attempts
-        self._max_total_attempts = self.attempts
+        # 同步重试次数到“总尝试次数”（首次请求 + 重试）
+        self._max_total_attempts = self._resolve_max_total_attempts()
         
         # 从配置中读取RPM限制
         max_rpm = getattr(args, 'max_requests_per_minute', 0)
@@ -229,6 +229,17 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 await self.client.close()
             except Exception:
                 pass  # 忽略清理时的错误
+
+    async def _abort_inflight_request(self):
+        """取消时中断当前请求连接，避免长时间阻塞。"""
+        if not self.client:
+            return
+        try:
+            await self.client.close()
+        except Exception as e:
+            self.logger.debug(f"中断请求时关闭客户端失败（可忽略）: {e}")
+        finally:
+            self.client = None
     
     def __del__(self):
         """析构函数，确保资源被清理"""
@@ -236,10 +247,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
             try:
                 import asyncio
                 loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # 如果事件循环还在运行，创建清理任务
-                    asyncio.create_task(self._cleanup())
-                elif not loop.is_closed():
+                if not loop.is_running() and not loop.is_closed():
                     # 如果事件循环未关闭，同步执行清理
                     loop.run_until_complete(self._cleanup())
             except Exception:
@@ -375,13 +383,19 @@ This is an incorrect response because it includes extra text and explanations.
         
         if not self.client:
             self._setup_client()
+
+        if batch_data is None:
+            batch_data = []
         
         # 准备图片
         self.logger.info(f"高质量翻译模式：正在打包 {len(batch_data)} 张图片并发送...")
 
         image_contents = []
         for img_idx, data in enumerate(batch_data):
-            image = data['image']
+            image = data.get('image')
+            if image is None:
+                self.logger.debug(f"图片[{img_idx + 1}] 缺少图像数据，跳过图片上传")
+                continue
             
             # 在图片上绘制带编号的文本框
             text_regions = data.get('text_regions', [])
@@ -402,10 +416,12 @@ This is an incorrect response because it includes extra text and explanations.
         retry_reason = ""
         
         # 标记是否发送图片（降级机制）
-        send_images = True
+        send_images = len(image_contents) > 0
+        if not send_images:
+            self.logger.info("未提供可用图片，OpenAI HQ将使用纯文本请求模式")
         
         # 发送请求
-        max_retries = self.attempts
+        max_retries = self._resolve_max_total_attempts()
         attempt = 0
         is_infinite = max_retries == -1
         last_exception = None
@@ -464,7 +480,7 @@ This is an incorrect response because it includes extra text and explanations.
                     if elapsed < delay:
                         sleep_time = delay - elapsed
                         self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
-                        await asyncio.sleep(sleep_time)
+                        await self._sleep_with_cancel_polling(sleep_time)
                 
                 # 动态调整温度：质量检查或BR检查失败时提高温度帮助跳出错误模式
                 current_temperature = self._get_retry_temperature(self.temperature, retry_attempt, retry_reason)
@@ -485,7 +501,11 @@ This is an incorrect response because it includes extra text and explanations.
                     api_params.update(self._custom_api_params)
                     self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
 
-                response = await self.client.chat.completions.create(**api_params)
+                response = await self._await_with_cancel_polling(
+                    self.client.chat.completions.create(**api_params),
+                    poll_interval=0.2,
+                    on_cancel=self._abort_inflight_request,
+                )
                 
                 # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
                 if self._MAX_REQUESTS_PER_MINUTE > 0:
@@ -556,7 +576,7 @@ This is an incorrect response because it includes extra text and explanations.
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
                         self._setup_client(force_recreate=True)
-                        await asyncio.sleep(2)
+                        await self._sleep_with_cancel_polling(2)
                         continue
 
                     # 质量验证：检查空翻译、合并翻译、可疑符号等
@@ -576,7 +596,7 @@ This is an incorrect response because it includes extra text and explanations.
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
                         self._setup_client(force_recreate=True)
-                        await asyncio.sleep(2)
+                        await self._sleep_with_cancel_polling(2)
                         continue
 
                     self.logger.info("--- Translation Results ---")
@@ -608,7 +628,7 @@ This is an incorrect response because it includes extra text and explanations.
                         # 重试前断开连接，重建客户端
                         self.logger.info("重试前断开旧连接，重建客户端...")
                         self._setup_client(force_recreate=True)
-                        await asyncio.sleep(2)
+                        await self._sleep_with_cancel_polling(2)
                         continue
 
                     return translations[:len(texts)]
@@ -646,7 +666,7 @@ This is an incorrect response because it includes extra text and explanations.
                 # 重试前断开连接，重建客户端
                 self.logger.info("重试前断开旧连接，重建客户端...")
                 self._setup_client(force_recreate=True)
-                await asyncio.sleep(1)
+                await self._sleep_with_cancel_polling(1)
 
             except openai.BadRequestError as e:
                 # 专门处理400错误，检查是否是多模态不支持问题
@@ -676,7 +696,7 @@ This is an incorrect response because it includes extra text and explanations.
                     # 重试前断开连接，重建客户端
                     self.logger.info("重试前断开旧连接，重建客户端...")
                     self._setup_client(force_recreate=True)
-                    await asyncio.sleep(1)
+                    await self._sleep_with_cancel_polling(1)
                     
             except Exception as e:
                 attempt += 1
@@ -697,7 +717,7 @@ This is an incorrect response because it includes extra text and explanations.
                 # 重试前断开连接，重建客户端
                 self.logger.info("重试前断开旧连接，重建客户端...")
                 self._setup_client(force_recreate=True)
-                await asyncio.sleep(1)
+                await self._sleep_with_cancel_polling(1)
 
         # 只有在所有重试都失败后才会执行到这里
         raise last_exception if last_exception else Exception("OpenAI translation failed after all retries")
@@ -710,97 +730,36 @@ This is an incorrect response because it includes extra text and explanations.
         # 重置全局尝试计数器
         self._reset_global_attempt_count()
 
-        # 检查是否为高质量批量翻译模式
-        if ctx and hasattr(ctx, 'high_quality_batch_data'):
-            batch_data = ctx.high_quality_batch_data
-            if batch_data and len(batch_data) > 0:
-                self.logger.info(f"使用OpenAI高质量翻译模式处理{len(batch_data)}张图片，最大尝试次数: {self._max_total_attempts}")
-                custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
-                line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
+        batch_data = getattr(ctx, 'high_quality_batch_data', None) if ctx else None
+        if not batch_data:
+            # 统一后备路径：仍走高质量批量函数，不再保留第二套 API 请求实现
+            self.logger.info("OpenAI HQ未提供batch_data，使用统一后备批次路径")
+            fallback_regions = getattr(ctx, 'text_regions', []) if ctx else []
+            batch_data = [{
+                'image': getattr(ctx, 'input', None) if ctx else None,
+                'text_regions': fallback_regions if fallback_regions else [],
+                'text_order': list(range(1, len(queries) + 1)),
+                'upscaled_size': None,
+                'original_texts': queries,
+            }]
 
-                # 使用分割包装器进行翻译
-                translations = await self._translate_with_split(
-                    self._translate_batch_high_quality,
-                    queries,
-                    split_level=0,
-                    batch_data=batch_data,
-                    source_lang=from_lang,
-                    target_lang=to_lang,
-                    custom_prompt_json=custom_prompt_json,
-                    line_break_prompt_json=line_break_prompt_json,
-                    ctx=ctx
-                )
+        self.logger.info(f"使用OpenAI高质量翻译统一路径，批次图片数: {len(batch_data)}，最大尝试次数: {self._max_total_attempts}")
+        custom_prompt_json = getattr(ctx, 'custom_prompt_json', None)
+        line_break_prompt_json = getattr(ctx, 'line_break_prompt_json', None)
 
-                # 应用文本后处理（与普通翻译器保持一致）
-                translations = [self._clean_translation_output(q, r, to_lang) for q, r in zip(queries, translations)]
-                return translations
-        
-        # 普通单文本翻译（后备方案）
-        if not self.client:
-            self._setup_client()
-        
-        try:
-            simple_prompt = f"Translate the following {from_lang} text to {to_lang}. Provide only the translation:\n\n" + "\n".join(queries)
-            
-            # RPM限制
-            if self._MAX_REQUESTS_PER_MINUTE > 0:
-                import time
-                now = time.time()
-                delay = 60.0 / self._MAX_REQUESTS_PER_MINUTE
-                elapsed = now - OpenAIHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key]
-                if elapsed < delay:
-                    sleep_time = delay - elapsed
-                    self.logger.info(f'Ratelimit sleep: {sleep_time:.2f}s')
-                    await asyncio.sleep(sleep_time)
-            
-            # 构建API参数，只有当max_tokens有值时才传递（新模型如o1/gpt-4.1不支持null值）
-            api_params = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": simple_prompt}],
-                "temperature": self.temperature
-            }
-            if self.max_tokens is not None:
-                api_params["max_tokens"] = self.max_tokens
-            
-            # 合并自定义API参数
-            if self._custom_api_params:
-                api_params.update(self._custom_api_params)
-                self.logger.debug(f"使用自定义API参数: {self._custom_api_params}")
+        # 使用分割包装器进行翻译
+        translations = await self._translate_with_split(
+            self._translate_batch_high_quality,
+            queries,
+            split_level=0,
+            batch_data=batch_data,
+            source_lang=from_lang,
+            target_lang=to_lang,
+            custom_prompt_json=custom_prompt_json,
+            line_break_prompt_json=line_break_prompt_json,
+            ctx=ctx
+        )
 
-            response = await self.client.chat.completions.create(**api_params)
-            
-            # 在API调用成功后立即更新时间戳，确保所有请求（包括重试）都被计入速率限制
-            if self._MAX_REQUESTS_PER_MINUTE > 0:
-                OpenAIHighQualityTranslator._GLOBAL_LAST_REQUEST_TS[self._last_request_ts_key] = time.time()
-            
-            if response.choices and response.choices[0].message.content:
-                result = response.choices[0].message.content.strip()
-                
-                # 统一的编码清理（处理UTF-16-LE等编码问题）
-                from .common import sanitize_text_encoding
-                result = sanitize_text_encoding(result)
-                
-                # 去除 <think>...</think> 标签及内容（LM Studio 等本地模型的思考过程）
-                result = re.sub(r'(</think>)?<think>.*?</think>', '', result, flags=re.DOTALL)
-                # 提取 <answer>...</answer> 中的内容（如果存在）
-                answer_match = re.search(r'<answer>(.*?)</answer>', result, flags=re.DOTALL)
-                if answer_match:
-                    result = answer_match.group(1).strip()
-                
-                translations = result.split('\n')
-                translations = [t.strip() for t in translations if t.strip()]
-                
-                # Strict validation: must match input count
-                if len(translations) != len(queries):
-                    error_msg = f"Translation count mismatch: expected {len(queries)}, got {len(translations)}"
-                    self.logger.error(error_msg)
-                    self.logger.error(f"Queries: {queries}")
-                    self.logger.error(f"Translations: {translations}")
-                    raise Exception(error_msg)
-                
-                return translations
-                
-        except Exception as e:
-            self.logger.error(f"OpenAI翻译出错: {e}")
-        
-        return queries
+        # 应用文本后处理（与普通翻译器保持一致）
+        translations = [self._clean_translation_output(q, r, to_lang) for q, r in zip(queries, translations)]
+        return translations

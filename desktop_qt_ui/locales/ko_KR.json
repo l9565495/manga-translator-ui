@@ -90,7 +90,6 @@
   "label_inpainter": "인페인팅 모델",
   "label_inpainting_size": "인페인팅 크기",
   "label_inpainting_precision": "인페인팅 정밀도",
-  "label_inpainting_split_ratio": "극단적인 종횡비 절단 임계값",
   "label_force_use_torch_inpainting": "PyTorch 인페인팅 강제 사용",
   "label_renderer": "렌더러",
   "label_alignment": "정렬",

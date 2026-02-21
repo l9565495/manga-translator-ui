@@ -98,7 +98,6 @@
   "label_inpainter": "Inpainting Model",
   "label_inpainting_size": "Inpainting Size",
   "label_inpainting_precision": "Inpainting Precision",
-  "label_inpainting_split_ratio": "Aspect Ratio Split Threshold",
   "label_force_use_torch_inpainting": "Force Use PyTorch Inpainting",
   "label_renderer": "Renderer",
   "label_alignment": "Alignment",

@@ -98,7 +98,6 @@
   "label_inpainter": "修复模型",
   "label_inpainting_size": "修复大小",
   "label_inpainting_precision": "修复精度",
-  "label_inpainting_split_ratio": "极端长宽比切割阈值",
   "label_force_use_torch_inpainting": "强制使用PyTorch修复",
   "label_renderer": "渲染器",
   "label_alignment": "对齐方式",

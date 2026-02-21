@@ -1570,6 +1570,7 @@ class GraphicsView(QGraphicsView):
                             'font_family': template_region.get('font_family', 'Arial'),
                             'font_size': template_region.get('font_size', 24),
                             'font_color': template_region.get('font_color', '#000000'),
+                            'bg_colors': template_region.get('bg_colors', template_region.get('bg_color', [255, 255, 255])),
                             'alignment': template_region.get('alignment', 'center'),
                             'direction': template_region.get('direction', 'auto'),
                             'angle': template_region.get('angle', 0)
@@ -1600,6 +1601,7 @@ class GraphicsView(QGraphicsView):
                 'font_family': template_data.get('font_family', 'Arial'),
                 'font_size': template_data.get('font_size', 24),
                 'font_color': template_data.get('font_color', '#000000'),
+                'bg_colors': template_data.get('bg_colors', [255, 255, 255]),
                 'alignment': template_data.get('alignment', 'center'),
                 'direction': template_data.get('direction', 'auto'),
                 'angle': template_data.get('angle', 0),

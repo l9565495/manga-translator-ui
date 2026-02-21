@@ -900,7 +900,6 @@ class MainAppLogic(QObject):
                     "inpainter": self._t("label_inpainter"),
                     "inpainting_size": self._t("label_inpainting_size"),
                     "inpainting_precision": self._t("label_inpainting_precision"),
-                    "inpainting_split_ratio": self._t("label_inpainting_split_ratio"),
                     "force_use_torch_inpainting": self._t("label_force_use_torch_inpainting"),
                     "renderer": self._t("label_renderer"),
                     "alignment": self._t("label_alignment"),
