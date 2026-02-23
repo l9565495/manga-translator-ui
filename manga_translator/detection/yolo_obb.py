@@ -20,7 +20,7 @@ class YOLOOBBDetector(OfflineDetector):
     _MODEL_MAPPING = {
         'model': {
             'url': 'https://www.modelscope.cn/models/hgmzhn/manga-translator-ui/resolve/master/ysgyolo_1.2_OS1.0_1600.onnx',
-            'hash': '6f3202925f01fdf045f8c31a3bf62e6c44944f56ce09107eb436bc5a5b185ebe',
+            'hash': '94d4c1fd89f26b15e85c30484843ab809bdf1ff8932f07cc450ea289e039b0f4',
             'file': _MODEL_FILENAME,
         }
     }

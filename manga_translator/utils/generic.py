@@ -250,10 +250,16 @@ def download_url_with_progressbar(url: str, path: str, min_speed_kbps: float = 1
         headers['Accept-Encoding'] = 'deflate'
 
     r = requests.get(url, stream=True, allow_redirects=True, headers=headers, timeout=timeout)
-    if downloaded_size and r.headers.get('Accept-Ranges') != 'bytes':
-        print('Error: Webserver does not support partial downloads. Restarting from the beginning.')
-        r = requests.get(url, stream=True, allow_redirects=True, timeout=timeout)
-        downloaded_size = 0
+    # Resume safety: some servers ignore Range requests and return 200/full body.
+    # In that case appending would corrupt the file, so restart from scratch.
+    if downloaded_size:
+        accept_ranges = (r.headers.get('Accept-Ranges') or '').lower()
+        content_range = r.headers.get('Content-Range')
+        if accept_ranges != 'bytes' or r.status_code != 206 or not content_range:
+            print('Error: Webserver does not reliably support partial downloads. Restarting from the beginning.')
+            r.close()
+            r = requests.get(url, stream=True, allow_redirects=True, timeout=timeout)
+            downloaded_size = 0
     total = int(r.headers.get('content-length', 0))
     chunk_size = 1024
 
