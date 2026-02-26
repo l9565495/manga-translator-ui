@@ -204,7 +204,7 @@ class MangaLensBubbleDetector(ModelWrapper):
                     self.logger.warning(f"onnxruntime.preload_dlls() failed: {exc}")
             available = ort.get_available_providers()
             if not self._provider_logged:
-                self.logger.info(f"MangaLens ONNX available providers: {available}")
+                self.logger.debug(f"MangaLens ONNX available providers: {available}")
                 self._provider_logged = True
             if "CUDAExecutionProvider" in available:
                 providers = [("CUDAExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
@@ -213,7 +213,7 @@ class MangaLensBubbleDetector(ModelWrapper):
 
         session = ort.InferenceSession(str(self.model_path), sess_options=sess_options, providers=providers)
         active = "cuda" if "CUDAExecutionProvider" in session.get_providers() else "cpu"
-        self.logger.info(f"MangaLens ONNX session providers: {session.get_providers()}")
+        self.logger.debug(f"MangaLens ONNX session providers: {session.get_providers()}")
         return session, active
 
     def load_model(self, device: Optional[str] = None):
@@ -235,7 +235,7 @@ class MangaLensBubbleDetector(ModelWrapper):
         self._input_name = session.get_inputs()[0].name
         self._output_names = [o.name for o in session.get_outputs()]
         self._session_device = active
-        self.logger.info(f"MangaLens model loaded: {self.model_path} (device={self._session_device})")
+        self.logger.debug(f"MangaLens model loaded: {self.model_path} (device={self._session_device})")
         return self.model
 
     def unload_model(self):
@@ -728,7 +728,7 @@ class MangaLensBubbleDetector(ModelWrapper):
         session = self.load_model(device=active_device)
 
         if not self._device_logged:
-            self.logger.info(f"MangaLens detect device request: {active_device}, active_session={self._session_device}")
+            self.logger.debug(f"MangaLens detect device request: {active_device}, active_session={self._session_device}")
             self._device_logged = True
 
         img = self._load_input_image(image)

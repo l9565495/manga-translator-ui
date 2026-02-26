@@ -432,6 +432,7 @@ class PermissionEditor {
                 ${this.createFormRow(this.t('label_use_model_bubble_filter', '启用模型气泡过滤'), this.createCheckbox('ocr', 'use_model_bubble_filter'), '启用后仅保留与模型检测气泡有重叠的文本区域', 'ocr', 'use_model_bubble_filter')}
                 ${this.createFormRow(this.t('label_model_bubble_overlap_threshold', '模型气泡重叠阈值'), this.createInput('ocr', 'model_bubble_overlap_threshold', 'number', '0', '1', '0.01'), '文本框与模型气泡框的最小重叠比例(0-1)，值越小越宽松，默认0.1', 'ocr', 'model_bubble_overlap_threshold')}
                 ${this.createFormRow(this.t('label_use_model_bubble_repair_intersection', '扩大气泡修复范围'), this.createCheckbox('ocr', 'use_model_bubble_repair_intersection'), '仅保留与优化蒙版有交集的气泡连通域，并与优化蒙版合并', 'ocr', 'use_model_bubble_repair_intersection')}
+                ${this.createFormRow(this.t('label_limit_mask_dilation_to_bubble_mask', '膨胀不超过气泡蒙版'), this.createCheckbox('ocr', 'limit_mask_dilation_to_bubble_mask'), '按优化蒙版连通域裁剪：与气泡相交则只保留交集，不相交则保留原连通域', 'ocr', 'limit_mask_dilation_to_bubble_mask')}
                 ${this.createFormRow(this.t('label_prob', '文本区域最低概率 (prob)'), this.createInput('ocr', 'prob', 'number'), '文本区域的最小概率阈值', 'ocr', 'prob')}
                 ${this.createFormRow(this.t('label_merge_gamma', '合并-距离容忍度'), this.createInput('ocr', 'merge_gamma', 'number'), '值越高越宽容，默认0.8', 'ocr', 'merge_gamma')}
                 ${this.createFormRow(this.t('label_merge_sigma', '合并-离群容忍度'), this.createInput('ocr', 'merge_sigma', 'number'), '值越高越宽容，默认2.5', 'ocr', 'merge_sigma')}

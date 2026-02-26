@@ -83,6 +83,7 @@
   "label_use_model_bubble_filter": "Enable Model Bubble Filter",
   "label_model_bubble_overlap_threshold": "Model Bubble Overlap Threshold",
   "label_use_model_bubble_repair_intersection": "Expand Bubble Repair Range",
+  "label_limit_mask_dilation_to_bubble_mask": "Keep Dilation Inside Bubble Mask",
   "label_prob": "Text Region Min Probability",
   "label_merge_gamma": "Merge Distance Tolerance",
   "label_merge_sigma": "Merge Outlier Tolerance",

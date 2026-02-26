@@ -25,6 +25,7 @@ class OcrSettings(BaseModel):
     use_model_bubble_filter: bool = False
     model_bubble_overlap_threshold: float = 0.1
     use_model_bubble_repair_intersection: bool = False
+    limit_mask_dilation_to_bubble_mask: bool = False
     prob: float = 0.1
     merge_gamma: float = 0.8
     merge_sigma: float = 2.5

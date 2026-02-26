@@ -2383,6 +2383,7 @@ class MangaTranslator:
             verbose=self.verbose,
             kernel_size=self.kernel_size,
             use_model_bubble_repair_intersection=bool(getattr(config.ocr, 'use_model_bubble_repair_intersection', False)),
+            limit_mask_dilation_to_bubble_mask=bool(getattr(config.ocr, 'limit_mask_dilation_to_bubble_mask', False)),
         )
 
     async def _run_inpainting(self, config: Config, ctx: Context):
@@ -3155,7 +3156,7 @@ class MangaTranslator:
             
             finally:
                 # ✅ 批次完成后（无论成功还是失败）立即清理内存
-                logger.info(f'[阶段] 批次 {batch_start//batch_size + 1} 处理完成，开始清理内存')
+                logger.debug(f'[阶段] 批次 {batch_start//batch_size + 1} 处理完成，开始清理内存')
                 self._cleanup_batch_memory(
                     current_batch_images=current_batch_images,
                     preprocessed_contexts=preprocessed_contexts,

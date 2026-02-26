@@ -753,6 +753,12 @@ def solve_no_br_layout(
     clean_text = _normalize_no_br_text(text)
     if not clean_text:
         return NoBrLayoutResult("", max(1, min_font_size), 1, 0.0, 0.0)
+    current_region = getattr(config, "_current_region", None) if config is not None else None
+    force_no_wrap_single_region = bool(
+        current_region is not None
+        and hasattr(current_region, "lines")
+        and len(current_region.lines) == 1
+    )
 
     text_len = len(clean_text)
     safe_min_font = max(1, int(min_font_size))
@@ -773,7 +779,9 @@ def solve_no_br_layout(
             target_lang,
             config,
         )
-        if lines and len(lines) > 1:
+        if force_no_wrap_single_region:
+            text_with_br = clean_text
+        elif lines and len(lines) > 1:
             text_with_br = "[BR]".join(lines)
         elif current_segments > 1:
             text_with_br = _insert_br_by_pixel_budget(clean_text, current_segments, current_font, horizontal)
@@ -812,7 +820,9 @@ def solve_no_br_layout(
         target_lang,
         config,
     )
-    if final_lines and len(final_lines) > 1:
+    if force_no_wrap_single_region:
+        final_text = clean_text
+    elif final_lines and len(final_lines) > 1:
         final_text = "[BR]".join(final_lines)
     elif current_segments > 1:
         final_text = _insert_br_by_pixel_budget(clean_text, current_segments, current_font, horizontal)

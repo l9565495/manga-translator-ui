@@ -892,7 +892,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             balloon_fill_mask = build_bubble_mask_from_mangalens_result(model_result, original_img.shape[:2])
             mask_pixels = int(np.count_nonzero(balloon_fill_mask))
             detected = len(model_result.detections) if model_result is not None else 0
-            logger.info(
+            logger.debug(
                 f"balloon_fill model mask prepared: detections={detected}, mask_pixels={mask_pixels}"
             )
             if mask_pixels > 0:
@@ -915,6 +915,8 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             logger.info(f"[RESIZE] 区域 {region_idx}: None，跳过")
             dst_points_list.append(None)
             continue
+        if config:
+            config._current_region = region
 
         # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
         if not region.translation or not region.translation.strip():
@@ -978,8 +980,8 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
         # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
         if mode == 'balloon_fill':
-            logger.info(f"=== balloon_fill mode activated for region {region_idx} ===")
-            logger.info(f"OCR box (xywh): {region.xywh}")
+            logger.debug(f"=== balloon_fill mode activated for region {region_idx} ===")
+            logger.debug(f"OCR box (xywh): {region.xywh}")
 
             if original_img is None:
                 logger.warning("balloon_fill mode requires original_img, fallback to geometry-based dst_points")
@@ -1034,7 +1036,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     if chosen_dst_points is None:
                         chosen_dst_points = region.min_rect
                     chosen_font_size = region.font_size if region.font_size > 0 else chosen_font_size
-                    logger.info(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
+                    logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
                 else:
                     bubble_width, bubble_height = region.unrotated_size
                     mask_nonzero = cv2.findNonZero(region_bubble_mask)
@@ -1169,7 +1171,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     if best_font_size is not None and best_dst_points is not None:
                         chosen_font_size = int(best_font_size)
                         chosen_dst_points = best_dst_points
-                        logger.info(
+                        logger.debug(
                             f"balloon_fill region {region_idx}: enclosed lines, binary-search font {preferred_font_size}->{chosen_font_size}"
                         )
                     else:

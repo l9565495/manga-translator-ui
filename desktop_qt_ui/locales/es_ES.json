@@ -95,6 +95,7 @@
   "label_use_model_bubble_filter": "Habilitar filtro de globos por modelo",
   "label_model_bubble_overlap_threshold": "Umbral de solapamiento de globo del modelo",
   "label_use_model_bubble_repair_intersection": "Ampliar rango de reparación de globos",
+  "label_limit_mask_dilation_to_bubble_mask": "Limitar dilatación dentro de la máscara de globo",
   "label_prob": "Probabilidad mínima del área de texto (prob)",
   "label_merge_gamma": "Fusión-Tolerancia de distancia",
   "label_merge_sigma": "Fusión-Tolerancia de valores atípicos",

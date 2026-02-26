@@ -95,6 +95,7 @@
   "label_use_model_bubble_filter": "モデル気泡フィルターを有効化",
   "label_model_bubble_overlap_threshold": "モデル気泡重なり閾値",
   "label_use_model_bubble_repair_intersection": "気泡修復範囲を拡大",
+  "label_limit_mask_dilation_to_bubble_mask": "膨張を気泡マスク内に制限",
   "label_prob": "テキスト領域の最小確率（prob）",
   "label_merge_gamma": "マージ-距離許容度",
   "label_merge_sigma": "マージ-外れ値許容度",

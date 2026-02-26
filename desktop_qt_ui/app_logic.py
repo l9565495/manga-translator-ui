@@ -898,6 +898,7 @@ class MainAppLogic(QObject):
                     "use_model_bubble_filter": self._t("label_use_model_bubble_filter"),
                     "model_bubble_overlap_threshold": self._t("label_model_bubble_overlap_threshold"),
                     "use_model_bubble_repair_intersection": self._t("label_use_model_bubble_repair_intersection"),
+                    "limit_mask_dilation_to_bubble_mask": self._t("label_limit_mask_dilation_to_bubble_mask"),
                     "prob": self._t("label_prob"),
                     "merge_gamma": self._t("label_merge_gamma"),
                     "merge_sigma": self._t("label_merge_sigma"),

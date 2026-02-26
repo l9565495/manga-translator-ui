@@ -391,6 +391,8 @@ class OcrConfig(BaseModel):
     """Minimum overlap ratio (0-1) between text bbox and model-detected bubble boxes. Lower values are more permissive."""
     use_model_bubble_repair_intersection: bool = False
     """After mask refinement, keep only model bubble-mask connected components that intersect the refined mask."""
+    limit_mask_dilation_to_bubble_mask: bool = False
+    """Clip refined-mask connected components by model bubble mask: intersecting components keep only intersection; non-intersecting components are preserved."""
     prob: float | None = None
     """Minimum probability of a text region to be considered valid. If None, uses the model default."""
     merge_gamma: float = 0.8

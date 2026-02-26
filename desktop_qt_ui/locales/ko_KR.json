@@ -95,6 +95,7 @@
   "label_use_model_bubble_filter": "모델 기반 말풍선 필터 활성화",
   "label_model_bubble_overlap_threshold": "모델 말풍선 겹침 임계값",
   "label_use_model_bubble_repair_intersection": "말풍선 복원 범위 확대",
+  "label_limit_mask_dilation_to_bubble_mask": "팽창을 말풍선 마스크 내부로 제한",
   "label_prob": "텍스트 영역 최소 확률 (prob)",
   "label_merge_gamma": "병합-거리 허용 오차",
   "label_merge_sigma": "병합-이상값 허용 오차",

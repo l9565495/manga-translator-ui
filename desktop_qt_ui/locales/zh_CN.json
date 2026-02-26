@@ -83,6 +83,7 @@
   "label_use_model_bubble_filter": "启用模型气泡过滤",
   "label_model_bubble_overlap_threshold": "模型气泡重叠阈值",
   "label_use_model_bubble_repair_intersection": "扩大气泡修复范围",
+  "label_limit_mask_dilation_to_bubble_mask": "膨胀不超过气泡蒙版",
   "label_prob": "文本区域最低概率 (prob)",
   "label_merge_gamma": "合并-距离容忍度",
   "label_merge_sigma": "合并-离群容忍度",

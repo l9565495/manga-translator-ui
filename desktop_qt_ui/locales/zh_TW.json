@@ -200,6 +200,7 @@
   "label_use_model_bubble_filter": "啟用模型氣泡過濾",
   "label_model_bubble_overlap_threshold": "模型氣泡重疊閾值",
   "label_use_model_bubble_repair_intersection": "擴大氣泡修復範圍",
+  "label_limit_mask_dilation_to_bubble_mask": "膨脹不超過氣泡蒙版",
   "label_YOUDAO_APP_KEY": "有道翻譯套用ID",
   "label_merge_sigma": "合并-离群容忍度",
   "Modified Time ↑": "修改時間 ↑",
