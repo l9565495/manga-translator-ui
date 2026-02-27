@@ -985,7 +985,6 @@ class MainAppLogic(QObject):
                     "GEMINI_API_BASE": self._t("label_GEMINI_API_BASE"),
                     "SAKURA_API_BASE": self._t("label_SAKURA_API_BASE"),
                     "SAKURA_DICT_PATH": self._t("label_SAKURA_DICT_PATH"),
-                    "SAKURA_VERSION": self._t("label_SAKURA_VERSION"),
                     "CUSTOM_OPENAI_API_BASE": self._t("label_CUSTOM_OPENAI_API_BASE"),
                     "CUSTOM_OPENAI_MODEL": self._t("label_CUSTOM_OPENAI_MODEL"),
                     "CUSTOM_OPENAI_API_KEY": self._t("label_CUSTOM_OPENAI_API_KEY"),

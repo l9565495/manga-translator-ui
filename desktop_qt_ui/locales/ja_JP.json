@@ -190,7 +190,6 @@
   "label_GEMINI_API_BASE": "Gemini APIアドレス",
   "label_SAKURA_API_BASE": "SAKURA APIアドレス",
   "label_SAKURA_DICT_PATH": "SAKURA辞書パス",
-  "label_SAKURA_VERSION": "SAKURA APIバージョン",
   "label_CUSTOM_OPENAI_API_BASE": "カスタムOpenAI APIアドレス",
   "label_CUSTOM_OPENAI_MODEL": "カスタムOpenAIモデル",
   "label_CUSTOM_OPENAI_API_KEY": "カスタムOpenAI APIキー",

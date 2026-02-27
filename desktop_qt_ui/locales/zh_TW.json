@@ -107,7 +107,6 @@
   "Default Font": "預設字型",
   "label_mask_dilation_offset": "遮罩擴張位移",
   "Redo last undone operation": "重做上一個復原的操作",
-  "label_SAKURA_VERSION": "SAKURA API 版本",
   "lang_THA": "泰语",
   "log_config_saved": "設定已儲存: '{config_key}' = '{value}'",
   "Target Language:": "目標語言：",

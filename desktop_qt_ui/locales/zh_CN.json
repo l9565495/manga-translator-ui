@@ -203,7 +203,6 @@
   "label_GEMINI_API_BASE": "Gemini API 地址",
   "label_SAKURA_API_BASE": "SAKURA API 地址",
   "label_SAKURA_DICT_PATH": "SAKURA 词典路径",
-  "label_SAKURA_VERSION": "SAKURA API 版本",
   "label_CUSTOM_OPENAI_API_BASE": "自定义 OpenAI API 地址",
   "label_CUSTOM_OPENAI_MODEL": "自定义 OpenAI 模型",
   "label_CUSTOM_OPENAI_API_KEY": "自定义 OpenAI API 密钥",

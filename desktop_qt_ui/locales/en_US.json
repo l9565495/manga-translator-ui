@@ -203,7 +203,6 @@
   "label_GEMINI_API_BASE": "Gemini API Base",
   "label_SAKURA_API_BASE": "SAKURA API Base",
   "label_SAKURA_DICT_PATH": "SAKURA Dictionary Path",
-  "label_SAKURA_VERSION": "SAKURA API Version",
   "label_CUSTOM_OPENAI_API_BASE": "Custom OpenAI API Base",
   "label_CUSTOM_OPENAI_MODEL": "Custom OpenAI Model",
   "label_CUSTOM_OPENAI_API_KEY": "Custom OpenAI API Key",
