@@ -355,6 +355,9 @@ async def dispatch(textlines: List[Quadrilateral], width: int, height: int, conf
             if det_label in target_labels:
                 has_target_label = True
                 candidate_indices.append(i)
+            elif det_label == 'other':
+                # other 作为“完全包裹关系”的桥接框参与特殊分组
+                candidate_indices.append(i)
             elif det_label is None:
                 # 无标签与目标标签同级参与
                 candidate_indices.append(i)
@@ -381,7 +384,7 @@ async def dispatch(textlines: List[Quadrilateral], width: int, height: int, conf
             if not (labels_in_region & target_labels):
                 continue
 
-            # wrap-only 标签（如 other）仅用于包裹关系，不参与实际文本块几何合并
+            # other 仅用于包裹关系辅助，不参与实际文本块几何合并
             payload_txtlns = []
             for txtln in group_txtlns:
                 lbl = _get_det_label(txtln)
