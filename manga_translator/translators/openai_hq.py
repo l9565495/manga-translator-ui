@@ -2,7 +2,6 @@ import os
 import re
 import asyncio
 import base64
-import json
 import logging
 from io import BytesIO
 from typing import List, Dict, Any
@@ -393,35 +392,6 @@ This is an incorrect response because it includes extra text and explanations.
                 "type": "image_url",
                 "image_url": {"url": f"data:image/png;base64,{base64_img}"}
             })
-
-        # INFO级顺序诊断日志：确认发送前的编号与文本顺序
-        for img_idx, data in enumerate(batch_data):
-            text_order = data.get('text_order', []) or []
-            original_texts = data.get('original_texts', []) or []
-            if not original_texts:
-                continue
-            preview_pairs = []
-            preview_n = min(6, len(original_texts))
-            for i in range(preview_n):
-                disp_id = text_order[i] if i < len(text_order) else i + 1
-                preview_pairs.append(f"{disp_id}:{str(original_texts[i])[:18]}")
-            self.logger.info(
-                f"[HQ Input Order] image={img_idx + 1}, regions={len(original_texts)}, "
-                f"preview={preview_pairs}"
-            )
-        # INFO级完整发送文本（按id显示），用于排查“发送顺序”
-        send_items = []
-        for data in batch_data:
-            text_order = data.get('text_order', []) or []
-            original_texts = data.get('original_texts', []) or []
-            for i, text in enumerate(original_texts):
-                disp_id = text_order[i] if i < len(text_order) else i + 1
-                send_items.append((int(disp_id), str(text)))
-        if send_items:
-            send_items.sort(key=lambda x: x[0])
-            self.logger.info(f"[HQ Send Payload] total={len(send_items)}")
-            for sid, stext in send_items:
-                self.logger.info(f"[HQ Send Payload] id={sid} text={stext}")
         
         # 初始化重试信息
         retry_attempt = 0
@@ -481,34 +451,6 @@ This is an incorrect response because it includes extra text and explanations.
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
             ]
-            # INFO级完整发送消息日志（过滤图片base64）
-            sanitized_messages = []
-            for msg in messages:
-                role = msg.get("role")
-                content = msg.get("content")
-                if isinstance(content, list):
-                    sanitized_content = []
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "image_url":
-                            raw_url = ((part.get("image_url") or {}).get("url") or "")
-                            if isinstance(raw_url, str) and "base64," in raw_url:
-                                prefix, b64 = raw_url.split("base64,", 1)
-                                safe_url = f"{prefix}base64,[FILTERED:{len(b64)} chars]"
-                            else:
-                                safe_url = "[FILTERED_IMAGE_URL]"
-                            sanitized_content.append({
-                                "type": "image_url",
-                                "image_url": {"url": safe_url}
-                            })
-                        else:
-                            sanitized_content.append(part)
-                    sanitized_messages.append({"role": role, "content": sanitized_content})
-                else:
-                    sanitized_messages.append({"role": role, "content": content})
-            self.logger.info(
-                "[HQ Send Messages Full]\n%s",
-                json.dumps(sanitized_messages, ensure_ascii=False, indent=2)
-            )
 
             try:
                 # RPM限制
@@ -605,7 +547,6 @@ This is an incorrect response because it includes extra text and explanations.
                     result_text = sanitize_text_encoding(result_text)
                     
                     self.logger.debug(f"--- OpenAI Raw Response ---\n{result_text}\n---------------------------")
-                    self.logger.info(f"[HQ Raw Response Full]\n{result_text}")
                     
                     # ✅ 检测HTML错误响应（404等）- 抛出特定异常供统一错误处理
                     if result_text.startswith('<!DOCTYPE') or result_text.startswith('<html') or '<h1>404</h1>' in result_text:
@@ -626,41 +567,6 @@ This is an incorrect response because it includes extra text and explanations.
                     
                     # 解析翻译结果（支持提取翻译和术语）
                     translations, new_terms = parse_hq_response(result_text)
-
-                    # INFO级顺序诊断日志：检查原始返回中是否携带id，以及id顺序/完整性
-                    id_pattern = r'"id"\s*:\s*(\d+)\s*,\s*"translation"\s*:\s*"((?:\\.|[^"\\])*)"'
-                    id_matches = re.findall(id_pattern, result_text, flags=re.DOTALL)
-                    if id_matches:
-                        id_seq = [int(m[0]) for m in id_matches]
-                        id_count_map = {}
-                        for _id in id_seq:
-                            id_count_map[_id] = id_count_map.get(_id, 0) + 1
-                        duplicate_ids = sorted([k for k, v in id_count_map.items() if v > 1])
-                        unique_ids = sorted(set(id_seq))
-                        expected_ids = set(range(1, len(texts) + 1))
-                        missing_ids = sorted(expected_ids - set(unique_ids))
-                        extra_ids = sorted(set(unique_ids) - expected_ids)
-                        self.logger.info(
-                            f"[HQ Parse IDs] matches={len(id_matches)}, unique={len(unique_ids)}, "
-                            f"first_ids={id_seq[:12]}"
-                        )
-                        if missing_ids or extra_ids:
-                            self.logger.info(
-                                f"[HQ Parse IDs] id_set_mismatch missing={missing_ids[:20]} extra={extra_ids[:20]}"
-                            )
-                        if duplicate_ids:
-                            self.logger.info(f"[HQ Parse IDs] duplicate_ids={duplicate_ids[:20]}")
-                        else:
-                            self.logger.info("[HQ Parse IDs] id_set_ok (1..N complete)")
-                    else:
-                        self.logger.info(
-                            "[HQ Parse IDs] no explicit id-translation pairs found in raw response; "
-                            "fallback to positional parsing"
-                        )
-
-                    self.logger.info(
-                        f"[HQ Parse Result] parsed_translations={len(translations)}, expected={len(texts)}"
-                    )
                     
                     # 处理提取到的术语
                     if extract_glossary and new_terms:
