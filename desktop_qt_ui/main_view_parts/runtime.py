@@ -1,5 +1,19 @@
 from PyQt6.QtCore import QTimer
 
+from main_view_parts.theme import repolish_widget
+
+
+def _set_progress_state(self, state: str):
+    if hasattr(self, "progress_bar"):
+        self.progress_bar.setProperty("progressState", state)
+        repolish_widget(self.progress_bar)
+
+
+def _set_start_button_state(self, state: str):
+    if hasattr(self, "start_button"):
+        self.start_button.setProperty("translationState", state)
+        repolish_widget(self.start_button)
+
 
 def update_workflow_mode_description(self, index: int | None = None):
     """根据翻译流程模式更新翻译页标题下方的介绍文字。"""
@@ -52,43 +66,15 @@ def update_progress(self, current: int, total: int, message: str = ""):
         percentage = int((current / total) * 100) if total > 0 else 0
         self.progress_bar.setFormat(f"{current}/{total} ({percentage}%)")
 
-        if current > 0 and not getattr(self, "_progress_active", False):
+        if not getattr(self, "_progress_active", False):
             self._progress_active = True
-            self.progress_bar.setStyleSheet(
-                """
-                    QProgressBar {
-                        border: 1px solid rgba(64, 164, 255, 0.9);
-                        border-radius: 6px;
-                        text-align: center;
-                        background-color: rgba(12, 19, 30, 0.8);
-                        color: #D7ECFF;
-                    }
-                    QProgressBar::chunk {
-                        background-color: #2A9BFF;
-                        border-radius: 6px;
-                    }
-                """
-            )
+            _set_progress_state(self, "active")
     else:
         self._progress_active = False
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("0/0 (0%)")
-        self.progress_bar.setStyleSheet(
-            """
-                QProgressBar {
-                    border: 1px solid rgba(140, 164, 192, 0.28);
-                    border-radius: 6px;
-                    text-align: center;
-                    background-color: rgba(12, 19, 30, 0.8);
-                    color: #B8CBE0;
-                }
-                QProgressBar::chunk {
-                    background-color: rgba(137, 157, 182, 0.55);
-                    border-radius: 6px;
-                }
-            """
-        )
+        _set_progress_state(self, "idle")
 
 
 def reset_progress(self):
@@ -97,21 +83,7 @@ def reset_progress(self):
     self.progress_bar.setMaximum(100)
     self.progress_bar.setValue(0)
     self.progress_bar.setFormat("0/0 (0%)")
-    self.progress_bar.setStyleSheet(
-        """
-            QProgressBar {
-                border: 1px solid rgba(140, 164, 192, 0.28);
-                border-radius: 6px;
-                text-align: center;
-                background-color: rgba(12, 19, 30, 0.8);
-                color: #B8CBE0;
-            }
-            QProgressBar::chunk {
-                background-color: rgba(137, 157, 182, 0.55);
-                border-radius: 6px;
-            }
-        """
-    )
+    _set_progress_state(self, "idle")
 
 
 def on_translation_state_changed(self, is_translating: bool):
@@ -122,10 +94,7 @@ def on_translation_state_changed(self, is_translating: bool):
         QTimer.singleShot(2000, self._enable_stop_button)
     else:
         self.start_button.setEnabled(True)
-        self.start_button.setStyleSheet("")
-        self.start_button.style().unpolish(self.start_button)
-        self.start_button.style().polish(self.start_button)
-        self.start_button.update()
+        _set_start_button_state(self, "ready")
 
         try:
             self.start_button.clicked.disconnect()
@@ -140,7 +109,7 @@ def enable_stop_button(self):
     if self.controller.state_manager.is_translating():
         self.start_button.setEnabled(True)
         self.start_button.setText(self._t("Stop Translation"))
-        self.start_button.setStyleSheet("background-color: #C53929; color: white;")
+        _set_start_button_state(self, "stop")
         try:
             self.start_button.clicked.disconnect()
         except TypeError:
@@ -152,7 +121,7 @@ def set_stopping_state(self):
     """设置按钮为“停止中...”状态，避免重复点击。"""
     self.start_button.setEnabled(False)
     self.start_button.setText(self._t("Stopping..."))
-    self.start_button.setStyleSheet("background-color: #888888; color: white;")
+    _set_start_button_state(self, "stopping")
     try:
         self.start_button.clicked.disconnect()
     except TypeError:

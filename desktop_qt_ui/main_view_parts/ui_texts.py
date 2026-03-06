@@ -107,6 +107,14 @@ def refresh_ui_texts(self):
         self.settings_page_title.setText(self._t("Settings Page Title"))
     if hasattr(self, "settings_page_subtitle"):
         self.settings_page_subtitle.setText(self._t("Settings Page Subtitle"))
+    if hasattr(self, "settings_desc_header_label"):
+        self.settings_desc_header_label.setText(self._t("Settings Desc Header"))
+    if hasattr(self, "settings_desc_name"):
+        self.settings_desc_name.setText("")
+    if hasattr(self, "settings_desc_key"):
+        self.settings_desc_key.setText("")
+    if hasattr(self, "settings_desc_text"):
+        self.settings_desc_text.setText(self._t("Settings Desc Placeholder"))
 
 
 
@@ -135,6 +143,10 @@ def refresh_ui_texts(self):
         self.prompt_open_dir_button.setText(self._t("Open Directory"))
     if hasattr(self, "prompt_apply_button"):
         self.prompt_apply_button.setText(self._t("Apply Selected Prompt"))
+    if hasattr(self, "prompt_new_button"):
+        self.prompt_new_button.setText(self._t("New"))
+    if hasattr(self, "prompt_delete_button"):
+        self.prompt_delete_button.setText(self._t("Delete"))
 
     if hasattr(self, "font_page_title_label"):
         self.font_page_title_label.setText(self._t("Font Management"))

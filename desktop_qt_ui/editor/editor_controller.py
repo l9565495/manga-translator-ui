@@ -12,6 +12,7 @@ from PIL import Image
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 
 from editor.commands import MaskEditCommand, UpdateRegionCommand
+from manga_translator.utils import open_pil_image
 from services import (
     get_async_service,
     get_config_service,
@@ -591,7 +592,7 @@ class EditorController(QObject):
                     inpainted_image = None
                     if inpainted_path:
                         try:
-                            inpainted_image = Image.open(inpainted_path)
+                            inpainted_image = open_pil_image(inpainted_path, eager=False)
                             if inpainted_image.size != image.size:
                                 inpainted_image = inpainted_image.resize(image.size, Image.Resampling.LANCZOS)
                         except Exception as e:
@@ -820,7 +821,7 @@ class EditorController(QObject):
             if inpainted_path and os.path.exists(inpainted_path):
                 # 已有inpainted图片，直接加载
                 try:
-                    inpainted_image = Image.open(inpainted_path)
+                    inpainted_image = open_pil_image(inpainted_path, eager=False)
                     # 获取原图尺寸
                     original_image = self.model.get_image()
                     # 如果inpainted图尺寸与原图不同，缩放到原图尺寸

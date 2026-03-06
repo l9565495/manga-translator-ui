@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from PIL import Image
 
+from manga_translator.utils import open_pil_image
 from utils.json_encoder import CustomJSONEncoder
 
 # 全局输出目录存储
@@ -645,7 +646,7 @@ class ExportService:
                 progress_callback("加载图片和配置...")
 
             # 加载图片
-            image = Image.open(image_path)
+            image = open_pil_image(image_path, eager=False)
             image.name = image_path  # 确保图片名称正确，用于load_text模式查找翻译文件
 
             # 创建配置对象

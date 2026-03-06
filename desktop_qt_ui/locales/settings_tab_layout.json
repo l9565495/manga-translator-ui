@@ -5,7 +5,7 @@
   "tabs": [
     {
       "id": "tab_custom_1",
-      "title": "通用",
+      "title": "General",
       "marked": false,
       "items": [
         "app.ui_language",
@@ -30,12 +30,12 @@
     },
     {
       "id": "tab_custom_5",
-      "title": "识别",
+      "title": "Recognition",
       "marked": false,
       "items": [
         {
           "kind": "divider",
-          "title": "ocr"
+          "title": "OCR"
         },
         "ocr.ocr",
         "ocr.use_hybrid_ocr",
@@ -50,7 +50,7 @@
         "filter_text_enabled",
         {
           "kind": "divider",
-          "title": "高级"
+          "title": "Advanced"
         },
         "ocr.prob",
         "ocr.merge_gamma",
@@ -58,14 +58,14 @@
         "ocr.merge_edge_ratio_threshold",
         {
           "kind": "divider",
-          "title": "检测"
+          "title": "Detection"
         },
         "detector.detector",
         "detector.use_yolo_obb",
         "detector.min_box_area_ratio",
         {
           "kind": "divider",
-          "title": "高级"
+          "title": "Advanced"
         },
         "detector.detection_size",
         "detector.text_threshold",
@@ -77,7 +77,7 @@
     },
     {
       "id": "tab_custom_2",
-      "title": "翻译",
+      "title": "Translation",
       "marked": false,
       "items": [
         "translator.translator",
@@ -92,7 +92,7 @@
     },
     {
       "id": "tab_custom_3",
-      "title": "修复",
+      "title": "Inpainting",
       "marked": false,
       "items": [
         "inpainter.inpainter",
@@ -101,7 +101,7 @@
         "ocr.use_model_bubble_repair_intersection",
         {
           "kind": "divider",
-          "title": "高级"
+          "title": "Advanced"
         },
         "inpainter.inpainting_size",
         "inpainter.inpainting_precision",
@@ -111,7 +111,7 @@
     },
     {
       "id": "tab_custom_4",
-      "title": "排版",
+      "title": "Typesetting",
       "marked": false,
       "items": [
         "render.renderer",
@@ -141,18 +141,18 @@
     },
     {
       "id": "tab_custom_6",
-      "title": "模式相关",
+      "title": "Mode Specific",
       "marked": false,
       "items": [
         {
           "kind": "divider",
-          "title": "替换翻译"
+          "title": "Replace Translation"
         },
         "render.enable_template_alignment",
         "render.paste_mask_dilation_pixels",
         {
           "kind": "divider",
-          "title": "超分"
+          "title": "Upscaling"
         },
         "upscale.upscaler",
         "upscale.upscale_ratio",
@@ -160,7 +160,7 @@
         "upscale.revert_upscaling",
         {
           "kind": "divider",
-          "title": "上色"
+          "title": "Colorization"
         },
         "colorizer.colorizer",
         "colorizer.colorization_size",

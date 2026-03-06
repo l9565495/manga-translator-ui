@@ -5,9 +5,11 @@ Toast通知组件
 import os
 import subprocess
 import platform
-from PyQt6.QtWidgets import QLabel, QGraphicsOpacityEffect
+from PyQt6.QtWidgets import QLabel, QGraphicsDropShadowEffect
 from PyQt6.QtCore import QTimer, Qt, QPropertyAnimation, QEasingCurve, pyqtSignal
-from PyQt6.QtGui import QPalette, QColor, QFont, QCursor
+from PyQt6.QtGui import QColor, QCursor, QFont
+
+from main_view_parts.theme import get_current_theme, get_current_theme_colors
 
 
 class ToastNotification(QLabel):
@@ -20,35 +22,31 @@ class ToastNotification(QLabel):
         self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         # 不使用WA_TranslucentBackground，保持背景可见
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setObjectName("toast_notification")
         
-        # 灰色样式
-        self.setStyleSheet("""
-            QLabel {
-                background-color: #505050;
-                color: #FFFFFF;
-                border: 1px solid #787878;
-                border-radius: 10px;
-                padding: 8px 20px;
-                font-size: 13px;
-                line-height: 1.4;
-            }
-        """)
+        self._apply_style(success=True, clickable=False)
         self.setAutoFillBackground(True)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setWordWrap(True)
         self.setMaximumWidth(800)
+        self.setMargin(0)
         
         # 设置字体
         font = QFont()
         font.setPointSize(10)
+        font.setWeight(QFont.Weight.DemiBold)
         self.setFont(font)
         
-        # 透明度效果
-        self.opacity_effect = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self.opacity_effect)
+        # 阴影和透明度效果链
+        self.shadow_effect = QGraphicsDropShadowEffect(self)
+        self.shadow_effect.setBlurRadius(28)
+        self.shadow_effect.setOffset(0, 8)
+        self.shadow_effect.setColor(QColor(0, 0, 0, 85))
+        self.setGraphicsEffect(self.shadow_effect)
         
         # 动画
-        self.fade_animation = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.fade_animation = QPropertyAnimation(self, b"windowOpacity")
         self.fade_animation.setDuration(300)
         self.fade_animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
         
@@ -59,6 +57,43 @@ class ToastNotification(QLabel):
         # 附加数据（如文件路径）
         self._extra_data = None
         self._clickable = False
+
+    def _apply_style(self, success: bool, clickable: bool):
+        c = get_current_theme_colors()
+        is_light = get_current_theme() == "light"
+        if success:
+            background = c["bg_surface_raised"]
+            border = c["border_card"]
+            text = c["text_accent"]
+            accent = c["cta_gradient_start"] if clickable else c["success_color"]
+        else:
+            background = "#FFF5F4" if is_light else c["bg_surface_raised"]
+            border = c["danger_border"]
+            text = "#8A2621" if is_light else c["danger_text"]
+            accent = c["danger_bg"]
+
+        self.setStyleSheet(f"""
+            QLabel#toast_notification {{
+                background-color: {background};
+                color: {text};
+                border: 1px solid {border};
+                border-left: 4px solid {accent};
+                border-radius: 12px;
+                padding: 10px 20px 10px 16px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QLabel#toast_notification[clickable="true"] {{
+                border-color: {accent};
+                color: {text};
+            }}
+            QLabel#toast_notification[clickable="true"]:hover {{
+                background-color: {c["bg_panel"]};
+            }}
+            QLabel#toast_notification[clickable="false"] {{
+                color: {text};
+            }}
+        """)
     
     def show_toast(self, message, duration=3000, success=True, clickable_path=None):
         """
@@ -70,49 +105,24 @@ class ToastNotification(QLabel):
             success: 是否为成功消息（影响颜色）
             clickable_path: 可点击的路径（如果提供，Toast可点击打开文件夹）
         """
-        self.setText(message)
-        self.adjustSize()
-        
-        # 灰色样式，去掉min-width让它自适应文字
-        if success:
-            self.setStyleSheet("""
-                QLabel {
-                    background-color: #505050;
-                    color: #FFFFFF;
-                    border: 1px solid #787878;
-                    border-radius: 10px;
-                    padding: 8px 20px;
-                    font-size: 13px;
-                    line-height: 1.4;
-                }
-            """)
-        else:
-            # 错误时使用深红灰色
-            self.setStyleSheet("""
-                QLabel {
-                    background-color: #644646;
-                    color: #FFFFFF;
-                    border: 1px solid #8B5A5A;
-                    border-radius: 10px;
-                    padding: 8px 20px;
-                    font-size: 13px;
-                    line-height: 1.4;
-                }
-            """)
+        # 设置可点击
+        self._clickable = clickable_path is not None
+        self._extra_data = clickable_path
+        self.setProperty("clickable", self._clickable)
+        self._apply_style(success, self._clickable)
         self.setAutoFillBackground(True)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setWordWrap(True)
         self.setMaximumWidth(800)
-        
-        # 设置可点击
-        self._clickable = clickable_path is not None
-        self._extra_data = clickable_path
+
+        display_message = message
         if self._clickable:
             self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             # 可点击时添加完整提示
-            self.setText(message + "\n(点击打开所在文件夹)")
+            display_message = message + "\n点击打开所在文件夹"
         else:
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.setText(display_message)
         
         # 调整大小后重新计算尺寸
         self.adjustSize()
@@ -147,7 +157,7 @@ class ToastNotification(QLabel):
     
     def fade_in(self):
         """淡入动画"""
-        self.opacity_effect.setOpacity(0)
+        self.setWindowOpacity(0.0)
         self.show()
         self.fade_animation.setStartValue(0)
         self.fade_animation.setEndValue(1)
@@ -157,7 +167,7 @@ class ToastNotification(QLabel):
         """淡出动画"""
         self.auto_close_timer.stop()
         self.fade_animation.stop()  # 停止可能正在进行的动画
-        self.fade_animation.setStartValue(self.opacity_effect.opacity())
+        self.fade_animation.setStartValue(self.windowOpacity())
         self.fade_animation.setEndValue(0)
         # 断开之前的连接，避免重复连接
         try:
@@ -243,4 +253,3 @@ class ToastManager:
             if toast.isVisible():
                 toast.fade_out()
         self.active_toasts.clear()
-

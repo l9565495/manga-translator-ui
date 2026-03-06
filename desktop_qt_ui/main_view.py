@@ -13,6 +13,7 @@ from main_view_parts import env_management as main_view_env
 from main_view_parts import runtime as main_view_runtime
 from main_view_parts import style as main_view_style
 from main_view_parts import ui_texts as main_view_texts
+from main_view_parts.theme import get_current_theme
 
 
 class MainView(QWidget):
@@ -78,8 +79,13 @@ class MainView(QWidget):
             return self.i18n.translate(key, **kwargs)
         return key
 
-    def _apply_reference_ui_style(self):
-        main_view_style.apply_reference_ui_style(self)
+    def _apply_reference_ui_style(self, theme: str | None = None):
+        theme = theme or get_current_theme()
+        main_view_style.apply_reference_ui_style(self, theme)
+        if hasattr(self, "prompt_preview_panel") and self.prompt_preview_panel:
+            self.prompt_preview_panel.apply_theme()
+        if hasattr(self, "_refresh_font_preview_styles"):
+            self._refresh_font_preview_styles()
 
     def _open_filter_list(self):
         main_view_dynamic._open_filter_list(self)
@@ -110,9 +116,9 @@ class MainView(QWidget):
         if hasattr(self, 'settings_desc_name'):
             self.settings_desc_name.setText(name)
         if hasattr(self, 'settings_desc_key'):
-            self.settings_desc_key.setText(f"配置键: {key}")
+            self.settings_desc_key.setText(self._t("Settings Desc Key", config_key=key))
         if hasattr(self, 'settings_desc_text'):
-            self.settings_desc_text.setText(description or "暂无描述信息。")
+            self.settings_desc_text.setText(description or self._t("Settings Desc No Description"))
     def _create_left_sidebar(self) -> QWidget:
         return main_view_layout.create_left_sidebar(self)
 
@@ -176,11 +182,29 @@ class MainView(QWidget):
     def _apply_selected_prompt(self):
         main_view_layout.apply_selected_prompt(self)
 
+    def _on_prompt_selection_changed(self, current, previous):
+        main_view_layout.on_prompt_selection_changed(self, current, previous)
+
+    def _open_prompt_editor(self, file_path: str):
+        main_view_layout.open_prompt_editor(self, file_path)
+
+    def _create_new_prompt(self):
+        main_view_layout.create_new_prompt(self)
+
+    def _delete_selected_prompt(self):
+        main_view_layout.delete_selected_prompt(self)
+
     def _refresh_font_manager(self):
         main_view_layout.refresh_font_manager(self)
 
     def _apply_selected_font(self):
         main_view_layout.apply_selected_font(self)
+
+    def _on_font_selection_changed(self, current, previous):
+        main_view_layout._on_font_selection_changed(self, current, previous)
+
+    def _refresh_font_preview_styles(self):
+        main_view_layout.refresh_font_preview_styles(self)
 
 
 
@@ -265,6 +289,3 @@ class MainView(QWidget):
 
     def update_start_button_text(self):
         main_view_runtime.update_start_button_text(self)
-
-
-

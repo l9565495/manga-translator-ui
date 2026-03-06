@@ -3,7 +3,7 @@ from typing import List, Callable, Tuple, Optional
 import numpy as np
 import cv2
 import functools
-from PIL import Image
+from PIL import Image, ImageOps
 import tqdm
 
 # 解除 PIL 图片大小限制（防止 DecompressionBombWarning）
@@ -35,6 +35,7 @@ except AttributeError: # Supports Python versions below 3.8
     functools.cached_property = cached_property
 
 MODULE_PATH = os.path.dirname(os.path.realpath(__file__))
+EXIF_ORIENTATION_TAG = 274
 
 # PyInstaller compatibility: use sys._MEIPASS if available
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
@@ -219,6 +220,61 @@ def get_image_md5(image) -> str:
         import time
         return f"fallback_{int(time.time() * 1000)}"
 
+def _preserve_runtime_image_attrs(src: Image.Image, dst: Image.Image) -> Image.Image:
+    for attr in ('name', 'filename', 'format'):
+        try:
+            value = getattr(src, attr, None)
+            if value is not None:
+                setattr(dst, attr, value)
+        except Exception:
+            pass
+    try:
+        if getattr(dst, 'name', None) is None and getattr(dst, 'filename', None):
+            dst.name = dst.filename
+    except Exception:
+        pass
+    return dst
+
+def normalize_pil_image(img: Image.Image, eager: bool = False, apply_exif: bool = True) -> Image.Image:
+    """
+    统一处理 PIL Image 的方向信息，并按需立即加载像素数据。
+    """
+    if apply_exif:
+        try:
+            orientation = int(img.getexif().get(EXIF_ORIENTATION_TAG, 1) or 1)
+        except Exception:
+            orientation = 1
+        if orientation != 1:
+            normalized = ImageOps.exif_transpose(img)
+            normalized = _preserve_runtime_image_attrs(img, normalized)
+            if eager:
+                normalized.load()
+            return normalized
+    if eager:
+        img.load()
+    return img
+
+def open_pil_image(source, eager: bool = False, apply_exif: bool = True) -> Image.Image:
+    """
+    统一打开图片入口。
+
+    eager=True: 立即解码，适合文件句柄会马上关闭的场景。
+    eager=False: 尽量懒加载，只在需要 EXIF 方向修正时提前解码。
+    """
+    image = Image.open(source)
+    try:
+        if getattr(image, 'name', None) is None and getattr(image, 'filename', None):
+            image.name = image.filename
+    except Exception:
+        pass
+    normalized = normalize_pil_image(image, eager=eager, apply_exif=apply_exif)
+    if normalized is not image:
+        try:
+            image.close()
+        except Exception:
+            pass
+    return normalized
+
 def get_filename_from_url(url: str, default: str = '') -> str:
     m = re.search(r'/([^/?]+)[^/]*$', url)
     if m:
@@ -358,6 +414,7 @@ def load_image(img: Image.Image) -> Tuple[np.ndarray, Optional[Image.Image]]:
     Returns:
         Tuple[np.ndarray, Optional[Image.Image]]: RGB 数组和 alpha 通道
     """
+    img = normalize_pil_image(img, eager=False)
     if img.mode == 'RGBA':
         # from https://stackoverflow.com/questions/9166400/convert-rgba-png-to-rgb-with-pil
         img.load()  # needed for split()
@@ -376,6 +433,7 @@ def load_image(img: Image.Image) -> Tuple[np.ndarray, Optional[Image.Image]]:
         return np.array(img.convert('RGB')), None
 
 def dump_image(img_pil: Image.Image, img: np.ndarray, alpha_ch: Image.Image = None):
+    img_pil = normalize_pil_image(img_pil, eager=False)
     # 用于 paste 的 mask，可能需要调整尺寸
     mask_for_paste = alpha_ch
     

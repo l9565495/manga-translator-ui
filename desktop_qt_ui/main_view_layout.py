@@ -1,6 +1,11 @@
 from main_view_parts.layout import (
+    _on_font_selection_changed,
     apply_selected_font,
     apply_selected_prompt,
+    create_new_prompt,
+    delete_selected_prompt,
+    on_prompt_selection_changed,
+    open_prompt_editor,
     create_env_page,
     create_font_page,
     create_left_sidebar,
@@ -18,6 +23,7 @@ from main_view_parts.layout import (
     on_theme_combo_changed,
     populate_language_combo,
     populate_theme_combo,
+    refresh_font_preview_styles,
     refresh_font_manager,
     refresh_prompt_manager,
     switch_content_page,
@@ -25,8 +31,13 @@ from main_view_parts.layout import (
 )
 
 __all__ = [
+    "_on_font_selection_changed",
     "apply_selected_font",
     "apply_selected_prompt",
+    "create_new_prompt",
+    "delete_selected_prompt",
+    "on_prompt_selection_changed",
+    "open_prompt_editor",
     "create_env_page",
     "create_font_page",
     "create_left_sidebar",
@@ -44,6 +55,7 @@ __all__ = [
     "on_theme_combo_changed",
     "populate_language_combo",
     "populate_theme_combo",
+    "refresh_font_preview_styles",
     "refresh_font_manager",
     "refresh_prompt_manager",
     "switch_content_page",

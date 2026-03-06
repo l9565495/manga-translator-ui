@@ -3,6 +3,8 @@ from PyQt6.QtGui import QBrush, QColor, QPen
 from PyQt6.QtWidgets import QGraphicsRectItem
 from PyQt6.QtCore import Qt
 
+from main_view_parts.theme import get_current_theme_colors
+
 
 class SelectionManager(QObject):
     """
@@ -78,10 +80,15 @@ class SelectionManager(QObject):
                 self._box_select_rect_item = None
 
         if need_create:
-            pen = QPen(QColor(0, 120, 215, 180))  # 蓝色半透明
+            colors = get_current_theme_colors()
+            accent = QColor(colors["cta_gradient_start"])
+            fill = QColor(colors["cta_gradient_start"])
+            accent.setAlpha(190)
+            fill.setAlpha(36)
+            pen = QPen(accent)
             pen.setWidth(2)
             pen.setStyle(Qt.PenStyle.DashLine)
-            brush = QBrush(QColor(0, 120, 215, 30))  # 浅蓝色填充
+            brush = QBrush(fill)
             self._box_select_rect_item = self._scene.addRect(0, 0, 0, 0, pen, brush)
             self._box_select_rect_item.setZValue(300)
 

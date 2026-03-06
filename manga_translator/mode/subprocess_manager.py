@@ -74,8 +74,7 @@ def worker_translate_batch(
         sys.path.insert(0, str(ROOT_DIR / 'desktop_qt_ui'))
         
         from manga_translator import MangaTranslator, Config
-        from manga_translator.utils import init_logging, set_log_level, get_logger
-        from PIL import Image
+        from manga_translator.utils import init_logging, set_log_level, get_logger, open_pil_image
         import logging
         import gc
         
@@ -138,8 +137,7 @@ def worker_translate_batch(
             
             try:
                 with open(file_path, 'rb') as f:
-                    image = Image.open(f)
-                    image.load()
+                    image = open_pil_image(f, eager=True)
                 image.name = file_path
                 
                 contexts = await translator.translate_batch(

@@ -2691,7 +2691,7 @@ class TranslationWorker(QObject):
                 UpscaleConfig,
             )
             from manga_translator.manga_translator import MangaTranslator
-            from PIL import Image
+            from manga_translator.utils import open_pil_image
 
             self.log_received.emit("--- 正在初始化翻译器...")
             translator_params = self.config_dict.get('cli', {})
@@ -3015,8 +3015,7 @@ class TranslationWorker(QObject):
                             try:
                                 # 使用二进制模式读取以避免Windows路径编码问题
                                 with open(file_path, 'rb') as f:
-                                    image = Image.open(f)
-                                    image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
+                                    image = open_pil_image(f, eager=True)
                                 image.name = file_path
                                 images_with_configs.append((image, config))
                             except Exception as e:
@@ -3120,8 +3119,7 @@ class TranslationWorker(QObject):
                     try:
                         # 使用二进制模式读取以避免Windows路径编码问题
                         with open(file_path, 'rb') as f:
-                            image = Image.open(f)
-                            image.load()  # 立即加载图片数据，避免文件句柄关闭后无法访问
+                            image = open_pil_image(f, eager=True)
                         image.name = file_path
 
                         ctx = await translator.translate(image, config, image_name=image.name, save_info=save_info)

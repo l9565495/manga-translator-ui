@@ -21,6 +21,7 @@ from .utils import (
     LANGUAGE_ORIENTATION_PRESETS,
     ModelWrapper,
     Context,
+    open_pil_image,
     load_image,
     dump_image,
     visualize_textblocks,
@@ -2882,8 +2883,7 @@ class MangaTranslator:
                     try:
                         # 加载图片
                         with open(file_path, 'rb') as f:
-                            image = PILImage.open(f)
-                            image.load()  # 立即加载图片数据
+                            image = open_pil_image(f, eager=True)
                         image.name = file_path  # 保存文件路径
                         loaded_images_with_configs.append((image, config))
                     except Exception as e:
@@ -3468,6 +3468,12 @@ class MangaTranslator:
                 # 降级：为每个textline创建一个简单的TextBlock
                 logger.warning("Falling back to simple text_regions (1 textline = 1 region)")
                 ctx.text_regions = []
+                fallback_line_spacing = 1.0
+                if hasattr(config, 'render'):
+                    line_spacing_val = getattr(config.render, 'line_spacing', None)
+                    if line_spacing_val is not None:
+                        fallback_line_spacing = float(line_spacing_val)
+
                 for textline in ctx.textlines:
                     region = TextBlock(
                         lines=[textline.pts],
@@ -3476,7 +3482,8 @@ class MangaTranslator:
                         angle=0,
                         prob=textline.prob if hasattr(textline, 'prob') else 1.0,
                         fg_color=(0, 0, 0),
-                        bg_color=(255, 255, 255)
+                        bg_color=(255, 255, 255),
+                        line_spacing=fallback_line_spacing
                     )
                     ctx.text_regions.append(region)
                 logger.info(f"Created {len(ctx.text_regions)} simple text_regions")

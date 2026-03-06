@@ -1,11 +1,11 @@
 
-from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QRect
+from PyQt6.QtCore import pyqtSignal, QTimer, Qt, QRect, QEvent
 from PyQt6.QtGui import QColor, QPixmap, QPainter, QIcon, QAction, QPen, QFont, QCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QColorDialog,
+    QFrame,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QToolButton,
     QMenu,
@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 import logging
+from main_view_parts.theme import _to_qcolor, get_current_theme_colors
 
 logger = logging.getLogger('manga_translator')
 
@@ -182,12 +183,74 @@ class ScreenColorPicker(QWidget):
             self.close()
 
 
+class _DialogColorGridOverlay(QWidget):
+    """Overlay grid lines on top of QColorDialog well arrays for better swatch contrast."""
+
+    def __init__(self, host: QWidget, rows: int, cols: int = 8):
+        super().__init__(host)
+        self._rows = max(1, rows)
+        self._cols = max(1, cols)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        host.installEventFilter(self)
+        self._sync_geometry()
+        self.show()
+        self.raise_()
+
+    def _sync_geometry(self):
+        host = self.parentWidget()
+        if host is None:
+            return
+        self.setGeometry(host.rect())
+        self.raise_()
+
+    def eventFilter(self, obj, event):
+        if obj is self.parentWidget() and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+            QEvent.Type.Move,
+        ):
+            self._sync_geometry()
+        return super().eventFilter(obj, event)
+
+    def paintEvent(self, _event):
+        c = get_current_theme_colors()
+        outer_pen = QPen(_to_qcolor(c["border_input_hover"]))
+        outer_pen.setCosmetic(True)
+        outer_pen.setWidth(1)
+
+        inner_pen = QPen(_to_qcolor(c["border_input"]))
+        inner_pen.setCosmetic(True)
+        inner_pen.setWidth(1)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+
+        painter.setPen(outer_pen)
+        painter.drawRect(rect)
+
+        cell_width = rect.width() / float(self._cols)
+        cell_height = rect.height() / float(self._rows)
+
+        painter.setPen(inner_pen)
+        for col in range(1, self._cols):
+            x = round(rect.left() + col * cell_width)
+            painter.drawLine(x, rect.top() + 1, x, rect.bottom() - 1)
+        for row in range(1, self._rows):
+            y = round(rect.top() + row * cell_height)
+            painter.drawLine(rect.left() + 1, y, rect.right() - 1, y)
+
+        painter.end()
+
+
 # ═══════════════════════════════════════════════════════════════
 #  ColorPickerWidget
 # ═══════════════════════════════════════════════════════════════
 
 class ColorPickerWidget(QWidget):
-    """可复用的颜色选择器组件，包含颜色按钮、RGB标签、复制/粘贴、常用颜色菜单。"""
+    """可复用的颜色选择器组件，包含颜色按钮和常用颜色菜单。"""
 
     color_changed = pyqtSignal(str)  # 颜色变化时发出 hex 颜色值
 
@@ -198,6 +261,8 @@ class ColorPickerWidget(QWidget):
                  config_key="saved_colors", config_service=None, i18n_func=None,
                  parent=None):
         super().__init__(parent)
+        self.setObjectName("color_picker_root")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._dialog_title = dialog_title
         self._default_color = default_color
         self._current_color = default_color
@@ -214,56 +279,40 @@ class ColorPickerWidget(QWidget):
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setSpacing(3)
 
         # 主颜色按钮
         self.color_button = QPushButton()
-        self.color_button.setMinimumWidth(60)
+        self.color_button.setObjectName("color_picker_swatch")
+        self.color_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.color_button.setFixedWidth(42)
         self.color_button.setToolTip(self._t("Click to select color"))
-        self.color_button.setStyleSheet(f"background-color: {self._current_color};")
-        layout.addWidget(self.color_button, 2)
-
-        # RGB 显示标签
-        self.rgb_label = QLabel("RGB: -")
-        self.rgb_label.setStyleSheet("font-size: 10px;")
-        self.rgb_label.setMinimumWidth(80)
-        layout.addWidget(self.rgb_label, 1)
-
-        # 复制按钮
-        self.copy_button = QPushButton(self._t("Copy"))
-        self.copy_button.setToolTip(self._t("Copy current color"))
-        self.copy_button.setMaximumWidth(50)
-        layout.addWidget(self.copy_button)
-
-        # 粘贴按钮
-        self.paste_button = QPushButton(self._t("Paste"))
-        self.paste_button.setToolTip(self._t("Paste copied color"))
-        self.paste_button.setMaximumWidth(50)
-        self.paste_button.setEnabled(ColorPickerWidget._color_clipboard is not None)
-        layout.addWidget(self.paste_button)
+        layout.addWidget(self.color_button, 0)
 
         # ★ 常用颜色按钮
         self.saved_colors_button = QToolButton()
+        self.saved_colors_button.setObjectName("color_picker_saved_button")
         self.saved_colors_button.setText("★")
         self.saved_colors_button.setToolTip(self._t("Saved colors menu"))
-        self.saved_colors_button.setMaximumWidth(30)
+        self.saved_colors_button.setFixedWidth(28)
         self.saved_colors_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        layout.addWidget(self.saved_colors_button)
+        layout.addWidget(self.saved_colors_button, 0)
 
+        self._apply_component_theme()
+        self._update_color_tooltips(self._current_color)
         self._rebuild_saved_colors_menu()
 
     def _connect_signals(self):
         self.color_button.clicked.connect(self._on_color_clicked)
-        self.copy_button.clicked.connect(self._on_copy)
-        self.paste_button.clicked.connect(self._on_paste)
 
     # ── Public API ────────────────────────────────────────────────
 
     def set_color(self, hex_color: str):
         """设置当前颜色（更新按钮样式和 RGB 标签），不发射信号。"""
         self._current_color = hex_color
-        self.color_button.setStyleSheet(f"background-color: {hex_color};")
-        self._update_rgb_label(hex_color)
+        self._apply_component_theme()
+        self._update_color_tooltips(hex_color)
 
     def get_color(self) -> str:
         """获取当前颜色 hex 值。"""
@@ -276,13 +325,60 @@ class ColorPickerWidget(QWidget):
 
     def refresh_ui_texts(self):
         """语言切换时刷新按钮文本。"""
-        self.color_button.setToolTip(self._t("Click to select color"))
-        self.copy_button.setText(self._t("Copy"))
-        self.copy_button.setToolTip(self._t("Copy current color"))
-        self.paste_button.setText(self._t("Paste"))
-        self.paste_button.setToolTip(self._t("Paste copied color"))
-        self.saved_colors_button.setToolTip(self._t("Saved colors menu"))
+        self.refresh_theme()
+
+    def refresh_theme(self):
+        """主题切换时刷新组件自身和常用颜色菜单样式。"""
+        self._apply_component_theme()
+        self._update_color_tooltips(self._current_color)
         self._rebuild_saved_colors_menu()
+
+    def _apply_component_theme(self):
+        c = get_current_theme_colors()
+        self.setStyleSheet(
+            f"""
+            QWidget#color_picker_root {{
+                background: {c["bg_input"]};
+                border: 1px solid {c["border_input"]};
+                border-radius: 10px;
+            }}
+            QPushButton#color_picker_swatch {{
+                background: {self._current_color};
+                border: 1px solid {c["border_subtle"]};
+                border-radius: 8px;
+                padding: 0px;
+                min-height: 30px;
+            }}
+            QPushButton#color_picker_swatch:hover {{
+                border-color: {c["border_input_hover"]};
+            }}
+            QPushButton#color_picker_swatch:pressed {{
+                border-color: {c["border_input_focus"]};
+            }}
+            QToolButton#color_picker_saved_button {{
+                background: {c["btn_soft_bg"]};
+                border: 1px solid {c["btn_soft_border"]};
+                border-radius: 8px;
+                color: {c["btn_soft_text"]};
+                padding: 0px;
+                min-height: 28px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QToolButton#color_picker_saved_button:hover {{
+                background: {c["btn_soft_hover"]};
+                border-color: {c["border_input_hover"]};
+            }}
+            QToolButton#color_picker_saved_button:pressed {{
+                background: {c["btn_soft_pressed"]};
+                border-color: {c["btn_soft_checked_border"]};
+            }}
+            QToolButton#color_picker_saved_button::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
+            """
+        )
 
     # ── 颜色对话框 ───────────────────────────────────────────────
 
@@ -291,7 +387,11 @@ class ColorPickerWidget(QWidget):
 
         dialog = QColorDialog(current, self)
         dialog.setWindowTitle(self._t(self._dialog_title))
+        dialog.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, True)
         dialog.setOption(QColorDialog.ColorDialogOption.ShowAlphaChannel, False)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        dialog.setStyleSheet(self._dialog_stylesheet())
+        QTimer.singleShot(0, lambda d=dialog: self._style_dialog_private_widgets(d))
 
         # 将保存的常用颜色加载到对话框的自定义颜色槽
         for i, color_hex in enumerate(self._saved_colors[:16]):
@@ -359,12 +459,8 @@ class ColorPickerWidget(QWidget):
     def _on_copy(self):
         if self._current_color:
             ColorPickerWidget._color_clipboard = self._current_color
-            # 启用所有实例的粘贴按钮
             for widget in self._all_instances():
-                widget.paste_button.setEnabled(True)
-            # 视觉反馈
-            self.copy_button.setStyleSheet("background-color: #90EE90;")
-            QTimer.singleShot(200, lambda: self.copy_button.setStyleSheet(""))
+                widget._rebuild_saved_colors_menu()
 
     def _on_paste(self):
         if ColorPickerWidget._color_clipboard:
@@ -379,17 +475,44 @@ class ColorPickerWidget(QWidget):
 
     # ── RGB 标签 ──────────────────────────────────────────────────
 
-    def _update_rgb_label(self, hex_color: str):
+    def _update_color_tooltips(self, hex_color: str):
         try:
             c = QColor(hex_color)
-            self.rgb_label.setText(f"RGB: {c.red()},{c.green()},{c.blue()}")
+            rgb_text = f"{c.red()},{c.green()},{c.blue()}"
+            tooltip = f"{c.name().upper()} | RGB: {rgb_text}"
+            self.color_button.setToolTip(tooltip)
+            self.saved_colors_button.setToolTip(tooltip)
         except Exception:
-            self.rgb_label.setText("RGB: -")
+            self.color_button.setToolTip(self._t("Click to select color"))
+            self.saved_colors_button.setToolTip(self._t("Saved colors menu"))
 
     # ── 常用颜色菜单 ─────────────────────────────────────────────
 
     def _rebuild_saved_colors_menu(self):
         menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        menu.setStyleSheet(self._menu_stylesheet())
+
+        current_color = QColor(self._current_color) if self._current_color else QColor()
+        if current_color.isValid():
+            current_action = QAction(self)
+            current_action.setEnabled(False)
+            current_action.setIcon(self._create_color_icon(current_color.name()))
+            current_action.setText(
+                f"{current_color.name().upper()}  (R:{current_color.red()} G:{current_color.green()} B:{current_color.blue()})"
+            )
+            menu.addAction(current_action)
+            menu.addSeparator()
+
+        copy_action = QAction(self._t("Copy current color"), self)
+        copy_action.triggered.connect(self._on_copy)
+        menu.addAction(copy_action)
+
+        paste_action = QAction(self._t("Paste copied color"), self)
+        paste_action.setEnabled(ColorPickerWidget._color_clipboard is not None)
+        paste_action.triggered.connect(self._on_paste)
+        menu.addAction(paste_action)
+        menu.addSeparator()
 
         if self._saved_colors:
             for color_hex in self._saved_colors:
@@ -411,6 +534,135 @@ class ColorPickerWidget(QWidget):
             menu.addAction(clear_action)
 
         self.saved_colors_button.setMenu(menu)
+
+    def _menu_stylesheet(self) -> str:
+        c = get_current_theme_colors()
+        return f"""
+            QMenu {{
+                background-color: {c["bg_surface_raised"]};
+                color: {c["text_accent"]};
+                border: 1px solid {c["border_card"]};
+                border-radius: 10px;
+                padding: 6px 4px;
+            }}
+            QMenu::item {{
+                background-color: transparent;
+                color: {c["text_accent"]};
+                padding: 7px 14px;
+                margin: 1px 4px;
+                border-radius: 6px;
+            }}
+            QMenu::item:selected {{
+                background-color: {c["tab_hover"]};
+                color: {c["text_bright"]};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                margin: 5px 10px;
+                background: {c["divider_sub_line"]};
+            }}
+        """
+
+    def _dialog_stylesheet(self) -> str:
+        c = get_current_theme_colors()
+        return f"""
+            QColorDialog {{
+                background: {c["bg_panel"]};
+            }}
+            QColorDialog QWidget {{
+                color: {c["text_primary"]};
+                font-size: 12px;
+            }}
+            QColorDialog QLabel {{
+                color: {c["text_secondary"]};
+            }}
+            QColorDialog QLineEdit,
+            QColorDialog QSpinBox,
+            QColorDialog QDoubleSpinBox,
+            QColorDialog QComboBox {{
+                background: {c["bg_input"]};
+                border: 1px solid {c["border_input"]};
+                border-radius: 8px;
+                color: {c["text_accent"]};
+                padding: 6px 8px;
+                min-height: 18px;
+            }}
+            QColorDialog QLineEdit:hover,
+            QColorDialog QSpinBox:hover,
+            QColorDialog QDoubleSpinBox:hover,
+            QColorDialog QComboBox:hover {{
+                border-color: {c["border_input_hover"]};
+            }}
+            QColorDialog QLineEdit:focus,
+            QColorDialog QSpinBox:focus,
+            QColorDialog QDoubleSpinBox:focus,
+            QColorDialog QComboBox:focus {{
+                border-color: {c["border_input_focus"]};
+                background: {c["bg_input_focus"]};
+            }}
+            QColorDialog QPushButton,
+            QColorDialog QToolButton {{
+                background: {c["btn_soft_bg"]};
+                border: 1px solid {c["btn_soft_border"]};
+                border-radius: 8px;
+                color: {c["btn_soft_text"]};
+                padding: 6px 10px;
+                font-weight: 700;
+            }}
+            QColorDialog QPushButton:hover,
+            QColorDialog QToolButton:hover {{
+                background: {c["btn_soft_hover"]};
+                border-color: {c["border_input_hover"]};
+            }}
+            QColorDialog QPushButton:pressed,
+            QColorDialog QToolButton:pressed {{
+                background: {c["btn_soft_pressed"]};
+                border-color: {c["btn_soft_checked_border"]};
+            }}
+            QColorDialog QDialogButtonBox QPushButton {{
+                min-width: 72px;
+            }}
+        """
+
+    def _style_dialog_private_widgets(self, dialog: QColorDialog):
+        c = get_current_theme_colors()
+        overlays = []
+
+        well_arrays = sorted(
+            [
+                widget
+                for widget in dialog.findChildren(QWidget)
+                if widget.metaObject().className() == "QtPrivate::QWellArray"
+            ],
+            key=lambda widget: widget.mapTo(dialog, widget.rect().topLeft()).y(),
+        )
+        for well in well_arrays:
+            well.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            well.setStyleSheet(
+                f"border: 1px solid {c['border_input']};"
+                f"background: {c['bg_surface_raised']};"
+            )
+            rows = 2 if well.height() <= 56 else max(2, round(well.height() / 24))
+            overlays.append(_DialogColorGridOverlay(well, rows=rows))
+
+        for widget in dialog.findChildren(QWidget):
+            cls = widget.metaObject().className()
+            if cls == "QtPrivate::QColorShowLabel":
+                widget.setFrameShape(QFrame.Shape.Box)
+                widget.setFrameShadow(QFrame.Shadow.Plain)
+                widget.setLineWidth(1)
+                widget.setStyleSheet(
+                    f"border: 1px solid {c['border_input_hover']};"
+                    f"background: transparent;"
+                )
+            elif cls in ("QtPrivate::QColorPicker", "QtPrivate::QColorLuminancePicker"):
+                widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+                widget.setStyleSheet(
+                    f"border: 1px solid {c['border_input']};"
+                    f"background: transparent;"
+                )
+
+        dialog._color_dialog_theme_overlays = overlays
 
     def _save_current_color(self):
         if self._current_color and self._current_color not in self._saved_colors:
@@ -458,10 +710,11 @@ class ColorPickerWidget(QWidget):
 
     @staticmethod
     def _create_color_icon(hex_color: str) -> QIcon:
+        c = get_current_theme_colors()
         pixmap = QPixmap(16, 16)
         pixmap.fill(QColor(hex_color))
         painter = QPainter(pixmap)
-        painter.setPen(QColor("#888888"))
+        painter.setPen(QColor(c["border_input"]))
         painter.drawRect(0, 0, 15, 15)
         painter.end()
         return QIcon(pixmap)

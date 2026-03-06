@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 from PyQt6.QtCore import QSize, Qt, pyqtSignal, QObject, pyqtSlot
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPalette, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem,
     QWidget,
 )
+from manga_translator.utils import open_pil_image
 
 
 # 全局线程池，用于异步加载缩略图
@@ -59,7 +60,7 @@ def _load_thumbnail_worker(file_path: str) -> tuple[str, Optional[QPixmap]]:
     返回 (file_path, pixmap) 或 (file_path, None) 如果失败
     """
     try:
-        img = Image.open(file_path)
+        img = open_pil_image(file_path, eager=False)
         img.thumbnail((40, 40))
         
         # Convert PIL image to QPixmap
@@ -96,6 +97,8 @@ class FileItemWidget(QWidget):
         self.file_path = file_path
         self.is_folder = is_folder
         self._thumbnail_loading = False
+        self.setObjectName("file_item_root")
+        self.setProperty("fileKind", "folder" if is_folder else "file")
 
         # 注册实例
         if not is_folder and not os.path.isdir(file_path):
@@ -109,6 +112,7 @@ class FileItemWidget(QWidget):
 
         # Thumbnail
         self.thumbnail_label = QLabel()
+        self.thumbnail_label.setObjectName("file_item_thumbnail")
         self.thumbnail_label.setFixedSize(40, 40)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.thumbnail_label)
@@ -119,6 +123,7 @@ class FileItemWidget(QWidget):
             self.thumbnail_label.setPixmap(icon.pixmap(QSize(40,40)))
         elif self._is_archive_file(self.file_path):
             # 压缩包/文档文件显示特殊图标
+            self.setProperty("fileKind", "archive")
             style = QApplication.style()
             icon = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
             self.thumbnail_label.setPixmap(icon.pixmap(QSize(40,40)))
@@ -134,11 +139,13 @@ class FileItemWidget(QWidget):
         self.base_display_name = display_name  # 保存基础名称
         
         self.name_label = QLabel(display_name)
+        self.name_label.setObjectName("file_item_name_label")
         self.name_label.setWordWrap(True)
         self.layout.addWidget(self.name_label, 1)  # Stretch factor
 
         # Remove Button
         self.remove_button = QPushButton("✕")
+        self.remove_button.setObjectName("file_item_remove_button")
         self.remove_button.setFixedSize(20, 20)
         self.remove_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # 防止获取焦点
         self.remove_button.clicked.connect(self._emit_remove_request)
@@ -296,11 +303,11 @@ class FileListView(QTreeWidget):
         
         # 只在列表为空时显示提示
         if self.topLevelItemCount() == 0:
-            from PyQt6.QtGui import QPainter, QColor, QFont
+            from PyQt6.QtGui import QPainter, QFont
             from PyQt6.QtCore import Qt, QRect
             
             painter = QPainter(self.viewport())
-            painter.setPen(QColor(150, 150, 150))  # 灰色
+            painter.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
             
             # 设置字体
             font = QFont()

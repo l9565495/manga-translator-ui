@@ -221,6 +221,7 @@ class I18nManager:
                 "Rotation": "旋转",
                 "Position": "位置",
                 "Copy": "复制",
+                "Translate": "翻译",
                 "Paste": "粘贴",
                 "Undo": "撤销",
                 "Redo": "重做",
@@ -302,6 +303,9 @@ class I18nManager:
                 "Select All": "Select All",
                 "File List": "File List",
                 "Output Folder": "Output Folder",
+                "Copy": "Copy",
+                "Translate": "Translate",
+                "Paste": "Paste",
             }
         else:
             # 其他语言返回空字典，使用回退机制

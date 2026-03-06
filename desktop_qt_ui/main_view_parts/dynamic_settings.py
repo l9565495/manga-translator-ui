@@ -164,8 +164,9 @@ def _populate_settings_by_reclassify_layout(self, config: dict):
         has_primary_divider = False
         for item in tab.get("items", []):
             if isinstance(item, dict) and str(item.get("kind", "")).lower() == "divider":
-                title = str(item.get("title", "")).strip() or "分组"
-                is_sub = title in {"高级", "Advanced", "advanced"} and has_primary_divider
+                title_key = str(item.get("title", "")).strip() or "Group"
+                title = self._t(title_key)
+                is_sub = title_key == "Advanced" and has_primary_divider
                 _add_settings_divider(self, panel_layout, title, is_sub=is_sub)
                 if not is_sub:
                     has_primary_divider = True
@@ -242,9 +243,9 @@ def _finalize_settings_ui(self):
             )
             
             # 创建标签
-            label_text = self._t("unload_models_after_translation")
-            if not label_text or label_text == "unload_models_after_translation":
-                label_text = "翻译完成后卸载模型"
+            label_text = self._t("label_unload_models_after_translation")
+            if not label_text or label_text == "label_unload_models_after_translation":
+                label_text = "Unload Models After Translation"
             unload_models_label = QLabel(f"{label_text}:")
             
             # 插入到最上面（索引0）
@@ -587,8 +588,8 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         elif full_key == "app.ui_language":
             label_text = self._t("Language:").rstrip(":：")
         elif full_key == "app.unload_models_after_translation":
-            translated = self._t("unload_models_after_translation")
-            label_text = translated if translated != "unload_models_after_translation" else "翻译完成后卸载模型"
+            translated = self._t("label_unload_models_after_translation")
+            label_text = translated if translated != "label_unload_models_after_translation" else "Unload Models After Translation"
         if self.controller.get_display_mapping('labels') and self.controller.get_display_mapping('labels').get(key):
             label_text = self.controller.get_display_mapping('labels').get(key)
         label = QLabel(f"{label_text}:")
@@ -874,7 +875,7 @@ class _ClickableRow(QWidget):
         self._label = label
         self._selected = False
 
-        self.setAutoFillBackground(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 

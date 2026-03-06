@@ -14,7 +14,7 @@ from typing import List
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, wait
 
-from . import Context, load_image
+from . import Context, load_image, open_pil_image
 
 # 使用 manga_translator 的主 logger，确保日志能被UI捕获
 logger = logging.getLogger('manga_translator')
@@ -174,8 +174,6 @@ class ConcurrentPipeline:
         
         logger.info(f"[检测+OCR线程] 开始处理 {len(file_paths)} 张图片（分批加载）")
         
-        from PIL import Image
-        
         try:
             for idx, (file_path, config) in enumerate(zip(file_paths, configs)):
                 self._check_cancelled_or_raise("检测+OCR", f"已处理 {idx}/{len(file_paths)} 张图片")
@@ -189,8 +187,7 @@ class ConcurrentPipeline:
                     # 分批加载：只在需要时加载图片
                     logger.debug(f"[检测+OCR] 加载图片: {file_path}")
                     with open(file_path, 'rb') as f:
-                        image = Image.open(f)
-                        image.load()  # 立即加载图片数据
+                        image = open_pil_image(f, eager=True)
                     image.name = file_path
                     
                     # 创建上下文

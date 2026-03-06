@@ -87,8 +87,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
     # 延迟导入，避免 --help 时加载所有模块
     from desktop_qt_ui.services.file_service import FileService
     from manga_translator import MangaTranslator, Config
-    from manga_translator.utils import init_logging, set_log_level, get_logger
-    from PIL import Image
+    from manga_translator.utils import init_logging, set_log_level, get_logger, open_pil_image
     import logging
     import logging.handlers
     
@@ -482,7 +481,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
                 # 创建一个轻量级的 Image 占位符，只包含路径信息
                 # ConcurrentPipeline 会根据 image.name 自己加载图片
                 try:
-                    image = Image.open(file_path)
+                    image = open_pil_image(file_path, eager=False)
                     # 不调用 load()，让 ConcurrentPipeline 按需加载
                     image.name = file_path
                     images_with_configs.append((image, config))
@@ -536,8 +535,7 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
                 for file_path, config in current_batch_paths:
                     try:
                         with open(file_path, 'rb') as f:
-                            image = Image.open(f)
-                            image.load()  # 加载图片数据
+                            image = open_pil_image(f, eager=True)
                         image.name = file_path
                         images_with_configs.append((image, config))
                     except Exception as e:

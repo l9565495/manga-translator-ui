@@ -66,6 +66,20 @@ class MainWindow(QMainWindow):
         """实例化所有逻辑和数据模型"""
         self.config_service = get_config_service()
         self.state_manager = get_state_manager()
+        config = self.config_service.get_config()
+
+        initial_theme = config.app.theme
+        if initial_theme == "system":
+            detected_theme = self._detect_windows_theme()
+            if detected_theme == "dark":
+                initial_theme = "dark"
+            else:
+                initial_theme = config.app.theme_user_preference
+
+        from main_view_parts.theme import set_current_theme
+
+        set_current_theme(initial_theme)
+        self.current_applied_theme = initial_theme
 
         # --- Logic Controllers ---
         self.app_logic = MainAppLogic()
@@ -131,49 +145,100 @@ class MainWindow(QMainWindow):
                 self._apply_theme(config.app.theme_user_preference)
             return
 
-        import os
-        import sys
-        
         # 记录当前实际应用的主题
         self.current_applied_theme = theme
         
-        # 主题文件映射
-        theme_files = {
-            'light': 'modern.qss',
-            'dark': 'dark.qss',
-            'gray': 'gray.qss'
-        }
-        
-        stylesheet_file = theme_files.get(theme, 'modern.qss')
-        
-        # 适配打包环境和开发环境
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            # 打包环境：样式文件在 _internal/desktop_qt_ui/styles/
-            stylesheet_path = os.path.join(sys._MEIPASS, 'desktop_qt_ui', 'styles', stylesheet_file)
-            # 图标基础路径
-            icon_base_path = os.path.join(sys._MEIPASS, 'desktop_qt_ui', 'styles', 'icons')
-        else:
-            # 开发环境
-            stylesheet_path = os.path.join(os.path.dirname(__file__), 'styles', stylesheet_file)
-            # 图标基础路径
-            icon_base_path = os.path.join(os.path.dirname(__file__), 'styles', 'icons')
-        
+        from main_view_parts.theme import apply_application_theme, build_theme_palette
+
+        apply_application_theme(theme, QApplication.instance())
+        palette = build_theme_palette(theme)
+        self.setPalette(palette)
+        self.setStyleSheet("")
+
+        # 通知各视图应用对应主题的内联样式
+        if hasattr(self, 'main_view') and self.main_view:
+            self.main_view._apply_reference_ui_style(theme)
+            self.main_view.update()
+        if hasattr(self, 'editor_view') and self.editor_view:
+            self.editor_view._apply_editor_style(theme)
+            self.editor_view.update()
+        if hasattr(self, "stacked_widget") and self.stacked_widget:
+            self.stacked_widget.update()
+        self.update()
+        self._apply_native_title_bar_theme(theme)
+        QTimer.singleShot(0, lambda active_theme=theme: self._apply_native_title_bar_theme(active_theme))
+
+    def _apply_native_title_bar_theme(self, theme: str):
+        """同步 Windows 原生标题栏颜色，避免深色内容区配浅色系统标题栏。"""
+        import sys
+
+        if sys.platform != "win32":
+            return
+
         try:
-            with open(stylesheet_path, 'r', encoding='utf-8') as f:
-                stylesheet = f.read()
-                
-                # 替换样式表中的图标路径为绝对路径
-                # 将 desktop_qt_ui/styles/icons/ 替换为实际的绝对路径
-                stylesheet = stylesheet.replace(
-                    'desktop_qt_ui/styles/icons/',
-                    icon_base_path.replace('\\', '/') + '/'
+            import ctypes
+            from ctypes import wintypes
+
+            from PyQt6.QtGui import QColor
+
+            from main_view_parts.theme_colors import get_theme_colors
+
+            hwnd = int(self.winId())
+            if not hwnd:
+                return
+
+            colors = get_theme_colors(theme)
+            dwmapi = ctypes.windll.dwmapi
+            user32 = ctypes.windll.user32
+
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
+            DWMWA_BORDER_COLOR = 34
+            DWMWA_CAPTION_COLOR = 35
+            DWMWA_TEXT_COLOR = 36
+            SWP_NOSIZE = 0x0001
+            SWP_NOMOVE = 0x0002
+            SWP_NOZORDER = 0x0004
+            SWP_NOACTIVATE = 0x0010
+            SWP_FRAMECHANGED = 0x0020
+
+            def _to_colorref(value: str):
+                color = QColor(value)
+                return wintypes.DWORD(color.red() | (color.green() << 8) | (color.blue() << 16))
+
+            def _set_dwm_attr(attribute: int, data):
+                return dwmapi.DwmSetWindowAttribute(
+                    wintypes.HWND(hwnd),
+                    ctypes.c_uint(attribute),
+                    ctypes.byref(data),
+                    ctypes.sizeof(data),
                 )
-                
-                self.setStyleSheet(stylesheet)
-        except FileNotFoundError:
-            self.logger.warning(f"Stylesheet not found: {stylesheet_path}")
-        except Exception as e:
-            self.logger.error(f"Error loading stylesheet: {e}")
+
+            is_dark_caption = theme in {"dark", "gray"}
+            dark_mode = ctypes.c_int(1 if is_dark_caption else 0)
+            result = _set_dwm_attr(DWMWA_USE_IMMERSIVE_DARK_MODE, dark_mode)
+            if result != 0:
+                _set_dwm_attr(DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, dark_mode)
+
+            caption_color = _to_colorref(colors["bg_window_shell"])
+            border_color = _to_colorref(colors["border_sidebar"])
+            text_color = _to_colorref(colors["text_bright"] if is_dark_caption else colors["text_accent"])
+
+            _set_dwm_attr(DWMWA_CAPTION_COLOR, caption_color)
+            _set_dwm_attr(DWMWA_BORDER_COLOR, border_color)
+            _set_dwm_attr(DWMWA_TEXT_COLOR, text_color)
+
+            user32.SetWindowPos(
+                wintypes.HWND(hwnd),
+                wintypes.HWND(0),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            )
+        except Exception as exc:
+            self.logger.debug(f"应用原生标题栏主题失败: {exc}")
     
     def _detect_windows_theme(self) -> str:
         """检测Windows系统主题（深色/浅色）

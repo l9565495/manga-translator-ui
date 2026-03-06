@@ -2653,25 +2653,29 @@ def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, str]]) -> b
     将新提取的术语合并到提示词文件中
     Merge newly extracted terms into the prompt file
     
+    支持 JSON (.json) 和 YAML (.yaml/.yml) 格式，根据文件扩展名自动选择。
+    
     Args:
         file_path: 提示词文件路径
         new_terms: 新术语列表 [{"original": "...", "translation": "...", "category": "..."}]
     """
     import json
     import os
+    from .prompt_loader import load_prompt_file
     
     if not new_terms:
         return False
 
+    ext = os.path.splitext(file_path)[1].lower()
+    is_yaml = ext in ('.yaml', '.yml')
+
     try:
-        # 读取现有文件
+        # 读取现有文件（统一使用 prompt_loader，自动支持 JSON/YAML）
         data = {}
         if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError:
-                    pass # 如果文件损坏或为空，从头开始
+            loaded = load_prompt_file(file_path)
+            if loaded is not None:
+                data = loaded
         
         # 确保结构完整
         if "glossary" not in data or not isinstance(data["glossary"], dict):
@@ -2741,7 +2745,16 @@ def merge_glossary_to_file(file_path: str, new_terms: List[Dict[str, str]]) -> b
             # 确保存储目录存在
             os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                if is_yaml:
+                    from .prompt_loader import _get_yaml
+                    yaml = _get_yaml()
+                    if yaml is not None:
+                        yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+                    else:
+                        # YAML 不可用，回退到 JSON
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                else:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
             return True
             
     except Exception as e:

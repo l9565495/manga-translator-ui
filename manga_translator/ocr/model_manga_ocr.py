@@ -28,7 +28,7 @@ from transformers import ViTImageProcessor, AutoTokenizer, VisionEncoderDecoderM
 from .common import OfflineOCR
 from .model_48px import OCR
 from ..config import OcrConfig
-from ..utils import TextBlock, Quadrilateral, chunks, imwrite_unicode
+from ..utils import TextBlock, Quadrilateral, chunks, imwrite_unicode, open_pil_image
 from ..utils.generic import AvgMeter
 from ..utils.bubble import is_ignore
 
@@ -69,7 +69,7 @@ class InternalMangaOcr:
             str: 识别的文本
         """
         if isinstance(img_or_path, str):
-            img = Image.open(img_or_path)
+            img = open_pil_image(img_or_path, eager=False)
         elif isinstance(img_or_path, Image.Image):
             img = img_or_path
         else:

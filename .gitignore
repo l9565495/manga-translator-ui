@@ -263,3 +263,6 @@ Saber-Translator-main/
 
 # Antigravity config
 .antigravityignore
+
+# Codex local workspace metadata
+/.codex/

@@ -34,6 +34,8 @@ from editor.render_layout_pipeline import (
     prepare_layout_context,
 )
 from editor.region_render_snapshot import RegionRenderSnapshot
+from main_view_parts.theme import get_current_theme
+from main_view_parts.theme_colors import get_theme_colors
 from services import get_render_parameter_service
 
 # --- 结束新增 ---
@@ -128,12 +130,20 @@ class GraphicsView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        self.scene.setBackgroundBrush(Qt.GlobalColor.darkGray)
+        self.apply_theme()
 
         # 选择管理器：集中管理选择逻辑和双向同步
         self.selection_manager = SelectionManager(
             self.model, self.scene, lambda: self._region_items
         )
+
+    def apply_theme(self, theme: str | None = None):
+        colors = get_theme_colors(theme or get_current_theme())
+        canvas_color = QColor(colors["bg_canvas"])
+        self.scene.setBackgroundBrush(canvas_color)
+        self.setBackgroundBrush(canvas_color)
+        self.scene.update()
+        self.viewport().update()
 
     def _connect_model_signals(self):
         """连接模型信号到视图的槽"""

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSlider,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -137,12 +138,16 @@ class PropertyPanel(QWidget):
         # 创建滚动区域
         from PyQt6.QtWidgets import QScrollArea
         scroll_area = QScrollArea()
+        scroll_area.setObjectName("editor_property_scroll")
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
         
         # 创建内容容器
         content_widget = QWidget()
+        content_widget.setObjectName("editor_property_content")
         content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 2, 4, 2)
+        content_layout.setSpacing(10)
         content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         self._create_region_info_section(content_layout)
@@ -169,7 +174,11 @@ class PropertyPanel(QWidget):
 
     def _create_region_info_section(self, layout):
         self.info_group = QGroupBox(self._t("Region Info"))
+        self.info_group.setObjectName("editor_info_group")
         info_layout = QFormLayout(self.info_group)
+        info_layout.setContentsMargins(8, 8, 8, 6)
+        info_layout.setHorizontalSpacing(10)
+        info_layout.setVerticalSpacing(6)
         self.index_label = QLabel("-")
         self.bbox_label = QLabel("-")
         self.size_label = QLabel("-")
@@ -186,19 +195,33 @@ class PropertyPanel(QWidget):
 
     def _create_mask_edit_section(self, layout):
         self.mask_edit_frame = QGroupBox(self._t("Mask Editing"))
+        self.mask_edit_frame.setObjectName("editor_mask_group")
         mask_layout = QVBoxLayout(self.mask_edit_frame)
+        mask_layout.setContentsMargins(8, 8, 8, 6)
+        mask_layout.setSpacing(8)
         tools_layout = QHBoxLayout()
+        tools_layout.setContentsMargins(0, 0, 0, 0)
+        tools_layout.setSpacing(6)
 
         self.mask_tool_group = QButtonGroup(self)
         self.mask_tool_group.setExclusive(True)
 
         self.brush_button = QPushButton(self._t("Brush"))
+        self.brush_button.setObjectName("editor_mask_brush_button")
+        self.brush_button.setProperty("editorToolButton", True)
+        self.brush_button.setProperty("softAction", True)
         self.brush_button.setCheckable(True)
         self.brush_button.setToolTip(self._t("Brush Tool") + " (W)")
         self.eraser_button = QPushButton(self._t("Eraser"))
+        self.eraser_button.setObjectName("editor_mask_eraser_button")
+        self.eraser_button.setProperty("editorToolButton", True)
+        self.eraser_button.setProperty("softAction", True)
         self.eraser_button.setCheckable(True)
         self.eraser_button.setToolTip(self._t("Eraser Tool") + " (E)")
         self.select_button = QPushButton(self._t("No Selection"))
+        self.select_button.setObjectName("editor_mask_select_button")
+        self.select_button.setProperty("editorToolButton", True)
+        self.select_button.setProperty("softAction", True)
         self.select_button.setCheckable(True)
         self.select_button.setToolTip(self._t("Selection Tool") + " (Q)")
 
@@ -206,6 +229,8 @@ class PropertyPanel(QWidget):
         self.mask_tool_group.addButton(self.brush_button, 1)
         self.mask_tool_group.addButton(self.eraser_button, 2)
         self.select_button.setChecked(True) # Default to select
+        for button in (self.select_button, self.brush_button, self.eraser_button):
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         tools_layout.addWidget(self.select_button)
         tools_layout.addWidget(self.brush_button)
@@ -213,14 +238,20 @@ class PropertyPanel(QWidget):
 
         mask_layout.addLayout(tools_layout)
         brush_size_layout = QHBoxLayout()
-        self.brush_size_label = QLabel(self._t("Brush Size:"))
-        brush_size_layout.addWidget(self.brush_size_label)
+        brush_size_layout.setContentsMargins(0, 0, 0, 0)
+        brush_size_layout.setSpacing(6)
+        self.brush_size_title_label = QLabel(self._t("Brush Size:"))
+        brush_size_layout.addWidget(self.brush_size_title_label)
         self.brush_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.brush_size_slider.setObjectName("editor_brush_size_slider")
         self.brush_size_slider.setRange(5, 200)
-        self.brush_size_label = QLabel("30")
+        self.brush_size_value_label = QLabel("30")
+        self.brush_size_value_label.setObjectName("editor_brush_size_value_label")
+        self.brush_size_value_label.setFixedWidth(28)
+        self.brush_size_value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.brush_size_slider.setValue(30)
         brush_size_layout.addWidget(self.brush_size_slider)
-        brush_size_layout.addWidget(self.brush_size_label)
+        brush_size_layout.addWidget(self.brush_size_value_label)
         mask_layout.addLayout(brush_size_layout)
         # 显示精炼蒙版复选框
         self.show_refined_mask_checkbox = QCheckBox(self._t("Show Refined Mask"))
@@ -228,24 +259,50 @@ class PropertyPanel(QWidget):
         mask_layout.addWidget(self.show_refined_mask_checkbox)
 
         self.clear_all_masks_button = QPushButton(self._t("Clear All Masks"))
+        self.clear_all_masks_button.setObjectName("editor_clear_masks_button")
+        self.clear_all_masks_button.setProperty("softAction", True)
         mask_layout.addWidget(self.clear_all_masks_button)
         layout.addWidget(self.mask_edit_frame)
 
     def _create_text_section(self, layout):
         self.text_edit_frame = QGroupBox(self._t("Text Content"))
+        self.text_edit_frame.setObjectName("editor_text_group")
         text_layout = QVBoxLayout(self.text_edit_frame)
+        text_layout.setContentsMargins(8, 8, 8, 6)
+        text_layout.setSpacing(8)
         ocr_trans_config_layout = QFormLayout()
+        ocr_trans_config_layout.setContentsMargins(0, 0, 0, 0)
+        ocr_trans_config_layout.setHorizontalSpacing(8)
+        ocr_trans_config_layout.setVerticalSpacing(8)
         self.ocr_model_combo = QComboBox()
+        self.ocr_model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.ocr_model_combo.setMinimumContentsLength(8)
         self.translator_combo = QComboBox()
-        self.translator_combo.setMinimumWidth(150)  # 设置翻译器下拉框最小宽度
+        self.translator_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.translator_combo.setMinimumContentsLength(8)
+        self.translator_combo.setMinimumWidth(110)
         self.target_language_combo = QComboBox()
+        self.target_language_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.target_language_combo.setMinimumContentsLength(8)
         ocr_row = QHBoxLayout()
+        ocr_row.setContentsMargins(0, 0, 0, 0)
+        ocr_row.setSpacing(6)
         ocr_row.addWidget(self.ocr_model_combo)
         self.ocr_button = QPushButton(self._t("Recognize"))
+        self.ocr_button.setObjectName("editor_recognize_button")
+        self.ocr_button.setProperty("softAction", True)
+        self.ocr_button.setMinimumWidth(72)
+        self.ocr_button.setMaximumWidth(92)
         ocr_row.addWidget(self.ocr_button)
         translator_row = QHBoxLayout()
+        translator_row.setContentsMargins(0, 0, 0, 0)
+        translator_row.setSpacing(6)
         translator_row.addWidget(self.translator_combo)
         self.translate_button = QPushButton(self._t("Translate"))
+        self.translate_button.setObjectName("editor_translate_button")
+        self.translate_button.setProperty("softAction", True)
+        self.translate_button.setMinimumWidth(80)
+        self.translate_button.setMaximumWidth(108)
         translator_row.addWidget(self.translate_button)
         self.translator_row_label = QLabel(self._t("Translator:"))
         self.target_lang_row_label = QLabel(self._t("Target Language:"))
@@ -259,16 +316,16 @@ class PropertyPanel(QWidget):
         self.original_text_box.setUndoRedoEnabled(True)
         self.original_text_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.original_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.original_text_box.setMinimumHeight(80)
-        self.original_text_box.setMaximumHeight(150)
+        self.original_text_box.setMinimumHeight(72)
+        self.original_text_box.setMaximumHeight(132)
         
         self.translated_text_box = QTextEdit()
         self.translated_text_box.setObjectName("translationEdit")
         self.translated_text_box.setUndoRedoEnabled(True)
         self.translated_text_box.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.translated_text_box.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.translated_text_box.setMinimumHeight(80)
-        self.translated_text_box.setMaximumHeight(150)
+        self.translated_text_box.setMinimumHeight(72)
+        self.translated_text_box.setMaximumHeight(132)
         
         self.original_text_label = QLabel(self._t("Original Text:"))
         text_layout.addWidget(self.original_text_label)
@@ -277,13 +334,19 @@ class PropertyPanel(QWidget):
         text_layout.addWidget(self.translated_text_label)
         text_layout.addWidget(self.translated_text_box)
         insert_buttons_layout = QHBoxLayout()
-        insert_buttons_layout.setSpacing(4)
+        insert_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        insert_buttons_layout.setSpacing(6)
         self.insert_placeholder_button = QPushButton(self._t("Placeholder"))
+        self.insert_placeholder_button.setProperty("chipButton", True)
         self.insert_placeholder_button.setToolTip(self._t("Insert placeholder ＿"))
         self.insert_newline_button = QPushButton(self._t("Newline↵"))
+        self.insert_newline_button.setProperty("chipButton", True)
         self.insert_newline_button.setToolTip(self._t("Insert newline"))
         self.mark_horizontal_button = QPushButton(self._t("Horizontal⇄"))
+        self.mark_horizontal_button.setProperty("chipButton", True)
         self.mark_horizontal_button.setToolTip(self._t("Mark selected text as horizontal display"))
+        for button in (self.insert_placeholder_button, self.insert_newline_button, self.mark_horizontal_button):
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         insert_buttons_layout.addWidget(self.insert_placeholder_button)
         insert_buttons_layout.addWidget(self.insert_newline_button)
         insert_buttons_layout.addWidget(self.mark_horizontal_button)
@@ -294,7 +357,11 @@ class PropertyPanel(QWidget):
 
     def _create_style_section(self, layout):
         self.style_edit_frame = QGroupBox(self._t("Style Settings"))
+        self.style_edit_frame.setObjectName("editor_style_group")
         style_layout = QFormLayout(self.style_edit_frame)
+        style_layout.setContentsMargins(8, 8, 8, 6)
+        style_layout.setHorizontalSpacing(8)
+        style_layout.setVerticalSpacing(8)
         
         # Font family selector with refresh capability
         class RefreshableComboBox(QComboBox):
@@ -340,16 +407,22 @@ class PropertyPanel(QWidget):
         
         self.font_family_combo = RefreshableComboBox(self)
         self.font_family_combo.setEditable(False)
+        self.font_family_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.font_family_combo.setMinimumContentsLength(10)
         self._populate_font_list()
         self.font_label = QLabel(self._t("Font:"))
         style_layout.addRow(self.font_label, self.font_family_combo)
         
         # Font size
         font_size_layout = QHBoxLayout()
+        font_size_layout.setContentsMargins(0, 0, 0, 0)
+        font_size_layout.setSpacing(6)
         self.font_size_input = QLineEdit()
         self.font_size_input.setValidator(QIntValidator(8, 1000, self))
+        self.font_size_input.setFixedWidth(64)
         font_size_layout.addWidget(self.font_size_input)
         self.font_size_slider = CustomSlider(Qt.Orientation.Horizontal)
+        self.font_size_slider.setObjectName("editor_font_size_slider")
         self.font_size_slider.setRange(8, 150)
         self.font_size_label = QLabel(self._t("Font Size:"))
         style_layout.addRow(self.font_size_label, font_size_layout)
@@ -363,6 +436,7 @@ class PropertyPanel(QWidget):
             config_service=self.config_service,
             i18n_func=self._t,
         )
+        self.font_color_picker.setFixedWidth(96)
         self.font_color_label = QLabel(self._t("Font Color:"))
         style_layout.addRow(self.font_color_label, self.font_color_picker)
 
@@ -374,28 +448,33 @@ class PropertyPanel(QWidget):
             config_service=self.config_service,
             i18n_func=self._t,
         )
+        self.stroke_color_picker.setFixedWidth(96)
         self.stroke_color_label = QLabel(self._t("Stroke Color:"))
         style_layout.addRow(self.stroke_color_label, self.stroke_color_picker)
 
         # Stroke width (描边宽度)
         from PyQt6.QtWidgets import QDoubleSpinBox
         stroke_width_layout = QHBoxLayout()
+        stroke_width_layout.setContentsMargins(0, 0, 0, 0)
         self.stroke_width_spinbox = QDoubleSpinBox()
         self.stroke_width_spinbox.setRange(0.0, 1.0)
         self.stroke_width_spinbox.setSingleStep(0.01)
         self.stroke_width_spinbox.setDecimals(2)
         self.stroke_width_spinbox.setValue(0.07)
+        self.stroke_width_spinbox.setMaximumWidth(96)
         stroke_width_layout.addWidget(self.stroke_width_spinbox)
         self.stroke_width_label = QLabel(self._t("Stroke Width:"))
         style_layout.addRow(self.stroke_width_label, stroke_width_layout)
         
         # Line spacing (行间距倍率)
         line_spacing_layout = QHBoxLayout()
+        line_spacing_layout.setContentsMargins(0, 0, 0, 0)
         self.line_spacing_spinbox = QDoubleSpinBox()
         self.line_spacing_spinbox.setRange(0.1, 5.0)
         self.line_spacing_spinbox.setSingleStep(0.1)
         self.line_spacing_spinbox.setDecimals(1)
         self.line_spacing_spinbox.setValue(1.0)
+        self.line_spacing_spinbox.setMaximumWidth(96)
         line_spacing_layout.addWidget(self.line_spacing_spinbox)
         self.line_spacing_label = QLabel(self._t("Line Spacing:"))
         style_layout.addRow(self.line_spacing_label, line_spacing_layout)
@@ -403,6 +482,10 @@ class PropertyPanel(QWidget):
         # Alignment and direction
         self.alignment_combo = QComboBox()
         self.direction_combo = QComboBox()
+        self.alignment_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.alignment_combo.setMinimumContentsLength(6)
+        self.direction_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.direction_combo.setMinimumContentsLength(6)
         self.alignment_label = QLabel(self._t("Alignment:"))
         self.direction_label = QLabel(self._t("Direction:"))
         style_layout.addRow(self.alignment_label, self.alignment_combo)
@@ -437,13 +520,21 @@ class PropertyPanel(QWidget):
 
     def _create_action_section(self, layout):
         self.action_frame = QGroupBox(self._t("Actions"))
+        self.action_frame.setObjectName("editor_action_group")
         action_layout = QHBoxLayout(self.action_frame)
-        action_layout.setSpacing(4)
+        action_layout.setContentsMargins(8, 8, 8, 6)
+        action_layout.setSpacing(6)
         self.copy_button = QPushButton(self._t("Copy"))
+        self.copy_button.setObjectName("editor_copy_action_button")
+        self.copy_button.setProperty("softAction", True)
         self.copy_button.setToolTip(self._t("Copy") + " (Ctrl+C)")
         self.paste_button = QPushButton(self._t("Paste"))
+        self.paste_button.setObjectName("editor_paste_action_button")
+        self.paste_button.setProperty("softAction", True)
         self.paste_button.setToolTip(self._t("Paste") + " (Ctrl+V)")
         self.delete_button = QPushButton(self._t("Delete"))
+        self.delete_button.setObjectName("editor_delete_action_button")
+        self.delete_button.setProperty("variant", "danger")
         self.delete_button.setToolTip(self._t("Delete") + " (Del)")
         action_layout.addWidget(self.copy_button)
         action_layout.addWidget(self.paste_button)
@@ -597,8 +688,8 @@ class PropertyPanel(QWidget):
             self.size_row_label.setText(self._t("Size:"))
         if hasattr(self, 'angle_row_label'):
             self.angle_row_label.setText(self._t("Angle:"))
-        if hasattr(self, 'brush_size_label'):
-            self.brush_size_label.setText(self._t("Brush Size:"))
+        if hasattr(self, 'brush_size_title_label'):
+            self.brush_size_title_label.setText(self._t("Brush Size:"))
         if hasattr(self, 'translator_row_label'):
             self.translator_row_label.setText(self._t("Translator:"))
         if hasattr(self, 'target_lang_row_label'):
@@ -1146,7 +1237,7 @@ class PropertyPanel(QWidget):
             self.mask_tool_changed.emit('eraser')
 
     def _on_brush_size_changed(self, value):
-        self.brush_size_label.setText(str(value))
+        self.brush_size_value_label.setText(str(value))
         self.brush_size_changed.emit(value)
 
     def sync_brush_size_from_model(self, size: int):
@@ -1154,7 +1245,7 @@ class PropertyPanel(QWidget):
         # 阻止信号，避免循环触发
         self.brush_size_slider.blockSignals(True)
         self.brush_size_slider.setValue(size)
-        self.brush_size_label.setText(str(size))
+        self.brush_size_value_label.setText(str(size))
         self.brush_size_slider.blockSignals(False)
 
     def _on_alignment_changed(self, text: str):

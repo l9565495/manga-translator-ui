@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from manga_translator import logger, Context, MangaTranslator, Config
-from manga_translator.utils import PriorityLock, Throttler, imwrite_unicode
+from manga_translator.utils import PriorityLock, Throttler, imwrite_unicode, open_pil_image
 
 
 class MangaTranslatorWS(MangaTranslator):
@@ -124,7 +124,7 @@ class MangaTranslatorWS(MangaTranslator):
                     current_value = params.get(p)
                     params[p] = current_value if current_value is not None else default_value
 
-            image = Image.open(io.BytesIO(source_image))
+            image = open_pil_image(io.BytesIO(source_image), eager=False)
 
             (ori_w, ori_h) = image.size
             if max(ori_h, ori_w) > 1200:

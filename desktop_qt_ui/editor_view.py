@@ -16,6 +16,7 @@ from editor.editor_controller import EditorController
 from editor.editor_logic import EditorLogic
 from editor.editor_model import EditorModel
 from editor.graphics_view import GraphicsView
+from main_view_parts.theme import get_current_theme
 from services import get_i18n_manager
 from utils.shortcut_manager import EditorShortcutManager
 from widgets.editor_toolbar import EditorToolbar
@@ -42,6 +43,8 @@ class EditorView(QWidget):
         # 设置controller的view引用，用于更新UI状态
         self.controller.set_view(self)
 
+        self.setObjectName("editor_view_root")
+
         # 主布局变为垂直，以容纳顶栏
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -49,11 +52,14 @@ class EditorView(QWidget):
 
         # 1. 顶部工具栏
         self.toolbar = EditorToolbar(self)
+        self.toolbar.setObjectName("editor_toolbar")
         self.toolbar.setFixedHeight(40)
         self.layout.addWidget(self.toolbar)
 
         # 2. 主内容分割器
         main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        main_splitter.setObjectName("editor_main_splitter")
+        main_splitter.setHandleWidth(6)
         self.layout.addWidget(main_splitter)
 
         # --- 左侧面板 (标签页) ---
@@ -69,14 +75,19 @@ class EditorView(QWidget):
         main_splitter.addWidget(left_panel)
         main_splitter.addWidget(center_panel)
         main_splitter.addWidget(right_panel)
+        main_splitter.setStretchFactor(0, 0)
         main_splitter.setStretchFactor(1, 1)  # 让中心画布拉伸
-        main_splitter.setSizes([345, 800, 250])  # 左侧面板345px，适应属性面板内容
+        main_splitter.setStretchFactor(2, 0)
+        main_splitter.setSizes([304, 860, 236])
 
         # --- 连接信号与槽 ---
         self._connect_signals()
         
         # --- 设置快捷键管理器 ---
         self.shortcut_manager = EditorShortcutManager(self)
+
+        # --- 应用编辑器样式（与主页统一） ---
+        self._apply_editor_style()
     
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -113,14 +124,19 @@ class EditorView(QWidget):
     def _create_left_panel(self) -> QWidget:
         """创建左侧的标签页，包含区域列表和属性面板"""
         self.left_tab_widget = QTabWidget()
+        self.left_tab_widget.setObjectName("editor_left_tabs")
+        self.left_tab_widget.setMinimumWidth(292)
+        self.left_tab_widget.setMaximumWidth(360)
         
         # 创建“可编辑译文”标签页
         translation_widget = QWidget()
+        translation_widget.setObjectName("editor_translation_page")
         translation_layout = QVBoxLayout(translation_widget)
         translation_layout.setContentsMargins(0, 0, 0, 0)
 
         # --- 查找和替换 ---
         replace_widget = QWidget()
+        replace_widget.setObjectName("editor_search_bar")
         replace_layout = QHBoxLayout(replace_widget)
         replace_layout.setContentsMargins(5, 5, 5, 5)
         self.find_input = QLineEdit()
@@ -128,18 +144,22 @@ class EditorView(QWidget):
         self.replace_input = QLineEdit()
         self.replace_input.setPlaceholderText(self._t("Replace with"))
         self.replace_all_button = QPushButton(self._t("Replace All"))
+        self.replace_all_button.setProperty("chipButton", True)
         replace_layout.addWidget(self.find_input)
         replace_layout.addWidget(self.replace_input)
         replace_layout.addWidget(self.replace_all_button)
         
         self.apply_translations_button = QPushButton(self._t("Apply All Translation Changes"))
+        self.apply_translations_button.setObjectName("editor_apply_button")
         self.region_list_view = RegionListView(self)
+        self.region_list_view.setObjectName("editor_region_list")
         
         translation_layout.addWidget(replace_widget)
         translation_layout.addWidget(self.apply_translations_button)
         translation_layout.addWidget(self.region_list_view)
 
         self.property_panel = PropertyPanel(self.model, self.app_logic, self)
+        self.property_panel.setObjectName("editor_property_panel")
 
         self.left_tab_widget.addTab(translation_widget, self._t("Editable Translation"))
         self.left_tab_widget.addTab(self.property_panel, self._t("Property Editor"))
@@ -278,12 +298,14 @@ class EditorView(QWidget):
     def _create_center_panel(self) -> QWidget:
         """创建中心画布区域"""
         center_widget = QWidget()
+        center_widget.setObjectName("editor_center_panel")
         center_layout = QVBoxLayout(center_widget)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
         
         # 画布（滚动条已在 GraphicsView 中配置）
         self.graphics_view = GraphicsView(self.model, self)
+        self.graphics_view.setObjectName("editor_graphics_view")
         center_layout.addWidget(self.graphics_view)
         
         return center_widget
@@ -291,16 +313,22 @@ class EditorView(QWidget):
     def _create_right_panel(self) -> QWidget:
         """创建右侧的文件列表面板"""
         right_panel = QWidget()
+        right_panel.setObjectName("editor_right_panel")
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(5, 5, 5, 5)
+        right_layout.setContentsMargins(8, 8, 8, 8)
+        right_layout.setSpacing(6)
 
         # 文件操作按钮
         file_button_widget = QWidget()
+        file_button_widget.setObjectName("editor_file_actions")
         file_buttons_layout = QHBoxLayout(file_button_widget)
         file_buttons_layout.setContentsMargins(0,0,0,0)
         self.add_files_button = QPushButton(self._t("Add Files"))
         self.add_folder_button = QPushButton(self._t("Add Folder"))
         self.clear_list_button = QPushButton(self._t("Clear List"))
+        self.add_files_button.setProperty("chipButton", True)
+        self.add_folder_button.setProperty("chipButton", True)
+        self.clear_list_button.setProperty("chipButton", True)
         file_buttons_layout.addWidget(self.add_files_button)
         file_buttons_layout.addWidget(self.add_folder_button)
         file_buttons_layout.addWidget(self.clear_list_button)
@@ -308,6 +336,7 @@ class EditorView(QWidget):
 
         # 文件列表
         self.file_list = FileListView(None, self)
+        self.file_list.setObjectName("editor_file_list")
         right_layout.addWidget(self.file_list)
         
         return right_panel
@@ -335,4 +364,15 @@ class EditorView(QWidget):
         self.file_list.clear()
         self.file_list.add_files_from_tree(folder_tree)
 
+    def _apply_editor_style(self, theme: str | None = None):
+        """编辑器局部样式：根据主题应用配色，与主页风格统一。"""
+        from main_view_parts.style_generator import generate_editor_style
+        from main_view_parts.theme import apply_widget_stylesheet
+        from widgets.color_picker import ColorPickerWidget
 
+        theme = theme or get_current_theme()
+        apply_widget_stylesheet(self, generate_editor_style(theme))
+        if hasattr(self, "graphics_view") and self.graphics_view:
+            self.graphics_view.apply_theme(theme)
+        for picker in self.findChildren(ColorPickerWidget):
+            picker.refresh_theme()

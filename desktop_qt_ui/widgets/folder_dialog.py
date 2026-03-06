@@ -461,7 +461,7 @@ class FolderDialog(QDialog):
         address_widget.setObjectName("addressCard")
         address_widget.setStyleSheet(f"""
             QWidget#addressCard {{
-                background: #ffffff;
+                background: {palette.color(QPalette.ColorRole.Base).name()};
                 border: 1px solid {toolbar_border};
                 border-radius: 8px;
             }}
@@ -478,19 +478,21 @@ class FolderDialog(QDialog):
         self.breadcrumb_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.breadcrumb_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.breadcrumb_scroll.setMaximumHeight(35)
-        self.breadcrumb_scroll.setStyleSheet("""
+        self.breadcrumb_scroll.setStyleSheet(f"""
             QScrollArea {
                 border: none;
-                background-color: #ffffff;
+                background-color: {palette.color(QPalette.ColorRole.Base).name()};
             }
             QScrollArea > QWidget > QWidget {
-                background-color: #ffffff;
+                background-color: {palette.color(QPalette.ColorRole.Base).name()};
             }
         """)
 
         # 面包屑容器
         self.breadcrumb_widget = QWidget()
-        self.breadcrumb_widget.setStyleSheet("background-color: #ffffff;")
+        self.breadcrumb_widget.setStyleSheet(
+            f"background-color: {palette.color(QPalette.ColorRole.Base).name()};"
+        )
         self.breadcrumb_layout = QHBoxLayout(self.breadcrumb_widget)
         self.breadcrumb_layout.setContentsMargins(0, 0, 0, 0)
         self.breadcrumb_layout.setSpacing(0)
@@ -1112,15 +1114,24 @@ class FolderDialog(QDialog):
     def _popup_menu_left_aligned(self, anchor_button: QToolButton, menu: QMenu):
         """在按钮下方弹出菜单，并与 '...' 按钮水平居中"""
         # 宽度硬设定
+        palette = self.palette()
         menu.setFixedWidth(140)
-        menu.setStyleSheet("""
+        menu.setStyleSheet(f"""
             QMenu {
                 margin: 0px;
                 padding: 4px;
+                background: {palette.color(QPalette.ColorRole.Base).name()};
+                color: {palette.color(QPalette.ColorRole.Text).name()};
+                border: 1px solid {palette.color(QPalette.ColorRole.Mid).name()};
+                border-radius: 8px;
             }
             QMenu::item {
-                padding: 4px 8px;
+                padding: 6px 8px;
                 margin: 0px;
+                border-radius: 5px;
+            }
+            QMenu::item:selected {
+                background: {self._soft_hover_color};
             }
         """)
 

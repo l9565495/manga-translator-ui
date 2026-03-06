@@ -51,21 +51,25 @@ class EditorToolbar(QWidget):
         self.back_button = QToolButton()
         self.back_button.setText(self._t("Back"))
         self.back_button.setToolTip(self._t("Back to Main"))
+        self.back_button.setObjectName("editor_back_button")
         layout.addWidget(self.back_button)
 
         self.export_button = QToolButton()
         self.export_button.setText(self._t("Export Image"))
         self.export_button.setToolTip(self._t("Export current rendered image") + " (Ctrl+Q)")
+        self.export_button.setObjectName("editor_export_button")
         layout.addWidget(self.export_button)
         
         self.save_json_button = QToolButton()
         self.save_json_button.setText(self._t("Save JSON"))
         self.save_json_button.setToolTip(self._t("Save translation data to JSON file") + " (Ctrl+W)")
+        self.save_json_button.setObjectName("editor_save_json_button")
         layout.addWidget(self.save_json_button)
         
         self.edit_file_button = QToolButton()
         self.edit_file_button.setText(self._t("Edit Original"))
         self.edit_file_button.setToolTip(self._t("Switch to source file of current translation for editing") + " (Ctrl+E)")
+        self.edit_file_button.setObjectName("editor_edit_file_button")
         layout.addWidget(self.edit_file_button)
 
         layout.addWidget(self._create_separator())
@@ -75,12 +79,14 @@ class EditorToolbar(QWidget):
         self.undo_button.setText(self._t("Undo"))
         self.undo_button.setEnabled(False)
         self.undo_button.setToolTip(self._t("Undo last operation") + " (Ctrl+Z)")
+        self.undo_button.setObjectName("editor_undo_button")
         layout.addWidget(self.undo_button)
 
         self.redo_button = QToolButton()
         self.redo_button.setText(self._t("Redo"))
         self.redo_button.setEnabled(False)
         self.redo_button.setToolTip(self._t("Redo last undone operation") + " (Ctrl+Y)")
+        self.redo_button.setObjectName("editor_redo_button")
         layout.addWidget(self.redo_button)
 
         layout.addWidget(self._create_separator())
@@ -88,6 +94,7 @@ class EditorToolbar(QWidget):
         # --- View Actions ---
         self.zoom_out_button = QToolButton()
         self.zoom_out_button.setText(self._t("Zoom Out (-)"))
+        self.zoom_out_button.setObjectName("editor_zoom_out_button")
         layout.addWidget(self.zoom_out_button)
 
         self.zoom_label = QLabel("100%")
@@ -97,10 +104,12 @@ class EditorToolbar(QWidget):
 
         self.zoom_in_button = QToolButton()
         self.zoom_in_button.setText(self._t("Zoom In (+)"))
+        self.zoom_in_button.setObjectName("editor_zoom_in_button")
         layout.addWidget(self.zoom_in_button)
 
         self.fit_window_button = QToolButton()
         self.fit_window_button.setText(self._t("Fit to Window"))
+        self.fit_window_button.setObjectName("editor_fit_window_button")
         layout.addWidget(self.fit_window_button)
         
         layout.addWidget(self._create_separator())
@@ -108,6 +117,7 @@ class EditorToolbar(QWidget):
         # --- Display Mode ---
         # 创建一个容器来包装显示模式控件，确保它们作为一个整体
         display_mode_container = QWidget()
+        display_mode_container.setObjectName("editor_display_mode_container")
         display_mode_layout = QHBoxLayout(display_mode_container)
         display_mode_layout.setContentsMargins(0, 0, 0, 0)
         display_mode_layout.setSpacing(5)
@@ -116,6 +126,7 @@ class EditorToolbar(QWidget):
         display_mode_layout.addWidget(self.display_mode_label)
         
         self.display_mode_combo = QComboBox()
+        self.display_mode_combo.setObjectName("editor_display_mode_combo")
         self.display_mode_combo.addItems([
             self._t("Show Text and Boxes"),
             self._t("Show Text Only"),
@@ -124,17 +135,6 @@ class EditorToolbar(QWidget):
         ])
         # 设置固定宽度，不使用自适应（自适应会增加额外空间）
         self.display_mode_combo.setFixedWidth(110)
-        # 通过样式表缩短箭头和文字之间的距离
-        self.display_mode_combo.setStyleSheet("""
-            QComboBox {
-                padding-right: 2px;  /* 最小化右侧内边距 */
-                padding-left: 3px;
-            }
-            QComboBox::drop-down {
-                width: 16px;  /* 缩小箭头区域 */
-                border: none;
-            }
-        """)
         display_mode_layout.addWidget(self.display_mode_combo)
         
         # 添加分隔符到容器内
@@ -150,6 +150,7 @@ class EditorToolbar(QWidget):
         self.opacity_label = QLabel(self._t("Original Image Opacity:"))
         layout.addWidget(self.opacity_label)
         self.original_image_alpha_slider = QSlider(Qt.Orientation.Horizontal)
+        self.original_image_alpha_slider.setObjectName("editor_opacity_slider")
         self.original_image_alpha_slider.setRange(0, 100)
         self.original_image_alpha_slider.setValue(0) # Default to 0 (fully transparent, show inpainted)
         # 设置滑块自适应，较小的最小宽度
@@ -160,6 +161,7 @@ class EditorToolbar(QWidget):
 
     def _create_separator(self):
         separator = QFrame()
+        separator.setObjectName("editor_toolbar_separator")
         separator.setFrameShape(QFrame.Shape.VLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         separator.setLineWidth(1)

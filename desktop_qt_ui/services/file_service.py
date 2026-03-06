@@ -17,6 +17,7 @@ from PIL import Image
 
 # 添加项目根目录到路径以便导入path_manager
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from manga_translator.utils import open_pil_image
 from manga_translator.utils.path_manager import find_json_path
 
 
@@ -431,8 +432,7 @@ class FileService:
                 file_info['type'] = 'image'
                 # 获取图片尺寸
                 try:
-                    from PIL import Image
-                    with Image.open(file_path) as img:
+                    with open_pil_image(file_path, eager=False) as img:
                         file_info['width'] = img.width
                         file_info['height'] = img.height
                         file_info['format'] = img.format

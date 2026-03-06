@@ -2,6 +2,7 @@ import json
 import os
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from main_view_parts.theme import get_current_theme_colors
 from utils.resource_helper import resource_path
 from utils.wheel_filter import NoWheelComboBox as QComboBox
 from widgets.file_list_view import FileListView
@@ -40,6 +42,21 @@ def _load_reclassify_settings_layout():
         return data.get("tabs", [])
     except Exception:
         return []
+
+
+def _font_preview_style(size: int, family_name: str | None = None) -> str:
+    """根据当前主题生成字体预览标签样式。"""
+    text_color = get_current_theme_colors()["text_primary"]
+    parts = [f"font-size: {size}pt", f"color: {text_color}"]
+    if family_name:
+        parts.insert(0, f"font-family: '{family_name}'")
+    return "; ".join(parts) + ";"
+
+
+def refresh_font_preview_styles(self):
+    """主题变化后刷新字体预览区域颜色。"""
+    current_item = self.font_list_widget.currentItem() if hasattr(self, "font_list_widget") else None
+    _on_font_selection_changed(self, current_item, None)
 
 
 def create_left_sidebar(self) -> QWidget:
@@ -116,6 +133,17 @@ def create_left_sidebar(self) -> QWidget:
     self.nav_editor_button = QPushButton(self._t("Editor View"))
     self.nav_editor_button.setProperty("navActionButton", True)
     sidebar_layout.addWidget(self.nav_editor_button)
+
+    for button in [
+        self.nav_translation_button,
+        self.nav_settings_button,
+        self.nav_env_button,
+        self.nav_prompt_button,
+        self.nav_font_button,
+        self.nav_editor_button,
+    ]:
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setAutoDefault(False)
 
     self.nav_button_group = QButtonGroup(self)
     self.nav_button_group.setExclusive(True)
@@ -251,6 +279,8 @@ def create_translation_page(self) -> QWidget:
 
     self.start_button = QPushButton(self._t("Start Translation"))
     self.start_button.setObjectName("start_translation_button")
+    self.start_button.setProperty("primaryAction", True)
+    self.start_button.setProperty("translationState", "ready")
     self.start_button.setFixedHeight(44)
     task_layout.addWidget(self.start_button)
     page_layout.addWidget(self.translation_task_card)
@@ -320,9 +350,9 @@ def create_settings_page(self) -> QWidget:
     desc_panel_layout.setContentsMargins(16, 16, 16, 16)
     desc_panel_layout.setSpacing(12)
 
-    desc_header_label = QLabel(self._t("Settings Desc Header"))
-    desc_header_label.setObjectName("settings_desc_header")
-    desc_panel_layout.addWidget(desc_header_label)
+    self.settings_desc_header_label = QLabel(self._t("Settings Desc Header"))
+    self.settings_desc_header_label.setObjectName("settings_desc_header")
+    desc_panel_layout.addWidget(self.settings_desc_header_label)
 
     desc_divider = QFrame()
     desc_divider.setFrameShape(QFrame.Shape.HLine)
@@ -362,7 +392,8 @@ def create_settings_page(self) -> QWidget:
     if self._settings_tabs_use_reclassify:
         for tab in self.settings_tab_layout:
             tab_id = tab["id"]
-            tab_title = tab["title"]
+            tab_title_key = str(tab.get("title", "")).strip() or "Group"
+            tab_display_name = self._t(tab_title_key)
 
             tab_content_widget = QWidget()
             tab_layout = QVBoxLayout(tab_content_widget)
@@ -384,8 +415,8 @@ def create_settings_page(self) -> QWidget:
             form.setContentsMargins(16, 14, 16, 14)
 
             tab_layout.addWidget(scroll)
-            self.settings_tabs.addTab(tab_content_widget, tab_title)
-            self.settings_tab_title_keys.append(tab_title)
+            self.settings_tabs.addTab(tab_content_widget, tab_display_name)
+            self.settings_tab_title_keys.append(tab_title_key)
             self.tab_frames[tab_id] = scroll_content
     else:
         tabs_config = [
@@ -533,54 +564,103 @@ def create_env_page(self) -> QWidget:
 
 
 def create_prompt_page(self) -> QWidget:
+    from main_view_parts.prompt_preview import PromptPreviewPanel
+
     page = QWidget()
     page.setObjectName("content_page_prompts")
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    self.prompt_card = QGroupBox(self._t("Prompt Management"))
+    # --- Header Card ---
+    header_card = QWidget()
+    header_card.setObjectName("header_card")
+    header_layout = QVBoxLayout(header_card)
+    header_layout.setContentsMargins(16, 14, 16, 14)
+    header_layout.setSpacing(4)
+    self.prompt_page_title_label = QLabel(self._t("Prompt Management"))
+    self.prompt_page_title_label.setObjectName("page_title")
+    self.prompt_page_subtitle_label = QLabel(
+        self._t("Manage and apply prompt files for translation")
+    )
+    self.prompt_page_subtitle_label.setObjectName("page_subtitle")
+    self.prompt_page_subtitle_label.setWordWrap(True)
+    header_layout.addWidget(self.prompt_page_title_label)
+    header_layout.addWidget(self.prompt_page_subtitle_label)
+    page_layout.addWidget(header_card)
+
+    # --- 左右 Splitter ---
+    prompt_splitter = QSplitter(Qt.Orientation.Horizontal)
+    prompt_splitter.setObjectName("settings_body_splitter")
+
+    # ===== 左侧: Prompt 列表 =====
+    left_widget = QWidget()
+    left_layout = QVBoxLayout(left_widget)
+    left_layout.setContentsMargins(0, 0, 0, 0)
+    left_layout.setSpacing(0)
+
+    self.prompt_card = QGroupBox(self._t("Prompt List"))
     self.prompt_card.setObjectName("section_card")
     prompt_card_layout = QVBoxLayout(self.prompt_card)
     prompt_card_layout.setContentsMargins(12, 14, 12, 12)
     prompt_card_layout.setSpacing(10)
-
-    self.prompt_page_title_label = QLabel(self._t("Prompt Management"))
-    self.prompt_page_title_label.setObjectName("page_title")
-    prompt_card_layout.addWidget(self.prompt_page_title_label)
-
-    self.prompt_list_widget = QListWidget()
-    self.prompt_list_widget.setObjectName("asset_list")
-    prompt_card_layout.addWidget(self.prompt_list_widget)
 
     button_row = QWidget()
     button_row.setObjectName("inline_toolbar")
     button_row_layout = QHBoxLayout(button_row)
     button_row_layout.setContentsMargins(0, 0, 0, 0)
     button_row_layout.setSpacing(8)
+    self.prompt_new_button = QPushButton(self._t("New"))
+    self.prompt_delete_button = QPushButton(self._t("Delete"))
     self.prompt_refresh_button = QPushButton(self._t("Refresh"))
     self.prompt_open_dir_button = QPushButton(self._t("Open Directory"))
     self.prompt_apply_button = QPushButton(self._t("Apply Selected Prompt"))
+    self.prompt_new_button.setProperty("chipButton", True)
+    self.prompt_delete_button.setProperty("chipButton", True)
     self.prompt_refresh_button.setProperty("chipButton", True)
     self.prompt_open_dir_button.setProperty("chipButton", True)
     self.prompt_apply_button.setProperty("chipButton", True)
+    button_row_layout.addWidget(self.prompt_new_button)
+    button_row_layout.addWidget(self.prompt_delete_button)
     button_row_layout.addWidget(self.prompt_refresh_button)
     button_row_layout.addWidget(self.prompt_open_dir_button)
     button_row_layout.addWidget(self.prompt_apply_button)
     button_row_layout.addStretch()
     prompt_card_layout.addWidget(button_row)
 
+    self.prompt_list_widget = QListWidget()
+    self.prompt_list_widget.setObjectName("asset_list")
+    prompt_card_layout.addWidget(self.prompt_list_widget)
+
     self.prompt_status_label = QLabel("")
     self.prompt_status_label.setObjectName("page_subtitle")
     self.prompt_status_label.setWordWrap(True)
     prompt_card_layout.addWidget(self.prompt_status_label)
-    page_layout.addWidget(self.prompt_card)
-    page_layout.addStretch()
+    left_layout.addWidget(self.prompt_card, 1)
 
+    prompt_splitter.addWidget(left_widget)
+
+    # ===== 右侧: 预览面板 =====
+    self.prompt_preview_panel = PromptPreviewPanel(t_func=self._t, parent=self)
+    prompt_splitter.addWidget(self.prompt_preview_panel)
+
+    prompt_splitter.setStretchFactor(0, 2)
+    prompt_splitter.setStretchFactor(1, 3)
+    prompt_splitter.setSizes([320, 580])
+    prompt_splitter.setCollapsible(0, False)
+    prompt_splitter.setCollapsible(1, False)
+
+    page_layout.addWidget(prompt_splitter, 1)
+
+    # --- 信号连接 ---
+    self.prompt_new_button.clicked.connect(self._create_new_prompt)
+    self.prompt_delete_button.clicked.connect(self._delete_selected_prompt)
     self.prompt_refresh_button.clicked.connect(self._refresh_prompt_manager)
     self.prompt_open_dir_button.clicked.connect(self.controller.open_dict_directory)
     self.prompt_apply_button.clicked.connect(self._apply_selected_prompt)
     self.prompt_list_widget.itemDoubleClicked.connect(lambda _: self._apply_selected_prompt())
+    self.prompt_list_widget.currentItemChanged.connect(self._on_prompt_selection_changed)
+    self.prompt_preview_panel.edit_requested.connect(self._open_prompt_editor)
     return page
 
 
@@ -591,19 +671,29 @@ def create_font_page(self) -> QWidget:
     page_layout.setContentsMargins(18, 16, 18, 14)
     page_layout.setSpacing(12)
 
-    self.font_card = QGroupBox(self._t("Font Management"))
+    # --- Header Card (与翻译/设置页面一致) ---
+    header_card = QWidget()
+    header_card.setObjectName("header_card")
+    header_layout = QVBoxLayout(header_card)
+    header_layout.setContentsMargins(16, 14, 16, 14)
+    header_layout.setSpacing(4)
+    self.font_page_title_label = QLabel(self._t("Font Management"))
+    self.font_page_title_label.setObjectName("page_title")
+    self.font_page_subtitle_label = QLabel(
+        self._t("Manage and preview fonts for text rendering")
+    )
+    self.font_page_subtitle_label.setObjectName("page_subtitle")
+    self.font_page_subtitle_label.setWordWrap(True)
+    header_layout.addWidget(self.font_page_title_label)
+    header_layout.addWidget(self.font_page_subtitle_label)
+    page_layout.addWidget(header_card)
+
+    # --- Font List Card ---
+    self.font_card = QGroupBox(self._t("Font List"))
     self.font_card.setObjectName("section_card")
     font_card_layout = QVBoxLayout(self.font_card)
     font_card_layout.setContentsMargins(12, 14, 12, 12)
     font_card_layout.setSpacing(10)
-
-    self.font_page_title_label = QLabel(self._t("Font Management"))
-    self.font_page_title_label.setObjectName("page_title")
-    font_card_layout.addWidget(self.font_page_title_label)
-
-    self.font_list_widget = QListWidget()
-    self.font_list_widget.setObjectName("asset_list")
-    font_card_layout.addWidget(self.font_list_widget)
 
     button_row = QWidget()
     button_row.setObjectName("inline_toolbar")
@@ -622,17 +712,61 @@ def create_font_page(self) -> QWidget:
     button_row_layout.addStretch()
     font_card_layout.addWidget(button_row)
 
+    self.font_list_widget = QListWidget()
+    self.font_list_widget.setObjectName("asset_list")
+    font_card_layout.addWidget(self.font_list_widget)
+
     self.font_status_label = QLabel("")
     self.font_status_label.setObjectName("page_subtitle")
     self.font_status_label.setWordWrap(True)
     font_card_layout.addWidget(self.font_status_label)
-    page_layout.addWidget(self.font_card)
-    page_layout.addStretch()
 
+    page_layout.addWidget(self.font_card, 1)
+
+    # --- Font Preview Card ---
+    self.font_preview_card = QGroupBox(self._t("Font Preview"))
+    self.font_preview_card.setObjectName("section_card")
+    self.font_preview_card.setFixedHeight(320)
+    preview_card_layout = QVBoxLayout(self.font_preview_card)
+    preview_card_layout.setContentsMargins(12, 14, 12, 12)
+    preview_card_layout.setSpacing(8)
+
+    self.font_preview_name_label = QLabel(self._t("Select a font to preview"))
+    self.font_preview_name_label.setObjectName("font_preview_name")
+    preview_card_layout.addWidget(self.font_preview_name_label)
+
+    preview_divider = QFrame()
+    preview_divider.setFrameShape(QFrame.Shape.HLine)
+    preview_divider.setObjectName("settings_desc_divider")
+    preview_card_layout.addWidget(preview_divider)
+
+    # 多行预览，不同字号
+    self.font_preview_labels = []
+    preview_sizes = [12, 16, 22, 30]
+    preview_texts = [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "abcdefghijklmnopqrstuvwxyz 0123456789",
+        "你好世界 こんにちは 안녕하세요",
+        "The quick brown fox jumps over the lazy dog",
+    ]
+    for size, text in zip(preview_sizes, preview_texts):
+        lbl = QLabel(text)
+        lbl.setObjectName("font_preview_text")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(_font_preview_style(size))
+        lbl.setProperty("previewSize", size)
+        preview_card_layout.addWidget(lbl)
+        self.font_preview_labels.append(lbl)
+
+    preview_card_layout.addStretch()
+    page_layout.addWidget(self.font_preview_card)
+
+    # --- Signals ---
     self.font_refresh_button.clicked.connect(self._refresh_font_manager)
     self.font_open_dir_button.clicked.connect(self.controller.open_font_directory)
     self.font_apply_button.clicked.connect(self._apply_selected_font)
     self.font_list_widget.itemDoubleClicked.connect(lambda _: self._apply_selected_font())
+    self.font_list_widget.currentItemChanged.connect(self._on_font_selection_changed)
     return page
 
 
@@ -669,19 +803,8 @@ def create_right_panel(self) -> QWidget:
     self.progress_bar.setTextVisible(True)
     self.progress_bar.setFormat("0/0 (0%)")
     self.progress_bar.setFixedHeight(25)
-    self.progress_bar.setStyleSheet("""
-        QProgressBar {
-            border: 1px solid rgba(140, 164, 192, 0.28);
-            border-radius: 6px;
-            text-align: center;
-            background-color: rgba(12, 19, 30, 0.8);
-            color: #B8CBE0;
-        }
-        QProgressBar::chunk {
-            background-color: rgba(137, 157, 182, 0.55);
-            border-radius: 6px;
-        }
-    """)
+    self.progress_bar.setObjectName("translation_progress_bar")
+    self.progress_bar.setProperty("progressState", "idle")
     progress_layout.addWidget(self.progress_bar)
     right_splitter.addWidget(progress_container)
 
@@ -840,6 +963,138 @@ def apply_selected_prompt(self):
     self.prompt_status_label.setText(f"Current prompt: {filename}")
 
 
+def on_prompt_selection_changed(self, current, previous):
+    """Prompt 列表选中变化时加载预览。"""
+    if not hasattr(self, "prompt_preview_panel"):
+        return
+    if not current:
+        self.prompt_preview_panel.clear()
+        return
+    filename = current.text().strip()
+    if not filename:
+        self.prompt_preview_panel.clear()
+        return
+    dict_dir = resource_path("dict")
+    file_path = os.path.join(dict_dir, filename)
+    self.prompt_preview_panel.load_file(file_path)
+
+
+def open_prompt_editor(self, file_path: str):
+    """弹出编辑器对话框，关闭后刷新预览。"""
+    from main_view_parts.prompt_preview import PromptEditorDialog
+
+    dlg = PromptEditorDialog(file_path, t_func=self._t, parent=self)
+    dlg.exec()
+    # 编辑器关闭后刷新预览
+    if dlg.get_was_modified() and hasattr(self, "prompt_preview_panel"):
+        self.prompt_preview_panel.load_file(file_path)
+
+
+def create_new_prompt(self):
+    """弹出输入框，创建新的 YAML 提示词文件。"""
+    from PyQt6.QtWidgets import QInputDialog
+    name, ok = QInputDialog.getText(
+        self, self._t("New Prompt"),
+        self._t("Enter prompt file name (without extension):"),
+    )
+    if not ok or not name.strip():
+        return
+    name = name.strip()
+    # 确保文件名安全
+    safe_name = "".join(c for c in name if c.isalnum() or c in ("_", "-", ".", " ")).strip()
+    if not safe_name:
+        return
+    filename = safe_name + ".yaml"
+    dict_dir = resource_path("dict")
+    os.makedirs(dict_dir, exist_ok=True)
+    file_path = os.path.join(dict_dir, filename)
+
+    if os.path.exists(file_path):
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.warning(self, self._t("Warning"),
+                            self._t("File already exists") + f": {filename}")
+        return
+
+    # 默认 YAML 模板
+    default_content = (
+        '# 自定义翻译提示词模板\n'
+        '# Custom translation prompt template\n'
+        '#\n'
+        '# 使用方法：\n'
+        '#   1. 复制此文件并重命名（例如 my_manga_prompt.yaml）\n'
+        '#   2. 编辑下面的 system_prompt 和 glossary 部分\n'
+        '#   3. 在翻译设置中选择此文件\n'
+        '#\n'
+        '# 提示词中可以使用 {{{target_lang}}} 占位符，会被替换为目标语言名称\n'
+        '\n'
+        '# 自定义系统提示词（留空则仅使用内置的基础提示词，此处内容会叠加在基础提示词之前）\n'
+        'system_prompt: ""\n'
+        '\n'
+        '# 术语表（确保角色名、地名等翻译一致）\n'
+        'glossary:\n'
+        '  Person:\n'
+        '    - original: ""\n'
+        '      translation: ""\n'
+        '  Location: []\n'
+        '  Org: []\n'
+        '  Item: []\n'
+        '  Skill: []\n'
+        '  Creature: []\n'
+    )
+
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(default_content)
+    except Exception as e:
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.critical(self, self._t("Error"), str(e))
+        return
+
+    self._refresh_prompt_manager()
+    # 自动选中新建的文件
+    if hasattr(self, "prompt_list_widget"):
+        items = self.prompt_list_widget.findItems(filename, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.prompt_list_widget.setCurrentItem(items[0])
+    self.prompt_status_label.setText(self._t("Created") + f": {filename}")
+
+
+def delete_selected_prompt(self):
+    """删除选中的提示词文件。"""
+    if not hasattr(self, "prompt_list_widget"):
+        return
+    current = self.prompt_list_widget.currentItem()
+    if not current:
+        return
+    filename = current.text().strip()
+    if not filename:
+        return
+
+    from PyQt6.QtWidgets import QMessageBox
+    reply = QMessageBox.question(
+        self, self._t("Confirm Delete"),
+        self._t("Are you sure you want to delete this prompt file?") + f"\n\n{filename}",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    if reply != QMessageBox.StandardButton.Yes:
+        return
+
+    dict_dir = resource_path("dict")
+    file_path = os.path.join(dict_dir, filename)
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception as e:
+        QMessageBox.critical(self, self._t("Error"), str(e))
+        return
+
+    if hasattr(self, "prompt_preview_panel"):
+        self.prompt_preview_panel.clear()
+    self._refresh_prompt_manager()
+    self.prompt_status_label.setText(self._t("Deleted") + f": {filename}")
+
+
 def refresh_font_manager(self):
     if not hasattr(self, "font_list_widget"):
         return
@@ -877,3 +1132,47 @@ def apply_selected_font(self):
         return
     self.setting_changed.emit("render.font_path", font_name)
     self.font_status_label.setText(f"Current font: {font_name}")
+
+
+def _on_font_selection_changed(self, current, previous):
+    """字体选中变化时更新预览区域"""
+    if not hasattr(self, "font_preview_labels"):
+        return
+
+    if not current:
+        if hasattr(self, "font_preview_name_label"):
+            self.font_preview_name_label.setText(self._t("Select a font to preview"))
+        for lbl in self.font_preview_labels:
+            size = lbl.property("previewSize") or 14
+            lbl.setStyleSheet(_font_preview_style(size))
+        return
+
+    font_filename = current.text().strip()
+    if not font_filename:
+        return
+
+    # 更新预览标题
+    if hasattr(self, "font_preview_name_label"):
+        self.font_preview_name_label.setText(font_filename)
+
+    # 加载字体文件并通过 stylesheet 应用预览
+    family_name = None
+    try:
+        fonts_dir = resource_path("fonts")
+        font_path = os.path.join(fonts_dir, font_filename)
+        if os.path.isfile(font_path):
+            font_id = QFontDatabase.addApplicationFont(font_path)
+            if font_id >= 0:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                if families:
+                    family_name = families[0]
+    except Exception:
+        pass
+
+    # 通过 stylesheet 设置字体（这是在有全局 stylesheet 时唯一可靠的方式）
+    for lbl in self.font_preview_labels:
+        size = lbl.property("previewSize") or 14
+        if family_name:
+            lbl.setStyleSheet(_font_preview_style(size, family_name))
+        else:
+            lbl.setStyleSheet(_font_preview_style(size))

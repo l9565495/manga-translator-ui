@@ -3,8 +3,10 @@
 """
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty, pyqtSignal, QRectF, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPainterPath, QBrush
+from PyQt6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
+
+from main_view_parts.theme import _to_qcolor, get_current_theme_colors
 
 
 class ToggleSwitch(QWidget):
@@ -15,12 +17,14 @@ class ToggleSwitch(QWidget):
     def __init__(self, parent=None, checked=False):
         super().__init__(parent)
         self._checked = checked
+        self._hovered = False
         self._handle_position = 1.0 if checked else 0.0
         self._animation = QPropertyAnimation(self, b"handlePosition", self)
         self._animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self._animation.setDuration(200)
 
         self.setFixedSize(44, 24)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def isChecked(self) -> bool:
@@ -59,6 +63,26 @@ class ToggleSwitch(QWidget):
             self.stateChanged.emit(2 if self._checked else 0)
         super().mousePressEvent(event)
 
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    @staticmethod
+    def _mix_color(foreground: QColor, background: QColor, ratio: float) -> QColor:
+        inv = 1.0 - ratio
+        return QColor(
+            int(foreground.red() * ratio + background.red() * inv),
+            int(foreground.green() * ratio + background.green() * inv),
+            int(foreground.blue() * ratio + background.blue() * inv),
+            255,
+        )
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -73,19 +97,29 @@ class ToggleSwitch(QWidget):
         track_path = QPainterPath()
         track_path.addRoundedRect(QRectF(0, 0, w, h), radius, radius)
 
-        # 颜色插值
-        off_color = QColor(40, 55, 80)
-        on_color = QColor(74, 142, 224)
-        r = int(off_color.red() + (on_color.red() - off_color.red()) * pos)
-        g = int(off_color.green() + (on_color.green() - off_color.green()) * pos)
-        b = int(off_color.blue() + (on_color.blue() - off_color.blue()) * pos)
-        track_color = QColor(r, g, b)
+        c = get_current_theme_colors()
+        track_off = _to_qcolor(c["btn_soft_bg"])
+        track_off_soft = _to_qcolor(c["bg_surface_soft"])
+        track_on_start = _to_qcolor(c["btn_primary_bg"])
+        track_on_end = _to_qcolor(c["btn_primary_hover"])
+        border_off = _to_qcolor(c["btn_soft_border"])
+        border_on = _to_qcolor(c["btn_primary_border"])
+        handle_off = _to_qcolor(c["bg_surface_raised"])
+        handle_on = _to_qcolor(c["btn_primary_text"])
+        shadow_color = _to_qcolor(c["shadow_color"])
 
-        p.fillPath(track_path, QBrush(track_color))
+        if self._hovered and pos < 1.0:
+            track_off = self._mix_color(_to_qcolor(c["btn_soft_hover"]), track_off, 0.30)
+
+        gradient = QLinearGradient(0, 0, w, 0)
+        gradient.setColorAt(0.0, self._mix_color(track_on_start, track_off, pos))
+        gradient.setColorAt(1.0, self._mix_color(track_on_end, track_off_soft, pos))
+        p.fillPath(track_path, QBrush(gradient))
 
         # 轨道边框
-        border_alpha = int(60 + 40 * pos)
-        p.setPen(QColor(100, 150, 210, border_alpha))
+        border_color = self._mix_color(border_on, border_off, 0.20 + 0.80 * pos)
+        border_color.setAlpha(190 if self._checked else 150)
+        p.setPen(QPen(border_color, 1.0))
         p.drawPath(track_path)
 
         # 滑块手柄
@@ -93,15 +127,16 @@ class ToggleSwitch(QWidget):
         handle_y = h / 2.0
 
         # 手柄阴影
-        shadow_color = QColor(0, 0, 0, 40)
+        shadow_color.setAlpha(48 if self._checked else 38)
         p.setBrush(QBrush(shadow_color))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(QPointF(handle_x + handle_radius + 0.5, handle_y + 0.5), handle_radius, handle_radius)
 
         # 手柄本体
-        handle_color = QColor(220, 235, 255) if self._checked else QColor(180, 195, 215)
+        handle_color = self._mix_color(handle_on, handle_off, pos)
+        handle_border = self._mix_color(border_on, border_off, 0.15 + 0.85 * pos)
         p.setBrush(QBrush(handle_color))
-        p.setPen(Qt.PenStyle.NoPen)
+        p.setPen(QPen(handle_border, 1.0))
         p.drawEllipse(QPointF(handle_x + handle_radius, handle_y), handle_radius, handle_radius)
 
         p.end()

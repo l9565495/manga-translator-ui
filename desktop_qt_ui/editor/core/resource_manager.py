@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 from PIL import Image
+from manga_translator.utils import open_pil_image
 
 from .resources import ImageResource, MaskResource, RegionResource
 from .types import MaskType
@@ -94,7 +95,7 @@ class ResourceManager:
         try:
             self.logger.debug(f"Loading image: {image_path}")
             # 使用 pathlib.Path 对象打开图片，更好地处理中文路径
-            image = Image.open(path_obj)
+            image = open_pil_image(path_obj, eager=False)
             
             # 创建资源对象
             resource = ImageResource(

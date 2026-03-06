@@ -594,6 +594,7 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
                 continue
         
         try:
+            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
             # Calculate required dimensions
             if region.horizontal:
                 lines, widths = text_render.calc_horizontal(
@@ -602,7 +603,7 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
                     language=region.target_lang
                 )
                 if widths:
-                    spacing_y = int(target_font_size * 0.01 * (config.render.line_spacing or 1.0))
+                    spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
                     required_width = max(widths)
                     required_height = target_font_size * len(lines) + spacing_y * max(0, len(lines) - 1)
                 else:
@@ -613,7 +614,7 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
                 
                 lines, heights = text_render.calc_vertical(target_font_size, text_for_calc, max_height=99999)
                 if heights:
-                    spacing_x = int(target_font_size * 0.2 * (config.render.line_spacing or 1.0))
+                    spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
                     required_height = max(heights)
                     required_width = target_font_size * len(lines) + spacing_x * max(0, len(lines) - 1)
                 else:
@@ -954,7 +955,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             else:
                 actual_horizontal = region.horizontal
 
-            line_spacing_multiplier = config.render.line_spacing or 1.0
+            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
 
             # 用区域自己的字体来量度字符宽度，保证和 render() 实际渲染时一致
             resolved_region_font_path = _resolve_font_path(getattr(region, 'font_path', '') or '')
@@ -1428,7 +1429,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
                 # n 表示行/列数量，后续溢出重算会统一使用；默认 1 防止未赋值。
                 n = 1
-                line_spacing_multiplier = config.render.line_spacing or 1.0
+                line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
 
                 # 根据有没有BR选择不同的计算方式
                 if has_br:
@@ -1647,12 +1648,12 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     # 用取整后的字体重新算required
                     if region.horizontal:
                         final_total_width = text_render.get_string_width(target_font_size, region.translation)
-                        final_spacing_y = int(target_font_size * 0.01 * (config.render.line_spacing or 1.0))
+                        final_spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
                         required_width = final_total_width / n if n > 0 else final_total_width
                         required_height = n * target_font_size + max(0, n - 1) * final_spacing_y
                     else:
                         final_total_height = text_render.get_string_height(target_font_size, region.translation)
-                        final_spacing_x = int(target_font_size * 0.2 * (config.render.line_spacing or 1.0))
+                        final_spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
                         required_height = final_total_height / n if n > 0 else final_total_height
                         required_width = n * target_font_size + max(0, n - 1) * final_spacing_x
 
@@ -1693,7 +1694,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                 final_font_size = config.render.max_font_size
 
             # 用辅助函数直接计算 dst_points（包含矩形构建和旋转）
-            line_spacing_multiplier = config.render.line_spacing or 1.0
+            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
             dst_points = calc_box_from_font(
                 final_font_size, region.translation, region.horizontal,
                 line_spacing_multiplier, config, region.target_lang,
@@ -1785,11 +1786,17 @@ async def dispatch(
             logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
             continue
         
-        # 行间距 = 基础值 * 倍率：横排基础 0.01，竖排基础 0.2
-        line_spacing_multiplier = getattr(region, 'line_spacing', 1.0)
-        base_spacing = 0.01 if region.horizontal else 0.2
-        line_spacing = base_spacing * line_spacing_multiplier
-        img = render(img, region, dst_points, not config.render.no_hyphenation, line_spacing, config.render.disable_font_border, config)
+        # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
+        line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+        img = render(
+            img,
+            region,
+            dst_points,
+            not config.render.no_hyphenation,
+            line_spacing_multiplier,
+            config.render.disable_font_border,
+            config,
+        )
     
     if return_debug_img and debug_img is not None:
         return img, debug_img
