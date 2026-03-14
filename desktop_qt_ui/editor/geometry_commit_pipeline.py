@@ -25,10 +25,18 @@ def build_white_frame_region_data(
     region_data: dict,
     white_patch: dict,
     white_frame_local: Optional[list],
+    old_white_frame_local: Optional[list] = None,
+    edit_mode: Optional[str] = None,
 ) -> dict:
     """构建白框编辑提交数据（含可选字体尺寸回写）。"""
     data = copy.deepcopy(region_data)
     data.update(white_patch)
+
+    if edit_mode == "white_move":
+        return data
+
+    if not _white_frame_size_changed(old_white_frame_local, white_frame_local):
+        return data
 
     new_fs = _calc_font_size(data, white_frame_local)
     if new_fs is not None:
@@ -36,12 +44,43 @@ def build_white_frame_region_data(
     return data
 
 
-def _calc_font_size(region_data: dict, wf_local: Optional[list]) -> Optional[int]:
+def _white_frame_size_changed(
+    old_wf_local: Optional[list],
+    new_wf_local: Optional[list],
+) -> bool:
+    """仅当白框宽高发生变化时，才触发字号重算。"""
+    old_size = _extract_white_frame_pixel_size(old_wf_local)
+    new_size = _extract_white_frame_pixel_size(new_wf_local)
+    if old_size is None or new_size is None:
+        return True
+
+    return new_size != old_size
+
+
+def _extract_white_frame_pixel_size(wf_local: Optional[list]) -> Optional[tuple[int, int]]:
+    size = _extract_white_frame_size(wf_local)
+    if size is None:
+        return None
+    width, height = size
+    return int(round(width)), int(round(height))
+
+
+def _extract_white_frame_size(wf_local: Optional[list]) -> Optional[tuple[float, float]]:
     if wf_local is None or len(wf_local) != 4:
         return None
     left, top, right, bottom = wf_local
-    w = float(max(0.0, right - left))
-    h = float(max(0.0, bottom - top))
+    width = float(max(0.0, right - left))
+    height = float(max(0.0, bottom - top))
+    if width <= 0.0 or height <= 0.0:
+        return None
+    return width, height
+
+
+def _calc_font_size(region_data: dict, wf_local: Optional[list]) -> Optional[int]:
+    size = _extract_white_frame_size(wf_local)
+    if size is None:
+        return None
+    w, h = size
     text = region_data.get("translation", "")
     direction = region_data.get("direction", "h")
     is_h = direction in ("h", "horizontal", "hr")

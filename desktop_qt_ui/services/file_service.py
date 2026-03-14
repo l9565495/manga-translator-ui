@@ -133,6 +133,20 @@ class FileService:
                         region['font_size'] = int(original_font_size / upscale_ratio)
                         self.logger.debug(f"Font size scaled: {original_font_size} → {region['font_size']}")
 
+            # 始终从 lines 重算 center（外接矩形中心），
+            # 避免旧版 _apply_white_frame_center 污染或超分缩放遗漏导致位置偏移
+            for region in regions:
+                lines = region.get('lines')
+                if lines and isinstance(lines, list):
+                    all_points = [p for poly in lines for p in poly if isinstance(p, (list, tuple)) and len(p) >= 2]
+                    if all_points:
+                        xs = [p[0] for p in all_points]
+                        ys = [p[1] for p in all_points]
+                        region['center'] = [
+                            (min(xs) + max(xs)) / 2,
+                            (min(ys) + max(ys)) / 2,
+                        ]
+
             config = self.config_service.get_config()
             default_target_lang = config.translator.target_lang if config else None
 

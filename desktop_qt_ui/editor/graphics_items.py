@@ -641,11 +641,18 @@ class RegionTextItem(QGraphicsItemGroup):
                     super().mousePressEvent(event)
                     return
 
-                handle, indices = self._get_handle_at(local_pos)
+                was_selected = self.isSelected()
+                handle, indices = (None, (-1, -1))
+                if was_selected:
+                    handle, indices = self._get_handle_at(local_pos)
                 super().mousePressEvent(event)
 
-                if self.isSelected():
+                if was_selected and self.isSelected():
                     self._save_drag_start_state(event, local_pos, handle, indices)
+                else:
+                    self._interaction_mode = "none"
+                    self._is_dragging = False
+                    self._drag_handle_indices = None
                 event.accept()
                 return
             elif event.button() == Qt.MouseButton.RightButton:
@@ -729,7 +736,7 @@ class RegionTextItem(QGraphicsItemGroup):
             if mode == "rotate":
                 self._commit_rotation(event)
             elif mode in ("white_corner", "white_edge", "white_move"):
-                self._commit_white_frame(event)
+                self._commit_white_frame(event, mode)
             else:
                 super().mouseReleaseEvent(event)
             self._is_dragging = False
@@ -887,7 +894,7 @@ class RegionTextItem(QGraphicsItemGroup):
         except Exception as e:
             logger.error(f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}")
 
-    def _commit_white_frame(self, event):
+    def _commit_white_frame(self, event, edit_mode=None):
         scene = self.scene()
         if scene and hasattr(self, "_drag_start_scene_rect") and self._drag_start_scene_rect is not None:
             update_rect = self._drag_start_scene_rect.united(self.sceneBoundingRect())
@@ -897,6 +904,8 @@ class RegionTextItem(QGraphicsItemGroup):
         patch = self.geo.to_region_data_patch()
         new_data = build_white_frame_region_data(
             self.region_data, patch, self.geo.white_frame_local,
+            old_white_frame_local=self._drag_start_white_frame_local,
+            edit_mode=edit_mode,
         )
         self._emit_region_update(event, new_data)
 

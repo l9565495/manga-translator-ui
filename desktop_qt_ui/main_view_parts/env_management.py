@@ -215,6 +215,12 @@ def _show_api_error_dialog(parent, title: str, heading: str, details: str) -> No
     show_error_dialog(parent, heading or title, "", details, icon=QMessageBox.Icon.Critical)
 
 
+def _show_api_success_dialog(parent, title: str, heading: str, details: str) -> None:
+    from PyQt6.QtWidgets import QMessageBox
+
+    show_error_dialog(parent, heading or title, "", details, icon=QMessageBox.Icon.Information)
+
+
 def _split_env_key(env_key: str) -> tuple[str, str, str]:
     normalized_key = (env_key or "").upper()
     scope = ""
@@ -299,7 +305,6 @@ def on_test_api_clicked(self, key: str):
     import asyncio
 
     from PyQt6.QtCore import QThread
-    from PyQt6.QtWidgets import QMessageBox
 
     from widgets.themed_progress_dialog import create_progress_dialog
 
@@ -347,7 +352,13 @@ def on_test_api_clicked(self, key: str):
     def on_test_finished(success, message):
         progress.close()
         if success:
-            QMessageBox.information(self, self._t("Success"), self._t("API connection test successful!"))
+            success_details = _wrap_error_text(message) if message else self._t("API connection test successful!")
+            _show_api_success_dialog(
+                self,
+                self._t("Success"),
+                self._t("API connection test successful!"),
+                success_details,
+            )
         else:
             friendly_message = _format_test_connection_error(api_type, message)
             _show_api_error_dialog(
