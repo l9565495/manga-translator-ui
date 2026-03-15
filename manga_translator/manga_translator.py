@@ -3245,6 +3245,13 @@ class MangaTranslator:
         results = []
         total_images = len(images_with_configs)
 
+        async def report_completed_image_progress():
+            """顺序批处理按单张图片完成推进整体进度，避免整批处理期间长时间停滞。"""
+            if display_total <= 0:
+                return
+            completed = min(global_offset + len(results), display_total)
+            await self._report_progress(f"batch:{completed}:{completed}:{display_total}")
+
         # 分批处理所有图片
         for batch_start in range(0, total_images, batch_size):
             current_batch_images = []
@@ -3271,6 +3278,7 @@ class MangaTranslator:
                 current_batch_images, load_error_contexts = self._materialize_batch_inputs(current_batch_items)
                 if load_error_contexts:
                     results.extend(load_error_contexts)
+                    await report_completed_image_progress()
                 if not current_batch_images:
                     await self._report_progress(progress_state)
                     continue
@@ -3490,6 +3498,7 @@ class MangaTranslator:
                                 logger.error(f"Error saving load_text result for {os.path.basename(ctx.image_name)}: {save_err}")
                         
                         results.append(ctx)
+                        await report_completed_image_progress()
                     
                     # ✅ load_text模式：批次完成后清理批次数据（图片已在循环内清理）
                     if current_batch_images:
@@ -3550,11 +3559,13 @@ class MangaTranslator:
                     for ctx, config in translated_contexts:
                         if getattr(ctx, 'translation_error', None):
                             results.append(ctx)
+                            await report_completed_image_progress()
                             continue
                         await self._handle_template_and_save_text(ctx, config)
                         # ✅ 标记成功（导出原文完成）
                         ctx.success = True
                         results.append(ctx)
+                        await report_completed_image_progress()
                         
                         # ✅ 每处理完一张图片后立即清理内存（保留result）
                         self._cleanup_context_memory(ctx, keep_result=True)
@@ -3576,11 +3587,13 @@ class MangaTranslator:
                     for ctx, config in translated_contexts:
                         if getattr(ctx, 'translation_error', None):
                             results.append(ctx)
+                            await report_completed_image_progress()
                             continue
                         await self._handle_generate_and_export(ctx, config)
                         # ✅ 标记成功（导出翻译完成）
                         ctx.success = True
                         results.append(ctx)
+                        await report_completed_image_progress()
                         
                         # ✅ 每处理完一张图片后立即清理内存（保留result）
                         self._cleanup_context_memory(ctx, keep_result=True)
@@ -3603,6 +3616,7 @@ class MangaTranslator:
                     self._check_cancelled()  # 检查取消标志
                     if getattr(ctx, 'translation_error', None):
                         results.append(ctx)
+                        await report_completed_image_progress()
                         continue
                     try:
                         if hasattr(ctx, 'input'):
@@ -3627,6 +3641,7 @@ class MangaTranslator:
                             self._save_text_to_file(ctx.image_name, ctx, config)
 
                         results.append(ctx)
+                        await report_completed_image_progress()
 
                         # ✅ 渲染完一张立即清理这张图片的中间数据（不等整个批次完成）
                         self._cleanup_context_memory(ctx, keep_result=True)
@@ -3640,6 +3655,7 @@ class MangaTranslator:
                         logger.error(f"Error rendering image in batch: {e}", exc_info=True)
                         ctx = self._mark_context_failure(ctx, e, stage='rendering')
                         results.append(ctx)
+                        await report_completed_image_progress()
             
             finally:
                 # ✅ 批次完成后（无论成功还是失败）立即清理内存
@@ -4365,7 +4381,6 @@ class MangaTranslator:
                     merged_ctx = None
                 batch = None
                 self._cleanup_gpu_memory(aggressive=True)
-                await self._report_progress(progress_state)
 
         return results
 
@@ -5243,6 +5258,13 @@ class MangaTranslator:
         display_total = global_total if global_total is not None else len(images_with_configs)
         
         total_images = len(images_with_configs)
+
+        async def report_completed_image_progress():
+            if display_total <= 0:
+                return
+            completed = min(global_offset + len(results), display_total)
+            await self._report_progress(f"batch:{completed}:{completed}:{display_total}")
+
         for batch_start in range(0, total_images, batch_size):
             # 检查是否被取消
             await asyncio.sleep(0)
@@ -5263,6 +5285,7 @@ class MangaTranslator:
             current_batch_images, load_error_contexts = self._materialize_batch_inputs(current_batch_items)
             if load_error_contexts:
                 results.extend(load_error_contexts)
+                await report_completed_image_progress()
             if not current_batch_images:
                 await self._report_progress(progress_state)
                 continue
@@ -5402,12 +5425,14 @@ class MangaTranslator:
                 for ctx, config in preprocessed_contexts:
                     if getattr(ctx, 'translation_error', None):
                         results.append(ctx)
+                        await report_completed_image_progress()
                         continue
                     await self._handle_generate_and_export(ctx, config)
 
                     # ✅ 标记成功（导出翻译完成）
                     ctx.success = True
                     results.append(ctx)
+                    await report_completed_image_progress()
                 
                 # ✅ 批次完成后立即清理内存
                 self._cleanup_batch_memory(
@@ -5426,6 +5451,7 @@ class MangaTranslator:
                 self._check_cancelled()  # 检查取消标志
                 if getattr(ctx, 'translation_error', None):
                     results.append(ctx)
+                    await report_completed_image_progress()
                     continue
                 try:
                     if hasattr(ctx, 'input'):
@@ -5460,6 +5486,7 @@ class MangaTranslator:
                     self._cleanup_context_memory(ctx, keep_result=True)
 
                     results.append(ctx)
+                    await report_completed_image_progress()
                 except Exception as e:
                     logger.error(f"Error rendering image: {e}")
                     # 渲染失败时抛出异常，而不是继续处理
