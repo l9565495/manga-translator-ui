@@ -1,5 +1,5 @@
 name: 中文 | 功能问题 / Bug 反馈
-description: 中文模板：提交功能异常、崩溃、结果错误等问题（请尽量附上源文件、配置、日志、JSON 数据）
+description: 中文模板：提交功能异常、崩溃、结果错误等问题（必须提供翻译前的原图/输入文件，并尽量附上配置、日志、JSON 数据）
 title: "[BUG] "
 labels:
   - bug
@@ -87,10 +87,10 @@ body:
   - type: textarea
     id: source_files
     attributes:
-      label: 源文件 / 输入样本（尽量提供）
-      description: 提供最小可复现输入；可上传文件或给出可下载链接
+      label: 原图 / 输入文件（必须提供）
+      description: 必须提供出问题时使用的翻译前原图或输入文件；不要只提供翻译结果图。可直接上传文件，或给出可下载链接
       placeholder: |
-        - 原图/输入文件:
+        - 翻译前的原图/输入文件:
         - 最小复现样例:
         - 预期输出样例:
     validations:
@@ -157,7 +157,7 @@ body:
           required: true
         - label: 我已确认提供了可复现步骤与最小样例
           required: true
-        - label: 我已尽量提供源文件、配置文件、日志与 JSON 数据（如无法提供，已在上文说明原因）
+        - label: 我已提供翻译前的原图/输入文件，并尽量补充配置文件、日志与 JSON 数据（如无法提供，已在上文说明原因）
           required: true
         - label: 我已对敏感信息做脱敏处理
           required: true
