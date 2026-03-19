@@ -850,6 +850,10 @@ echo.
 REM 使用命名环境（避免中文路径问题）
 set CONDA_ENV_NAME=manga-env
 set CONDA_ENV_EXISTS=0
+set "CONDA_BASE="
+set "ENV_PATH="
+set "ENV_PYTHON="
+set "USE_DIRECT_ENV_PYTHON=0"
 
 REM 预先接受Conda服务条款（避免交互式提示卡住）
 call conda config --set channel_priority flexible >nul 2>&1
@@ -906,6 +910,7 @@ call conda env remove -n "%CONDA_ENV_NAME%" -y >nul 2>&1
 REM 清理可能存在的损坏环境目录（环境存在但未注册的情况）
 REM 获取conda的envs目录
 for /f "delims=" %%i in ('conda info --base 2^>nul') do set "CONDA_BASE=%%i"
+if not defined CONDA_BASE set "CONDA_BASE=%MINICONDA_ROOT%"
 if exist "%CONDA_BASE%\envs\%CONDA_ENV_NAME%" (
     echo 发现未注册的环境目录，正在清理...
     rmdir /s /q "%CONDA_BASE%\envs\%CONDA_ENV_NAME%" 2>nul
@@ -971,46 +976,43 @@ exit /b 1
 echo.
 echo 正在激活环境...
 
-REM 先确保 conda 已初始化
-if not exist "%MINICONDA_ROOT%\Scripts\activate.bat" goto :try_activate_s1
-call "%MINICONDA_ROOT%\Scripts\activate.bat"
+call :resolve_env_path_s1
+if not defined ENV_PATH goto :activate_failed_s1
+if not exist "!ENV_PATH!\python.exe" goto :activate_failed_s1
+set "ENV_PYTHON=!ENV_PATH!\python.exe"
+set "USE_DIRECT_ENV_PYTHON=0"
 
-:try_activate_s1
-REM 方法1: conda activate 命名环境
-call conda activate "%CONDA_ENV_NAME%" 2>nul && echo [OK] 已激活命名环境: %CONDA_ENV_NAME% && goto :env_activated
+REM 方法1: 优先使用 conda activate
+call conda activate "%CONDA_ENV_NAME%" 2>nul && (
+    echo [OK] 已激活命名环境: %CONDA_ENV_NAME%
+    goto :env_activated
+)
 
 REM 方法2: activate.bat 激活命名环境
 echo [INFO] 尝试备用激活方式...
-if not exist "%MINICONDA_ROOT%\Scripts\activate.bat" goto :try_manual_path_s1
-call "%MINICONDA_ROOT%\Scripts\activate.bat" "%CONDA_ENV_NAME%" 2>nul && echo [OK] 已激活命名环境: %CONDA_ENV_NAME% && goto :env_activated
-
-:try_manual_path_s1
-REM 方法3: 获取环境路径并手动设置PATH
-set "ENV_PATH="
-for /f "tokens=1,2,3" %%a in ('conda info --envs 2^>nul ^| findstr /B /C:"%CONDA_ENV_NAME%"') do (
-    if "%%b"=="*" (
-        set "ENV_PATH=%%c"
-    ) else (
-        set "ENV_PATH=%%b"
+if exist "%MINICONDA_ROOT%\Scripts\activate.bat" (
+    call "%MINICONDA_ROOT%\Scripts\activate.bat" "%CONDA_ENV_NAME%" 2>nul && (
+        echo [OK] 已激活命名环境: %CONDA_ENV_NAME%
+        goto :env_activated
     )
 )
-if not defined ENV_PATH goto :activate_failed_s1
-if not exist "!ENV_PATH!\python.exe" goto :activate_failed_s1
-echo [INFO] 使用手动PATH激活方式...
-set "PATH=!ENV_PATH!;!ENV_PATH!\Library\mingw-w64\bin;!ENV_PATH!\Library\usr\bin;!ENV_PATH!\Library\bin;!ENV_PATH!\Scripts;!ENV_PATH!\bin;%PATH%"
+
+REM 回退: 不再中断安装，直接使用环境 Python
+echo [WARNING] 环境激活失败，回退到直接调用环境 Python
+echo [INFO] 环境路径: !ENV_PATH!
+set "USE_DIRECT_ENV_PYTHON=1"
 set "CONDA_PREFIX=!ENV_PATH!"
 set "CONDA_DEFAULT_ENV=%CONDA_ENV_NAME%"
-echo [OK] 已激活环境: %CONDA_ENV_NAME%
 goto :env_activated
 
 :activate_failed_s1
-REM 所有激活方式都失败，询问用户
+REM 无法解析环境路径，说明环境本身不完整
 echo.
-echo [WARNING] 无法激活环境: %CONDA_ENV_NAME%
+echo [WARNING] 无法定位环境: %CONDA_ENV_NAME%
 echo.
 echo 可能原因:
-echo   1. Conda 未正确初始化
-echo   2. 环境已损坏
+echo   1. 环境未创建完整
+echo   2. Conda 环境列表异常
 echo.
 echo 请选择:
 echo [1] 重新创建环境（删除现有环境）
@@ -1048,14 +1050,37 @@ echo 请关闭所有相关程序后重试
 pause
 exit /b 1
 
+:resolve_env_path_s1
+set "ENV_PATH="
+if defined CONDA_BASE if exist "%CONDA_BASE%\envs\%CONDA_ENV_NAME%\python.exe" set "ENV_PATH=%CONDA_BASE%\envs\%CONDA_ENV_NAME%"
+if not defined ENV_PATH (
+    for /f "tokens=1,2,3" %%a in ('conda info --envs 2^>nul ^| findstr /B /C:"%CONDA_ENV_NAME%"') do (
+        if "%%b"=="*" (
+            set "ENV_PATH=%%c"
+        ) else (
+            set "ENV_PATH=%%b"
+        )
+    )
+)
+if not defined ENV_PATH if exist "%MINICONDA_ROOT%\envs\%CONDA_ENV_NAME%\python.exe" set "ENV_PATH=%MINICONDA_ROOT%\envs\%CONDA_ENV_NAME%"
+exit /b 0
+
+:run_env_python
+if "%USE_DIRECT_ENV_PYTHON%"=="1" (
+    call "!ENV_PYTHON!" %*
+) else (
+    call python %*
+)
+exit /b %ERRORLEVEL%
+
 :env_activated
 
 echo 正在升级 pip...
-python -m pip install --upgrade pip >nul 2>&1
+call :run_env_python -m pip install --upgrade pip >nul 2>&1
 
 echo 正在安装基础依赖...
-python -m pip install packaging setuptools wheel >nul 2>&1
-if %ERRORLEVEL% neq 0 (
+call :run_env_python -m pip install packaging setuptools wheel >nul 2>&1
+if !ERRORLEVEL! neq 0 (
     echo [WARNING] 基础依赖安装失败,继续尝试...
 )
 
@@ -1063,9 +1088,9 @@ echo 正在检测 GPU 支持...
 echo.
 
 REM 调用项目的 launch.py 进行依赖安装
-python packaging\launch.py --install-deps-only
+call :run_env_python packaging\launch.py --install-deps-only
 
-if %ERRORLEVEL% neq 0 (
+if !ERRORLEVEL! neq 0 (
     echo.
     echo [ERROR] 依赖安装失败
     echo.
@@ -1110,7 +1135,7 @@ set /p clean_cache="是否清理 pip 缓存? (y/n, 默认n): "
 if /i "%clean_cache%"=="y" (
     echo.
     echo 正在清理 pip 缓存...
-    python -m pip cache purge >nul 2>&1
+    call :run_env_python -m pip cache purge >nul 2>&1
     if errorlevel 1 (
         echo [WARNING] 缓存清理失败，可能权限不足
     ) else (
