@@ -18,6 +18,7 @@ from ..custom_api_params import (
 )
 from ..utils import Quadrilateral
 from ..utils.generic import AvgMeter
+from ..utils.openai_compat import resolve_openai_compatible_api_key
 from ..utils.retry import run_with_retry
 from .common import OfflineOCR
 from .prompt_loader import (
@@ -73,6 +74,7 @@ class BaseAPIOCR(OfflineOCR):
     BROWSER_HEADERS = {}
     PROVIDER_NAME = "API OCR"
     SUPPORTS_RUNTIME_CONFIG = True
+    ALLOW_EMPTY_LOCAL_API_KEY = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -140,6 +142,8 @@ class BaseAPIOCR(OfflineOCR):
             or os.getenv(self.FALLBACK_MODEL_ENV)
             or self.DEFAULT_MODEL
         )
+        if self.ALLOW_EMPTY_LOCAL_API_KEY:
+            api_key = resolve_openai_compatible_api_key(api_key, base_url)
         return api_key, base_url.rstrip("/"), model_name
 
     async def _ensure_client(self, force: bool = False):
@@ -492,6 +496,7 @@ class ModelOpenAIOCR(BaseAPIOCR):
     DEFAULT_MODEL = "gpt-4o"
     BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
     PROVIDER_NAME = "OpenAI OCR"
+    ALLOW_EMPTY_LOCAL_API_KEY = True
 
     def _create_client(self, api_key: str, base_url: str):
         from ..translators.common import AsyncOpenAICurlCffi

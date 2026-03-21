@@ -20,6 +20,7 @@ from manga_translator.custom_api_params import (
 )
 from manga_translator.ocr.prompt_loader import ensure_ai_ocr_prompt_file
 from manga_translator.rendering.prompt_loader import ensure_ai_renderer_prompt_file
+from manga_translator.utils.openai_compat import is_openai_api_key_optional
 
 PRESET_SPECIAL_ENV_VARS = [
     "OCR_OPENAI_API_KEY",
@@ -46,10 +47,14 @@ RUNTIME_API_REQUIREMENTS = {
     "openai": {
         "display_name": "OpenAI",
         "accepted_env_vars": ["OPENAI_API_KEY"],
+        "accepted_base_env_vars": ["OPENAI_API_BASE"],
+        "allow_empty_api_key_for_local_base": True,
     },
     "openai_hq": {
         "display_name": "OpenAI HQ",
         "accepted_env_vars": ["OPENAI_API_KEY"],
+        "accepted_base_env_vars": ["OPENAI_API_BASE"],
+        "allow_empty_api_key_for_local_base": True,
     },
     "gemini": {
         "display_name": "Gemini",
@@ -62,6 +67,8 @@ RUNTIME_API_REQUIREMENTS = {
     "openai_ocr": {
         "display_name": "OpenAI OCR",
         "accepted_env_vars": ["OCR_OPENAI_API_KEY", "OPENAI_API_KEY"],
+        "accepted_base_env_vars": ["OCR_OPENAI_API_BASE", "OPENAI_API_BASE"],
+        "allow_empty_api_key_for_local_base": True,
     },
     "gemini_ocr": {
         "display_name": "Gemini OCR",
@@ -70,6 +77,8 @@ RUNTIME_API_REQUIREMENTS = {
     "openai_colorizer": {
         "display_name": "OpenAI Colorizer",
         "accepted_env_vars": ["COLOR_OPENAI_API_KEY", "OPENAI_API_KEY"],
+        "accepted_base_env_vars": ["COLOR_OPENAI_API_BASE", "OPENAI_API_BASE"],
+        "allow_empty_api_key_for_local_base": True,
     },
     "gemini_colorizer": {
         "display_name": "Gemini Colorizer",
@@ -78,6 +87,8 @@ RUNTIME_API_REQUIREMENTS = {
     "openai_renderer": {
         "display_name": "OpenAI Renderer",
         "accepted_env_vars": ["RENDER_OPENAI_API_KEY", "OPENAI_API_KEY"],
+        "accepted_base_env_vars": ["RENDER_OPENAI_API_BASE", "OPENAI_API_BASE"],
+        "allow_empty_api_key_for_local_base": True,
     },
     "gemini_renderer": {
         "display_name": "Gemini Renderer",
@@ -256,6 +267,13 @@ class ConfigService(QObject):
 
             accepted_env_vars = list(requirement.get("accepted_env_vars", []))
             if any(self._has_env_value(merged_env_vars, key) for key in accepted_env_vars):
+                continue
+
+            accepted_base_env_vars = list(requirement.get("accepted_base_env_vars", []))
+            if requirement.get("allow_empty_api_key_for_local_base") and any(
+                is_openai_api_key_optional("", merged_env_vars.get(key, ""))
+                for key in accepted_base_env_vars
+            ):
                 continue
 
             missing.append(

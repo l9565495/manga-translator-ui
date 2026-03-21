@@ -214,13 +214,7 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
                 h_ext = int((w_temp / r_orig - h_temp) // 2) if r_orig > 0 else 0
                 if h_ext >= 0:
                     box = np.zeros((h_temp + h_ext * 2, w_temp, 4), dtype=np.uint8)
-                    # 垂直方向：根据center_text_in_bubble决定是否居中
-                    if config_obj.render.center_text_in_bubble:
-                        # 居中开启：垂直居中
-                        box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
-                    else:
-                        # 默认：贴顶部
-                        box[0:h_temp, 0:w_temp] = rendered_surface
+                    box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
             else:
@@ -236,13 +230,7 @@ def render_text_for_region(text_block: TextBlock, dst_points: np.ndarray, transf
                 h_ext = int(w_temp / (2 * r_orig) - h_temp / 2) if r_orig > 0 else 0
                 if h_ext >= 0:
                     box = np.zeros((h_temp + h_ext * 2, w_temp, 4), dtype=np.uint8)
-                    # 竖排文本垂直方向：根据center_text_in_bubble决定是否居中
-                    if config_obj.render.center_text_in_bubble:
-                        # 居中开启：垂直居中
-                        box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
-                    else:
-                        # 默认：贴顶部
-                        box[0:h_temp, 0:w_temp] = rendered_surface
+                    box[h_ext:h_ext+h_temp, 0:w_temp] = rendered_surface
                 else:
                     box = rendered_surface.copy()
             else:

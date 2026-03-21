@@ -17,6 +17,7 @@ from ..utils.ai_image_preprocess import (
     prepare_square_ai_image,
     restore_square_ai_image,
 )
+from ..utils.openai_compat import resolve_openai_compatible_api_key
 from ..utils.openai_image_interface import request_openai_image_with_fallback
 from ..utils.retry import run_with_retry
 from .common import CommonColorizer
@@ -67,6 +68,7 @@ class BaseAPIColorizer(CommonColorizer):
     DEFAULT_MODEL = ""
     BROWSER_HEADERS = {}
     PROVIDER_NAME = "API Colorizer"
+    ALLOW_EMPTY_LOCAL_API_KEY = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -106,6 +108,8 @@ class BaseAPIColorizer(CommonColorizer):
             or os.getenv(self.FALLBACK_MODEL_ENV)
             or self.DEFAULT_MODEL
         )
+        if self.ALLOW_EMPTY_LOCAL_API_KEY:
+            api_key = resolve_openai_compatible_api_key(api_key, base_url)
         return api_key, base_url.rstrip("/"), model_name
 
     async def _ensure_client(self):
@@ -365,6 +369,7 @@ class OpenAIColorizer(BaseAPIColorizer):
     DEFAULT_MODEL = "gpt-image-1"
     BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
     PROVIDER_NAME = "OpenAI Colorizer"
+    ALLOW_EMPTY_LOCAL_API_KEY = True
 
     def _create_client(self, api_key: str, base_url: str):
         from ..translators.common import AsyncOpenAICurlCffi

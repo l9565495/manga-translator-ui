@@ -14,6 +14,10 @@ import cv2
 import numpy as np
 
 from ..utils import InfererModule, ModelWrapper, is_valuable_text, repeating_sequence
+from ..utils.openai_compat import (
+    is_local_openai_compatible_endpoint,
+    resolve_openai_compatible_api_key,
+)
 from ..utils.retry import (
     get_retry_attempts_from_config,
     normalize_retry_attempts,
@@ -215,9 +219,10 @@ class AsyncOpenAICurlCffi:
             url = f"{self.parent.base_url}/chat/completions"
 
             headers = {
-                "Authorization": f"Bearer {self.parent.api_key}",
                 "Content-Type": "application/json"
             }
+            if self.parent.api_key:
+                headers["Authorization"] = f"Bearer {self.parent.api_key}"
 
             # 合并默认请求头
             if self.parent.default_headers:
@@ -316,9 +321,10 @@ class AsyncOpenAICurlCffi:
             url = f"{self.parent.base_url}/models"
 
             headers = {
-                "Authorization": f"Bearer {self.parent.api_key}",
                 "Content-Type": "application/json"
             }
+            if self.parent.api_key:
+                headers["Authorization"] = f"Bearer {self.parent.api_key}"
 
             # 合并默认请求头
             if self.parent.default_headers:
@@ -370,7 +376,7 @@ class AsyncOpenAICurlCffi:
             timeout: 非流式请求超时时间（秒）
             stream_timeout: 流式 HTTP 请求超时时间（秒）
         """
-        self.api_key = api_key
+        self.api_key = resolve_openai_compatible_api_key(api_key, base_url)
         self.base_url = base_url.rstrip('/')
         self.default_headers = default_headers or {}
         self.timeout = timeout
@@ -378,8 +384,7 @@ class AsyncOpenAICurlCffi:
         self.impersonate = impersonate
 
         # 检测是否是本地地址（本地地址不需要 impersonate，且可能导致超时）
-        local_indicators = ['localhost', '127.0.0.1', '0.0.0.0', '192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.']
-        is_local = any(indicator in base_url.lower() for indicator in local_indicators)
+        is_local = is_local_openai_compatible_endpoint(base_url)
 
         # 延迟导入 curl_cffi，避免在不需要时导入
         try:

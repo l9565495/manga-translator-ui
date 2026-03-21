@@ -372,7 +372,7 @@
 
 - **字体缩放比例 (font_scale_ratio)**：字体缩放比例（整体缩放字体）
 
-- **垂直居中 (center_text_in_bubble)**：文本块在气泡框内垂直居中显示
+- **气泡内居中 (center_text_in_bubble)**：文本块在气泡框内居中显示
 
 - **AI断句自动扩大文字 (optimize_line_breaks)**：启用 AI 断句优化（自动调整字体大小以减少断行）
   - 需要配合 OpenAI/Gemini 翻译器使用

@@ -864,6 +864,21 @@ def _apply_final_font_constraints(layout_font_size: int, config: Config) -> int:
     return max(final_font_size, 1)
 
 
+def _compute_top_aligned_center(region: 'TextBlock', text_height: float) -> tuple:
+    """Shift center toward bubble top so text is top-aligned within the bubble."""
+    pts = region.min_rect  # (1, 4, 2)
+    mid = (pts[:, [1, 2, 3, 0]] + pts) / 2
+    top_mid = mid[0, 0]
+    bot_mid = mid[0, 2]
+    bubble_h = float(np.linalg.norm(bot_mid - top_mid))
+    if bubble_h <= 0 or text_height >= bubble_h:
+        return tuple(region.center)
+    up = (top_mid - bot_mid) / bubble_h
+    shift = (bubble_h - text_height) / 2.0
+    nc = np.array(region.center, dtype=float) + shift * up
+    return (float(nc[0]), float(nc[1]))
+
+
 def _calc_region_dst_points_for_font(
     region: TextBlock,
     font_size: int,
@@ -871,7 +886,17 @@ def _calc_region_dst_points_for_font(
     line_spacing_multiplier: float,
     letter_spacing_multiplier: float,
     config: Config,
+    apply_centering: bool = True,
 ) -> Optional[np.ndarray]:
+    if apply_centering:
+        center = tuple(region.center)
+    else:
+        _, req_h, _ = calc_box_from_font(
+            int(max(font_size, 1)), region.translation, render_horizontally,
+            line_spacing_multiplier, config, region.target_lang,
+            letter_spacing=letter_spacing_multiplier,
+        )
+        center = _compute_top_aligned_center(region, req_h)
     return calc_box_from_font(
         int(max(font_size, 1)),
         region.translation,
@@ -879,7 +904,7 @@ def _calc_region_dst_points_for_font(
         line_spacing_multiplier,
         config,
         region.target_lang,
-        center=tuple(region.center),
+        center=center,
         angle=region.angle,
         letter_spacing=letter_spacing_multiplier,
     )
@@ -1002,6 +1027,23 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             balloon_fill_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
             balloon_fill_label_map = None
 
+    # Bubble mask for center_text_in_bubble: reuse balloon_fill_mask or try mangalens cache
+    center_check_mask = balloon_fill_mask
+    center_check_label_map = balloon_fill_label_map
+    if center_check_mask is None and config.render.center_text_in_bubble and original_img is not None:
+        try:
+            _cr = get_cached_bubbles_with_mangalens(original_img, return_annotated=False, verbose=False)
+            if _cr is not None:
+                center_check_mask = build_bubble_mask_from_mangalens_result(_cr, original_img.shape[:2])
+                if center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
+                    _, center_check_label_map = cv2.connectedComponents(
+                        np.where(center_check_mask > 0, 1, 0).astype(np.uint8), connectivity=8
+                    )
+                else:
+                    center_check_mask = None
+        except Exception:
+            pass
+
     dst_points_list = []
     for region_idx, region in enumerate(text_regions):
         if region is None:
@@ -1016,6 +1058,12 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             logger.info(f"[RESIZE] 区域 {region_idx}: translation 为空，使用 min_rect")
             dst_points_list.append(region.min_rect)
             continue
+
+        # 判断是否需要气泡内居中：开启设置 且 区域确实在检测到的气泡内
+        apply_bubble_centering = config.render.center_text_in_bubble
+        if apply_bubble_centering and center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
+            _rm = _build_region_reference_mask(region, center_check_mask, center_check_label_map)
+            apply_bubble_centering = np.count_nonzero(_rm) > 0
 
         # skip_font_scaling模式：使用region.font_size作为最终字体，完全跳过排版缩放
         # 编辑器导出时用户设多少字号就渲染多少，不做任何缩放
@@ -1037,10 +1085,19 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             else:
                 text_render.set_font(text_render.DEFAULT_FONT)
 
+            if apply_bubble_centering:
+                _center = tuple(region.center)
+            else:
+                _, _req_h, _ = calc_box_from_font(
+                    fixed_font_size, region.translation, actual_horizontal,
+                    line_spacing_multiplier, config, region.target_lang,
+                    letter_spacing=letter_spacing_multiplier,
+                )
+                _center = _compute_top_aligned_center(region, _req_h)
             dst_points = calc_box_from_font(
                 fixed_font_size, region.translation, actual_horizontal,
                 line_spacing_multiplier, config, region.target_lang,
-                center=tuple(region.center), angle=region.angle,
+                center=_center, angle=region.angle,
                 letter_spacing=letter_spacing_multiplier
             )
 
@@ -1082,6 +1139,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     line_spacing_multiplier=_resolve_line_spacing_multiplier(region, config),
                     letter_spacing_multiplier=_resolve_letter_spacing_multiplier(region, config),
                     config=config,
+                    apply_centering=apply_bubble_centering,
                 )
                 if fallback_dst_points is None:
                     fallback_dst_points = region.min_rect
@@ -1276,6 +1334,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                         line_spacing_multiplier=line_spacing_multiplier,
                         letter_spacing_multiplier=letter_spacing_multiplier,
                         config=config,
+                        apply_centering=apply_bubble_centering,
                     )
                     if preferred_dst_points is not None and preferred_dst_points.size > 0:
                         preferred_fits = _polygon_fully_inside_mask(np.asarray(preferred_dst_points[0]), region_bubble_mask)
@@ -1309,6 +1368,7 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                                 line_spacing_multiplier=line_spacing_multiplier,
                                 letter_spacing_multiplier=letter_spacing_multiplier,
                                 config=config,
+                                apply_centering=apply_bubble_centering,
                             )
                         if min_font_size > 1:
                             logger.debug(
@@ -1880,10 +1940,19 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             # 用辅助函数直接计算 dst_points（包含矩形构建和旋转）
             line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
             letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
+            if apply_bubble_centering:
+                _ss_center = tuple(region.center)
+            else:
+                _, _ss_req_h, _ = calc_box_from_font(
+                    final_font_size, region.translation, render_horizontally,
+                    line_spacing_multiplier, config, region.target_lang,
+                    letter_spacing=letter_spacing_multiplier,
+                )
+                _ss_center = _compute_top_aligned_center(region, _ss_req_h)
             dst_points = calc_box_from_font(
                 final_font_size, region.translation, render_horizontally,
                 line_spacing_multiplier, config, region.target_lang,
-                center=tuple(region.center), angle=region.angle,
+                center=_ss_center, angle=region.angle,
                 letter_spacing=letter_spacing_multiplier,
             )
 
@@ -2172,13 +2241,7 @@ def render(
             h_ext = int((w / r_orig - h) // 2) if r_orig > 0 else 0
             if h_ext >= 0:
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                # 垂直方向：根据center_text_in_bubble决定是否居中
-                if config.render.center_text_in_bubble:
-                    # 居中开启：垂直居中
-                    box[h_ext:h_ext+h, 0:w] = temp_box
-                else:
-                    # 默认：贴顶部
-                    box[0:h, 0:w] = temp_box
+                box[h_ext:h_ext+h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
         else:
@@ -2194,13 +2257,7 @@ def render(
             h_ext = int(w / (2 * r_orig) - h / 2) if r_orig > 0 else 0
             if h_ext >= 0:
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)
-                # 竖排文本垂直方向：根据center_text_in_bubble决定是否居中
-                if config.render.center_text_in_bubble:
-                    # 居中开启：垂直居中
-                    box[h_ext:h_ext+h, 0:w] = temp_box
-                else:
-                    # 默认：贴顶部
-                    box[0:h, 0:w] = temp_box
+                box[h_ext:h_ext+h, 0:w] = temp_box
             else:
                 box = temp_box.copy()
         else:

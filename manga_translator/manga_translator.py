@@ -1789,6 +1789,7 @@ class MangaTranslator:
         return any(
             (
                 getattr(render_cfg, 'layout_mode', None) == 'balloon_fill',
+                bool(getattr(render_cfg, 'center_text_in_bubble', False)),
                 bool(getattr(ocr_cfg, 'use_model_bubble_filter', False)),
                 bool(getattr(ocr_cfg, 'use_model_bubble_repair_intersection', False)),
                 bool(getattr(ocr_cfg, 'limit_mask_dilation_to_bubble_mask', False)),

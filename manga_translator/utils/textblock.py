@@ -318,7 +318,36 @@ class TextBlock(object):
         # 保存时走一遍对比度检查，确保 fg/bg 颜色有足够差异
         fg_out, bg_out = self.get_font_colors()
 
-        return {
+        # 如果渲染管线已计算出 dst_points，将其转为 white_frame_rect_local 保存
+        # 编辑器加载时会用此字段算出 render_center，确保编辑器白框与最终渲染位置一致
+        white_frame_extra = {}
+        if hasattr(self, 'dst_points') and self.dst_points is not None:
+            try:
+                pts_world = np.array(self.dst_points).reshape(-1, 2)
+                if len(pts_world) >= 4:
+                    angle_rad = math.radians(self.angle)
+                    cos_a, sin_a = math.cos(angle_rad), math.sin(angle_rad)
+                    local_pts = np.array([
+                        (dx * cos_a + dy * sin_a, -dx * sin_a + dy * cos_a)
+                        for wx, wy in pts_world[:4]
+                        for dx, dy in [(wx - center_x, wy - center_y)]
+                    ])
+                    cpx = float(np.mean(local_pts[:, 0]))
+                    cpy = float(np.mean(local_pts[:, 1]))
+                    width = float(np.hypot(local_pts[1, 0] - local_pts[0, 0],
+                                           local_pts[1, 1] - local_pts[0, 1]))
+                    height = float(np.hypot(local_pts[3, 0] - local_pts[0, 0],
+                                            local_pts[3, 1] - local_pts[0, 1]))
+                    if width > 0 and height > 0:
+                        hw, hh = width / 2.0, height / 2.0
+                        white_frame_extra = {
+                            'white_frame_rect_local': [cpx - hw, cpy - hh, cpx + hw, cpy + hh],
+                            'has_custom_white_frame': True,
+                        }
+            except Exception:
+                pass
+
+        result = {
             'lines': new_lines,
             'center': [float(center_x), float(center_y)],
             'texts': self.texts,
@@ -338,6 +367,8 @@ class TextBlock(object):
             'prob': self.prob,
             'font_path': getattr(self, 'font_path', ''),  # 区域特定字体路径（空字符串=使用全局默认字体）
         }
+        result.update(white_frame_extra)
+        return result
 
     def get_transformed_region(self, img: np.ndarray, line_idx: int, textheight: int, maxwidth: int = None) -> np.ndarray:
         im_h, im_w = img.shape[:2]

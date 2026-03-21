@@ -19,6 +19,7 @@ from ..utils.ai_image_preprocess import (
     prepare_square_ai_image,
     restore_square_ai_image,
 )
+from ..utils.openai_compat import resolve_openai_compatible_api_key
 from ..utils.openai_image_interface import request_openai_image_with_fallback
 from ..utils.retry import run_with_retry
 from .prompt_loader import (
@@ -69,6 +70,7 @@ class BaseAPIRenderer:
     DEFAULT_MODEL = ""
     BROWSER_HEADERS = {}
     PROVIDER_NAME = "API Renderer"
+    ALLOW_EMPTY_LOCAL_API_KEY = False
 
     def __init__(self):
         self.logger = get_logger("render")
@@ -107,6 +109,8 @@ class BaseAPIRenderer:
             or os.getenv(self.FALLBACK_MODEL_ENV)
             or self.DEFAULT_MODEL
         )
+        if self.ALLOW_EMPTY_LOCAL_API_KEY:
+            api_key = resolve_openai_compatible_api_key(api_key, base_url)
         return api_key, base_url.rstrip("/"), model_name
 
     async def ensure_client(self):
@@ -318,6 +322,7 @@ class OpenAIRenderer(BaseAPIRenderer):
     DEFAULT_MODEL = "gpt-image-1"
     BROWSER_HEADERS = OPENAI_BROWSER_HEADERS
     PROVIDER_NAME = "OpenAI Renderer"
+    ALLOW_EMPTY_LOCAL_API_KEY = True
 
     def _create_client(self, api_key: str, base_url: str):
         from ..translators.common import AsyncOpenAICurlCffi

@@ -48,6 +48,7 @@ from manga_translator.config import (
     Upscaler,
 )
 from manga_translator.save import OUTPUT_FORMATS
+from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
 from manga_translator.utils import open_pil_image, save_pil_image
 
 
@@ -739,10 +740,11 @@ class MainAppLogic(QObject):
         return defaults.get(normalized_key)
 
     async def _test_openai_text_api(self, api_key: str, api_base: str | None, model: str | None) -> tuple[bool, str]:
+        resolved_api_key = resolve_openai_compatible_api_key(api_key, api_base or "https://api.openai.com/v1")
         try:
             from manga_translator.translators.common import AsyncOpenAICurlCffi
             client = AsyncOpenAICurlCffi(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 default_headers=_OPENAI_BROWSER_HEADERS,
                 impersonate="chrome110",
@@ -752,7 +754,7 @@ class MainAppLogic(QObject):
         except ImportError:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 timeout=30.0,
             )
@@ -772,11 +774,12 @@ class MainAppLogic(QObject):
     async def _test_openai_ocr_api(self, api_key: str, api_base: str | None, model: str | None) -> tuple[bool, str]:
         model_name = (model or "").strip() or self._get_default_model_for_test("openai_ocr")
         image_b64 = base64.b64encode(self._build_api_test_image_bytes()).decode("ascii")
+        resolved_api_key = resolve_openai_compatible_api_key(api_key, api_base or "https://api.openai.com/v1")
 
         try:
             from manga_translator.translators.common import AsyncOpenAICurlCffi
             client = AsyncOpenAICurlCffi(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 default_headers=_OPENAI_BROWSER_HEADERS,
                 impersonate="chrome110",
@@ -786,7 +789,7 @@ class MainAppLogic(QObject):
         except ImportError:
             from openai import AsyncOpenAI
             client = AsyncOpenAI(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 timeout=30.0,
             )
@@ -813,6 +816,7 @@ class MainAppLogic(QObject):
 
     async def _test_openai_image_api(self, api_key: str, api_base: str | None, model: str | None, target_label: str) -> tuple[bool, str]:
         model_name = (model or "").strip() or self._get_default_model_for_test(target_label)
+        resolved_api_key = resolve_openai_compatible_api_key(api_key, api_base or "https://api.openai.com/v1")
 
         try:
             from manga_translator.translators.common import AsyncOpenAICurlCffi
@@ -821,7 +825,7 @@ class MainAppLogic(QObject):
             )
 
             client = AsyncOpenAICurlCffi(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 default_headers=_OPENAI_BROWSER_HEADERS,
                 impersonate="chrome110",
@@ -839,7 +843,7 @@ class MainAppLogic(QObject):
                 await request_openai_image_with_fallback(
                     session=client.session,
                     base_url=(api_base or "https://api.openai.com/v1").rstrip("/"),
-                    api_key=api_key,
+                    api_key=resolved_api_key,
                     default_headers=_OPENAI_BROWSER_HEADERS,
                     model_name=model_name,
                     prompt_text="Return a simple test image.",
@@ -857,7 +861,7 @@ class MainAppLogic(QObject):
             from openai import AsyncOpenAI
 
             client = AsyncOpenAI(
-                api_key=api_key,
+                api_key=resolved_api_key,
                 base_url=api_base or "https://api.openai.com/v1",
                 timeout=60.0,
             )
@@ -1086,11 +1090,12 @@ class MainAppLogic(QObject):
             normalized_key = self._normalize_api_test_target(translator_key)
 
             if self._is_openai_compatible_target(normalized_key):
+                resolved_api_key = resolve_openai_compatible_api_key(api_key, api_base or "https://api.openai.com/v1")
                 # 尝试使用 curl_cffi 客户端绕过 TLS 指纹检测
                 try:
                     from manga_translator.translators.common import AsyncOpenAICurlCffi
                     client = AsyncOpenAICurlCffi(
-                        api_key=api_key,
+                        api_key=resolved_api_key,
                         base_url=api_base or "https://api.openai.com/v1",
                         impersonate="chrome110",
                         timeout=60.0
@@ -1098,7 +1103,7 @@ class MainAppLogic(QObject):
                 except ImportError:
                     from openai import AsyncOpenAI
                     client = AsyncOpenAI(
-                        api_key=api_key,
+                        api_key=resolved_api_key,
                         base_url=api_base or "https://api.openai.com/v1",
                         timeout=60.0,
                     )
