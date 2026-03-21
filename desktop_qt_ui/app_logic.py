@@ -3471,7 +3471,12 @@ class TranslationWorker(QObject):
                         
                         # 检查导出原文/翻译的TXT文件（如果启用）
                         if cli_config.get('translate_json_only', False):
-                            should_skip = False
+                            from manga_translator.utils.path_manager import (
+                                get_original_txt_path,
+                            )
+                            txt_path = get_original_txt_path(file_path, create_dir=False)
+                            if not os.path.exists(txt_path):
+                                should_skip = True
                         elif cli_config.get('template', False) and cli_config.get('save_text', False):
                             # 导出原文模式 - 检查TXT文件
                             from manga_translator.utils.path_manager import (

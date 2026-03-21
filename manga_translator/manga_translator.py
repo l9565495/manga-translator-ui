@@ -319,6 +319,17 @@ def parse_upscale_ratio(upscale_ratio) -> float:
         logger.warning(f"无法解析超分倍率: {upscale_ratio}, 将忽略")
         return 0
 
+
+def _parse_skip_font_scaling_flag(value, default: bool = True) -> bool:
+    """Normalize skip_font_scaling values loaded from JSON."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    if value is None:
+        return default
+    return bool(value)
+
 class MangaTranslator:
     verbose: bool
     ignore_errors: bool
@@ -818,9 +829,26 @@ class MangaTranslator:
             'original_height': original_height
         }
 
+        preserved_skip_font_scaling = getattr(ctx, 'skip_font_scaling', None)
+        if preserved_skip_font_scaling is None and os.path.exists(text_output_file):
+            try:
+                with open(text_output_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                if existing_data and len(existing_data.values()) > 0:
+                    existing_image_data = next(iter(existing_data.values()))
+                    if isinstance(existing_image_data, dict) and 'skip_font_scaling' in existing_image_data:
+                        preserved_skip_font_scaling = _parse_skip_font_scaling_flag(
+                            existing_image_data.get('skip_font_scaling'),
+                            default=True,
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to preserve skip_font_scaling from existing JSON {text_output_file}: {e}")
+
         # 导出原文/导出翻译模式：显式要求导入渲染时不要跳过字体缩放算法
         if (self.template and self.save_text) or self.generate_and_export:
             data_to_save['skip_font_scaling'] = False
+        elif preserved_skip_font_scaling is not None:
+            data_to_save['skip_font_scaling'] = bool(preserved_skip_font_scaling)
         
         # 添加超分和上色配置信息
         if config:
@@ -1293,15 +1321,10 @@ class MangaTranslator:
             regions_data = image_data.get('regions', [])
             mask_raw_data = image_data.get('mask_raw', None)
             mask_is_refined = image_data.get('mask_is_refined', False)
-            skip_font_scaling_raw = image_data.get('skip_font_scaling', True)
-            if isinstance(skip_font_scaling_raw, bool):
-                skip_font_scaling = skip_font_scaling_raw
-            elif isinstance(skip_font_scaling_raw, str):
-                skip_font_scaling = skip_font_scaling_raw.strip().lower() in ('1', 'true', 'yes', 'on')
-            elif skip_font_scaling_raw is None:
-                skip_font_scaling = True
-            else:
-                skip_font_scaling = bool(skip_font_scaling_raw)
+            skip_font_scaling = _parse_skip_font_scaling_flag(
+                image_data.get('skip_font_scaling', True),
+                default=True,
+            )
         else:
             logger.warning(f"Invalid data format in JSON file {text_file_path}.")
             return None, None, False, True
@@ -3779,6 +3802,7 @@ class MangaTranslator:
                             self._prepare_loaded_regions(loaded_regions, use_text_as_translation=True)
                             
                             ctx.text_regions = loaded_regions
+                            ctx.skip_font_scaling = skip_font_scaling
                             
                             existing_inpainted_path = find_inpainted_path(image_name) if image_name else None
 
@@ -3987,7 +4011,7 @@ class MangaTranslator:
                             ctx.config = config
                             ctx.from_lang = 'auto'
 
-                            loaded_regions, loaded_mask, mask_is_refined, _ = self._load_text_and_regions_from_file(image_name, config)
+                            loaded_regions, loaded_mask, mask_is_refined, skip_font_scaling = self._load_text_and_regions_from_file(image_name, config)
                             if loaded_regions is None:
                                 json_path = find_json_path(image_name) if image_name else None
                                 if not json_path and image_name:
@@ -3996,6 +4020,7 @@ class MangaTranslator:
 
                             self._prepare_loaded_regions(loaded_regions, use_text_as_translation=False)
                             ctx.text_regions = loaded_regions
+                            ctx.skip_font_scaling = skip_font_scaling
 
                             if loaded_mask is not None:
                                 if mask_is_refined:

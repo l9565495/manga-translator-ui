@@ -81,6 +81,43 @@ def parse_args():
     return parser.parse_args()
 
 
+def _should_skip_existing_cli_file(file_path, cli_config, translator=None, save_info=None):
+    """Reuse CLI overwrite checks across normal and subprocess local modes."""
+    if cli_config.get('translate_json_only', False):
+        from manga_translator.utils.path_manager import (
+            get_original_txt_path,
+        )
+        txt_path = get_original_txt_path(file_path, create_dir=False)
+        if not os.path.exists(txt_path):
+            return True, f"原文文件不存在: {os.path.basename(txt_path)}"
+        return False, ""
+
+    if cli_config.get('template', False) and cli_config.get('save_text', False):
+        from manga_translator.utils.path_manager import (
+            get_original_txt_path,
+        )
+        txt_path = get_original_txt_path(file_path, create_dir=False)
+        if os.path.exists(txt_path):
+            return True, f"原文文件已存在: {os.path.basename(txt_path)}"
+        return False, ""
+
+    if cli_config.get('generate_and_export', False):
+        from manga_translator.utils.path_manager import (
+            get_translated_txt_path,
+        )
+        txt_path = get_translated_txt_path(file_path, create_dir=False)
+        if os.path.exists(txt_path):
+            return True, f"翻译文件已存在: {os.path.basename(txt_path)}"
+        return False, ""
+
+    if translator is not None and save_info is not None:
+        output_path = translator._calculate_output_path(file_path, save_info)
+        if os.path.exists(output_path):
+            return True, f"输出文件已存在: {os.path.basename(file_path)}"
+
+    return False, ""
+
+
 async def translate_files(input_paths, output_dir, config_service, verbose=False, overwrite=False, args=None):
     """翻译文件（使用 UI 层的逻辑）"""
     
@@ -381,34 +418,12 @@ async def translate_files(input_paths, output_dir, config_service, verbose=False
         filtered_file_paths = []
         for file_path, config in file_paths_with_configs:
             try:
-                should_skip = False
-                skip_reason = ""
-                
-                # 检查导出原文/翻译的TXT文件（如果启用）
-                if cli_config.get('template', False) and cli_config.get('save_text', False):
-                    # 导出原文模式 - 检查TXT文件
-                    from manga_translator.utils.path_manager import (
-                        get_original_txt_path,
-                    )
-                    txt_path = get_original_txt_path(file_path, create_dir=False)
-                    if os.path.exists(txt_path):
-                        should_skip = True
-                        skip_reason = f"原文文件已存在: {os.path.basename(txt_path)}"
-                elif cli_config.get('generate_and_export', False):
-                    # 导出翻译模式 - 检查TXT文件
-                    from manga_translator.utils.path_manager import (
-                        get_translated_txt_path,
-                    )
-                    txt_path = get_translated_txt_path(file_path, create_dir=False)
-                    if os.path.exists(txt_path):
-                        should_skip = True
-                        skip_reason = f"翻译文件已存在: {os.path.basename(txt_path)}"
-                else:
-                    # 普通翻译模式 - 检查图片文件
-                    output_path = translator._calculate_output_path(file_path, save_info)
-                    if os.path.exists(output_path):
-                        should_skip = True
-                        skip_reason = f"输出文件已存在: {os.path.basename(file_path)}"
+                should_skip, skip_reason = _should_skip_existing_cli_file(
+                    file_path,
+                    cli_config,
+                    translator=translator,
+                    save_info=save_info,
+                )
                 
                 if should_skip:
                     skipped_count += 1
@@ -700,8 +715,13 @@ async def run_local_mode(args):
                 filtered_files = []
                 for file_path in all_files:
                     try:
-                        output_path = temp_translator._calculate_output_path(file_path, save_info)
-                        if os.path.exists(output_path):
+                        should_skip, _ = _should_skip_existing_cli_file(
+                            file_path,
+                            cli_config,
+                            translator=temp_translator,
+                            save_info=save_info,
+                        )
+                        if should_skip:
                             skipped_count += 1
                             if verbose:
                                 print(f"⏭️  跳过已存在: {os.path.basename(file_path)}")

@@ -465,6 +465,9 @@ class MainWindow(QMainWindow):
             if not saved_files:
                 return
 
+            if not self._should_prompt_open_results_in_editor():
+                return
+
             from PyQt6.QtWidgets import QMessageBox
 
             reply = show_error_dialog(
@@ -483,6 +486,33 @@ class MainWindow(QMainWindow):
             self.logger.error(f"on_task_completed 发生异常: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
+
+    def _should_prompt_open_results_in_editor(self) -> bool:
+        """Only prompt for workflows that produce editor-meaningful results."""
+        try:
+            config = self.config_service.get_config()
+            cli = getattr(config, 'cli', None)
+            if cli is None:
+                return True
+
+            if getattr(cli, 'replace_translation', False):
+                return True
+
+            if getattr(cli, 'load_text', False):
+                return True
+
+            incompatible_modes = (
+                getattr(cli, 'translate_json_only', False),
+                getattr(cli, 'template', False),
+                getattr(cli, 'generate_and_export', False),
+                getattr(cli, 'colorize_only', False),
+                getattr(cli, 'upscale_only', False),
+                getattr(cli, 'inpaint_only', False),
+            )
+            return not any(incompatible_modes)
+        except Exception as e:
+            self.logger.warning(f"判断是否显示编辑器提示框失败，回退为显示提示框: {e}")
+            return True
 
     @pyqtSlot(str)
     def _show_error_dialog(self, error_message: str):
