@@ -844,9 +844,9 @@ class MangaTranslator:
             except Exception as e:
                 logger.warning(f"Failed to preserve skip_font_scaling from existing JSON {text_output_file}: {e}")
 
-        # 导出原文/导出翻译模式：显式要求导入渲染时不要跳过字体缩放算法
+        # 导出原文/导出翻译模式：后续 load_text 回渲染固定走 skip_font_scaling
         if (self.template and self.save_text) or self.generate_and_export:
-            data_to_save['skip_font_scaling'] = False
+            data_to_save['skip_font_scaling'] = True
         elif preserved_skip_font_scaling is not None:
             data_to_save['skip_font_scaling'] = bool(preserved_skip_font_scaling)
         
@@ -3968,7 +3968,20 @@ class MangaTranslator:
                             if hasattr(image, 'name'):
                                 ctx.image_name = image.name
                             ctx.translation_error = str(e)
-                            ctx.result = image
+                            fallback_result = None
+                            try:
+                                fallback_result = image.copy()
+                            except Exception as copy_error:
+                                logger.warning(f"Failed to copy fallback image for load_text error: {copy_error}")
+                                image_name = getattr(image, 'name', None)
+                                if image_name:
+                                    try:
+                                        reopened_image = open_pil_image(image_name, eager=True)
+                                        fallback_result = reopened_image.copy()
+                                        reopened_image.close()
+                                    except Exception as reopen_error:
+                                        logger.warning(f"Failed to reopen fallback image for load_text error: {reopen_error}")
+                            ctx.result = fallback_result
                             preprocessed_contexts.append((ctx, config))
                     
                     # load_text模式下已经完成了所有处理（包括渲染），直接保存并返回

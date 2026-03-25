@@ -11,7 +11,6 @@ from typing import Any, List, Tuple
 from . import text_render
 from .text_render import (
     CJK_Compatibility_Forms_translate,
-    auto_add_horizontal_tags,
     calc_horizontal_block_height,
     compact_special_symbols,
     get_char_glyph,
@@ -62,12 +61,6 @@ def _calculate_uniformity(values: List[float]) -> float:
 
 def _hyphenate_enabled(config: Any) -> bool:
     return not (config and hasattr(config, "render") and getattr(config.render, "no_hyphenation", False))
-
-
-def _auto_rotate_symbols_enabled(config: Any) -> bool:
-    return bool(config and hasattr(config, "render") and getattr(config.render, "auto_rotate_symbols", False))
-
-
 # ---------------------------------------------------------------------------
 # 竖排换行引擎（完全内嵌，不依赖 text_render.calc_vertical）
 # ---------------------------------------------------------------------------
@@ -101,20 +94,15 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
     竖排换行引擎，完全自包含。
 
     特性：
-    1. 开启 auto_rotate_symbols 时，先把英文/数字词包成 <H> 块
-    2. <H> 块用 _h_block_height 计算高度（和渲染一致）
-    3. 普通 CJK 字符用 vertAdvance 逐字累积
-    4. CJK_H2V 字形替换（通过 CJK_Compatibility_Forms_translate）
-    5. [BR]/<br> 等统一预处理为 \\n
-    6. 输出的 line 文本保留 <H> 标签供渲染侧使用
+    1. <H> 块用 _h_block_height 计算高度（和渲染一致）
+    2. 普通 CJK 字符用 vertAdvance 逐字累积
+    3. CJK_H2V 字形替换（通过 CJK_Compatibility_Forms_translate）
+    4. [BR]/<br> 等统一预处理为 \n
+    5. 输出的 line 文本保留 <H> 标签供渲染侧使用
 
     返回 (line_text_list, line_height_list)
     """
-    # 先统一 BR 标记，再按开关决定是否自动补 <H> 标签。
-    # 若先加标签，"[BR]" 可能被包进 <H> 块导致后续无法识别成换行。
     text = _BR_RE.sub('\n', text)
-    if _auto_rotate_symbols_enabled(config):
-        text = auto_add_horizontal_tags(text)
 
     line_text_list: List[str] = []
     line_height_list: List[int] = []
@@ -193,8 +181,6 @@ def _vert_line_width(line_text: str, font_size: int) -> int:
 def _vert_total_height(text: str, font_size: int, config: Any = None, letter_spacing: float = 1.0) -> int:
     """不换行时竖排文本的总高度，考虑 <H> 块。"""
     text = _BR_RE.sub('', text)
-    if _auto_rotate_symbols_enabled(config):
-        text = auto_add_horizontal_tags(text)
     total = 0
     for part in _H_BLOCK_RE.split(text):
         if not part:

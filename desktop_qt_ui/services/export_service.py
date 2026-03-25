@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
+from utils.asyncio_cleanup import shutdown_event_loop
 from utils.json_encoder import CustomJSONEncoder
 
 from manga_translator.utils import open_pil_image, save_pil_image
@@ -846,6 +847,9 @@ class ExportService:
 
             try:
                 ctx = loop.run_until_complete(translator.translate(image, cfg, image_name=image.name))
+                translation_error = getattr(ctx, 'translation_error', None) or getattr(ctx, 'error', None)
+                if translation_error:
+                    raise RuntimeError(f"translator.translate returned translation_error: {translation_error}")
                 self._persist_backend_inpainted_image(
                     source_image_path=source_image_path,
                     inpainted_image=getattr(ctx, 'img_inpainted', None),
@@ -941,7 +945,7 @@ class ExportService:
                 self.logger.error(f"完整堆栈:\n{traceback.format_exc()}")
                 raise
             finally:
-                loop.close()
+                shutdown_event_loop(loop, logger=self.logger, label="backend export loop")
 
         except Exception as e:
             self.logger.error(f"执行后端渲染时出错: {type(e).__name__}: {e}")

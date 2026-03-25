@@ -90,6 +90,18 @@ def _estimate_effect_padding(font_size: int, config: Config = None) -> float:
     return float(max(int(font_size * stroke_ratio), 1))
 
 
+def _apply_vertical_horizontal_markup(text: str, *, render_horizontally: bool, config: Config = None) -> str:
+    """高层渲染预处理：仅在这里决定是否为竖排文本补 <H> 标记。"""
+    value = str(text or "")
+    if not value or render_horizontally:
+        return value
+
+    if not (config and hasattr(config, 'render') and getattr(config.render, 'auto_rotate_symbols', False)):
+        return value
+
+    return text_render.auto_add_horizontal_tags(value)
+
+
 def calc_text_block_dimensions(text: str, is_horizontal: bool, line_spacing: float = 1.0,
                                 config: Config = None, target_lang: str = None,
                                 font_size: int = BASE_FONT_SIZE, letter_spacing: float = 1.0) -> tuple:
@@ -620,9 +632,6 @@ def optimize_line_breaks_for_region(region: TextBlock, config: Config, target_fo
                 else:
                     continue
             else:  # Vertical
-                if config.render.auto_rotate_symbols:
-                    text_for_calc = text_render.auto_add_horizontal_tags(text_for_calc)
-                
                 lines, heights = text_render.calc_vertical(target_font_size, text_for_calc, max_height=99999, letter_spacing=letter_spacing_multiplier)
                 if heights:
                     spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
@@ -879,6 +888,43 @@ def _compute_top_aligned_center(region: 'TextBlock', text_height: float) -> tupl
     return (float(nc[0]), float(nc[1]))
 
 
+def _resolve_layout_anchor_mode(*, apply_bubble_centering: bool, skip_font_scaling: bool = False) -> str:
+    """统一中心锚点策略。
+
+    - skip_font_scaling: 永远按当前 region.center 渲染，不做上对齐
+    - 正常渲染: 气泡内居中命中时 center，否则 top
+    """
+    if skip_font_scaling:
+        return 'center'
+    return 'center' if apply_bubble_centering else 'top'
+
+
+def _resolve_region_layout_center(
+    region: TextBlock,
+    font_size: int,
+    render_horizontally: bool,
+    line_spacing_multiplier: float,
+    letter_spacing_multiplier: float,
+    config: Config,
+    anchor_mode: str = 'top',
+) -> tuple:
+    if anchor_mode == 'center':
+        return tuple(region.center)
+    if anchor_mode != 'top':
+        raise ValueError(f"Unsupported anchor_mode: {anchor_mode!r}")
+
+    _, req_h, _ = calc_box_from_font(
+        int(max(font_size, 1)),
+        region.translation,
+        render_horizontally,
+        line_spacing_multiplier,
+        config,
+        region.target_lang,
+        letter_spacing=letter_spacing_multiplier,
+    )
+    return _compute_top_aligned_center(region, req_h)
+
+
 def _calc_region_dst_points_for_font(
     region: TextBlock,
     font_size: int,
@@ -886,17 +932,17 @@ def _calc_region_dst_points_for_font(
     line_spacing_multiplier: float,
     letter_spacing_multiplier: float,
     config: Config,
-    apply_centering: bool = True,
+    anchor_mode: str = 'top',
 ) -> Optional[np.ndarray]:
-    if apply_centering:
-        center = tuple(region.center)
-    else:
-        _, req_h, _ = calc_box_from_font(
-            int(max(font_size, 1)), region.translation, render_horizontally,
-            line_spacing_multiplier, config, region.target_lang,
-            letter_spacing=letter_spacing_multiplier,
-        )
-        center = _compute_top_aligned_center(region, req_h)
+    center = _resolve_region_layout_center(
+        region=region,
+        font_size=font_size,
+        render_horizontally=render_horizontally,
+        line_spacing_multiplier=line_spacing_multiplier,
+        letter_spacing_multiplier=letter_spacing_multiplier,
+        config=config,
+        anchor_mode=anchor_mode,
+    )
     return calc_box_from_font(
         int(max(font_size, 1)),
         region.translation,
@@ -918,6 +964,7 @@ def _font_size_fits_bubble_mask(
     letter_spacing_multiplier: float,
     config: Config,
     bubble_mask: np.ndarray,
+    anchor_mode: str = 'top',
 ) -> Tuple[bool, Optional[np.ndarray]]:
     dst_points = _calc_region_dst_points_for_font(
         region=region,
@@ -926,6 +973,7 @@ def _font_size_fits_bubble_mask(
         line_spacing_multiplier=line_spacing_multiplier,
         letter_spacing_multiplier=letter_spacing_multiplier,
         config=config,
+        anchor_mode=anchor_mode,
     )
     if dst_points is None or dst_points.size == 0:
         return False, None
@@ -942,6 +990,7 @@ def _binary_search_font_for_bubble_mask(
     letter_spacing_multiplier: float,
     config: Config,
     bubble_mask: np.ndarray,
+    anchor_mode: str = 'top',
 ) -> Tuple[Optional[int], Optional[np.ndarray]]:
     lo = max(int(min_font_size), 1)
     hi = max(int(start_font_size), lo)
@@ -958,6 +1007,7 @@ def _binary_search_font_for_bubble_mask(
             letter_spacing_multiplier=letter_spacing_multiplier,
             config=config,
             bubble_mask=bubble_mask,
+            anchor_mode=anchor_mode,
         )
         if fits:
             best_font = mid
@@ -980,6 +1030,13 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
     mode = config.render.layout_mode
     
     logger.debug(f"[RESIZE] 开始处理 {len(text_regions)} 个区域")
+
+    for region in text_regions:
+        region.translation = _apply_vertical_horizontal_markup(
+            region.translation,
+            render_horizontally=_resolve_region_render_horizontal(region),
+            config=config,
+        )
 
     # Prepare debug image for balloon_fill mode (only when requested)
     debug_img = None
@@ -1050,183 +1107,651 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             logger.info(f"[RESIZE] 区域 {region_idx}: None，跳过")
             dst_points_list.append(None)
             continue
-        if config:
-            config._current_region = region
+        region_font_path = getattr(region, 'font_path', '') or ''
+        resolved_region_font_path = _resolve_font_path(region_font_path)
+        try:
+            if config:
+                config._current_region = region
 
-        # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
-        if not region.translation or not region.translation.strip():
-            logger.info(f"[RESIZE] 区域 {region_idx}: translation 为空，使用 min_rect")
-            dst_points_list.append(region.min_rect)
-            continue
-
-        # 判断是否需要气泡内居中：开启设置 且 区域确实在检测到的气泡内
-        apply_bubble_centering = config.render.center_text_in_bubble
-        if apply_bubble_centering and center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
-            _rm = _build_region_reference_mask(region, center_check_mask, center_check_label_map)
-            apply_bubble_centering = np.count_nonzero(_rm) > 0
-
-        # skip_font_scaling模式：使用region.font_size作为最终字体，完全跳过排版缩放
-        # 编辑器导出时用户设多少字号就渲染多少，不做任何缩放
-        if skip_font_scaling:
-            fixed_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
-            logger.debug(f"[RESIZE] skip_font_scaling: 区域 {region_idx} 使用固定字体大小 {fixed_font_size}")
-
-            # 直接用固定字体大小计算文本框
-            # 需要考虑 direction 强制覆盖（和 render() 中的判断逻辑一致）
-            actual_horizontal = _resolve_region_render_horizontal(region)
-
-            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-            letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
-
-            # 用区域自己的字体来量度字符宽度，保证和 render() 实际渲染时一致
-            resolved_region_font_path = _resolve_font_path(getattr(region, 'font_path', '') or '')
-            if resolved_region_font_path:
-                text_render.set_font(resolved_region_font_path)
-            else:
-                text_render.set_font(text_render.DEFAULT_FONT)
-
-            if apply_bubble_centering:
-                _center = tuple(region.center)
-            else:
-                _, _req_h, _ = calc_box_from_font(
-                    fixed_font_size, region.translation, actual_horizontal,
-                    line_spacing_multiplier, config, region.target_lang,
-                    letter_spacing=letter_spacing_multiplier,
-                )
-                _center = _compute_top_aligned_center(region, _req_h)
-            dst_points = calc_box_from_font(
-                fixed_font_size, region.translation, actual_horizontal,
-                line_spacing_multiplier, config, region.target_lang,
-                center=_center, angle=region.angle,
-                letter_spacing=letter_spacing_multiplier
-            )
-
-            if dst_points is None:
-                dst_points = region.min_rect
-
-            region.font_size = fixed_font_size
-            dst_points_list.append(dst_points)
-            continue
-        else:
-            original_region_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
-
-            # 保存原始字体大小到region对象，用于JSON导出
-            if not hasattr(region, 'original_font_size'):
-                region.original_font_size = original_region_font_size
-
-            layout_min_font_size = 1
-            target_font_size = max(_resolve_initial_layout_font_size(region, img, config), layout_min_font_size)
-
-            # 入口只保留布局算法自身的参考字号：
-            # region.font_size > 图像估算值
-            # render.font_size 作为固定字号，在统一出口覆盖布局结果。
-            region.layout_base_font_size = int(target_font_size)
-
-        # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
-        if mode == 'balloon_fill':
-            logger.debug(f"=== balloon_fill mode activated for region {region_idx} ===")
-            logger.debug(f"OCR box (xywh): {region.xywh}")
-            configured_min_font_size = _resolve_configured_min_font_size(config)
-            min_font_size = max(configured_min_font_size if configured_min_font_size > 0 else 1, 1)
-
-            if original_img is None:
-                logger.warning("balloon_fill mode requires original_img, fallback to geometry-based dst_points")
-                fallback_font_size = _apply_final_font_constraints(target_font_size, config)
-                fallback_dst_points = _calc_region_dst_points_for_font(
-                    region=region,
-                    font_size=fallback_font_size,
-                    render_horizontally=_resolve_region_render_horizontal(region),
-                    line_spacing_multiplier=_resolve_line_spacing_multiplier(region, config),
-                    letter_spacing_multiplier=_resolve_letter_spacing_multiplier(region, config),
-                    config=config,
-                    apply_centering=apply_bubble_centering,
-                )
-                if fallback_dst_points is None:
-                    fallback_dst_points = region.min_rect
-                region.font_size = fallback_font_size
-                dst_points_list.append(fallback_dst_points)
+            # 如果 translation 为空,直接返回 min_rect,避免触发复杂的布局计算
+            if not region.translation or not region.translation.strip():
+                logger.info(f"[RESIZE] 区域 {region_idx}: translation 为空，使用 min_rect")
+                dst_points_list.append(region.min_rect)
                 continue
 
-            try:
-                render_horizontally = _resolve_region_render_horizontal(region)
+            # 判断是否需要气泡内居中：开启设置 且 区域确实在检测到的气泡内
+            apply_bubble_centering = config.render.center_text_in_bubble
+            if apply_bubble_centering and center_check_mask is not None and np.count_nonzero(center_check_mask) > 0:
+                _rm = _build_region_reference_mask(region, center_check_mask, center_check_label_map)
+                apply_bubble_centering = np.count_nonzero(_rm) > 0
+            normal_anchor_mode = _resolve_layout_anchor_mode(
+                apply_bubble_centering=apply_bubble_centering,
+                skip_font_scaling=False,
+            )
+            skip_anchor_mode = _resolve_layout_anchor_mode(
+                apply_bubble_centering=apply_bubble_centering,
+                skip_font_scaling=True,
+            )
+
+            # skip_font_scaling模式：使用region.font_size作为最终字体，完全跳过排版缩放
+            # 编辑器导出时用户设多少字号就渲染多少，不做任何缩放
+            if skip_font_scaling:
+                fixed_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
+                logger.debug(f"[RESIZE] skip_font_scaling: 区域 {region_idx} 使用固定字体大小 {fixed_font_size}")
+
+                # 直接用固定字体大小计算文本框
+                # 需要考虑 direction 强制覆盖（和 render() 中的判断逻辑一致）
+                actual_horizontal = _resolve_region_render_horizontal(region)
+
                 line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
                 letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
 
-                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-                region_bubble_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
-                if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
-                    region_bubble_mask = _build_region_reference_mask(region, balloon_fill_mask, balloon_fill_label_map)
+                # 用区域自己的字体来量度字符宽度，保证和 render() 实际渲染时一致
+                if resolved_region_font_path:
+                    text_render.set_font(resolved_region_font_path)
+                else:
+                    text_render.set_font(text_render.DEFAULT_FONT)
 
-                lines_fully_enclosed = (
-                    np.count_nonzero(region_bubble_mask) > 0
-                    and _region_lines_fully_inside_mask(region, region_bubble_mask)
+                dst_points = _calc_region_dst_points_for_font(
+                    region=region,
+                    font_size=fixed_font_size,
+                    render_horizontally=actual_horizontal,
+                    line_spacing_multiplier=line_spacing_multiplier,
+                    letter_spacing_multiplier=letter_spacing_multiplier,
+                    config=config,
+                    anchor_mode=skip_anchor_mode,
                 )
-                used_smart_scaling_fallback = False
-                chosen_dst_points = None
-                chosen_font_size = int(max(target_font_size, layout_min_font_size))
-                overflow_candidate_dst_points = None
-                preferred_font_size_for_debug = None
 
-                if not lines_fully_enclosed:
-                    used_smart_scaling_fallback = True
-                    smart_scaling_config = copy.deepcopy(config)
-                    smart_scaling_config.render.layout_mode = 'smart_scaling'
-                    smart_result = resize_regions_to_font_size(
-                        img=img,
-                        text_regions=[region],
-                        config=smart_scaling_config,
-                        original_img=None,
-                        return_debug_img=False,
-                        skip_font_scaling=skip_font_scaling,
+                if dst_points is None:
+                    dst_points = region.min_rect
+
+                region.font_size = fixed_font_size
+                dst_points_list.append(dst_points)
+                continue
+            else:
+                original_region_font_size = region.font_size if region.font_size > 0 else round((img.shape[0] + img.shape[1]) / 200)
+
+                # 保存原始字体大小到region对象，用于JSON导出
+                if not hasattr(region, 'original_font_size'):
+                    region.original_font_size = original_region_font_size
+
+                layout_min_font_size = 1
+                target_font_size = max(_resolve_initial_layout_font_size(region, img, config), layout_min_font_size)
+
+                # 入口只保留布局算法自身的参考字号：
+                # region.font_size > 图像估算值
+                # render.font_size 作为固定字号，在统一出口覆盖布局结果。
+                region.layout_base_font_size = int(target_font_size)
+
+            # --- Mode 5: balloon_fill (MUST BE FIRST to override other modes) ---
+            if mode == 'balloon_fill':
+                logger.debug(f"=== balloon_fill mode activated for region {region_idx} ===")
+                logger.debug(f"OCR box (xywh): {region.xywh}")
+                configured_min_font_size = _resolve_configured_min_font_size(config)
+                min_font_size = max(configured_min_font_size if configured_min_font_size > 0 else 1, 1)
+
+                if original_img is None:
+                    logger.warning("balloon_fill mode requires original_img, fallback to geometry-based dst_points")
+                    fallback_font_size = _apply_final_font_constraints(target_font_size, config)
+                    fallback_dst_points = _calc_region_dst_points_for_font(
+                        region=region,
+                        font_size=fallback_font_size,
+                        render_horizontally=_resolve_region_render_horizontal(region),
+                        line_spacing_multiplier=_resolve_line_spacing_multiplier(region, config),
+                        letter_spacing_multiplier=_resolve_letter_spacing_multiplier(region, config),
+                        config=config,
+                        anchor_mode=normal_anchor_mode,
                     )
-                    if isinstance(smart_result, list) and len(smart_result) > 0:
-                        chosen_dst_points = smart_result[0]
+                    if fallback_dst_points is None:
+                        fallback_dst_points = region.min_rect
+                    region.font_size = fallback_font_size
+                    dst_points_list.append(fallback_dst_points)
+                    continue
+
+                try:
+                    render_horizontally = _resolve_region_render_horizontal(region)
+                    line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+                    letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
+
+                    has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+                    region_bubble_mask = np.zeros(original_img.shape[:2], dtype=np.uint8)
+                    if balloon_fill_mask is not None and np.count_nonzero(balloon_fill_mask) > 0:
+                        region_bubble_mask = _build_region_reference_mask(region, balloon_fill_mask, balloon_fill_label_map)
+
+                    lines_fully_enclosed = (
+                        np.count_nonzero(region_bubble_mask) > 0
+                        and _region_lines_fully_inside_mask(region, region_bubble_mask)
+                    )
+                    used_smart_scaling_fallback = False
+                    chosen_dst_points = None
+                    chosen_font_size = int(max(target_font_size, layout_min_font_size))
+                    overflow_candidate_dst_points = None
+                    preferred_font_size_for_debug = None
+
+                    if not lines_fully_enclosed:
+                        used_smart_scaling_fallback = True
+                        smart_scaling_config = copy.deepcopy(config)
+                        smart_scaling_config.render.layout_mode = 'smart_scaling'
+                        smart_result = resize_regions_to_font_size(
+                            img=img,
+                            text_regions=[region],
+                            config=smart_scaling_config,
+                            original_img=None,
+                            return_debug_img=False,
+                            skip_font_scaling=skip_font_scaling,
+                        )
+                        if isinstance(smart_result, list) and len(smart_result) > 0:
+                            chosen_dst_points = smart_result[0]
+                        if chosen_dst_points is None:
+                            chosen_dst_points = region.min_rect
+                        chosen_font_size = region.font_size if region.font_size > 0 else chosen_font_size
+                        logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
+                    else:
+                        bubble_width, bubble_height = region.unrotated_size
+                        mask_nonzero = cv2.findNonZero(region_bubble_mask)
+                        if mask_nonzero is not None:
+                            _, _, bubble_width, bubble_height = cv2.boundingRect(mask_nonzero)
+                        if not (isinstance(bubble_width, (int, float)) and np.isfinite(bubble_width) and bubble_width > 0):
+                            bubble_width = float(max(region.xywh[2], 1))
+                        if not (isinstance(bubble_height, (int, float)) and np.isfinite(bubble_height) and bubble_height > 0):
+                            bubble_height = float(max(region.xywh[3], 1))
+
+                        layout_target_font_size = int(target_font_size)
+                        # 对所有 balloon_fill(enclosed) 场景先做一次“框->字体”估算：
+                        # 若估算字号更大，则提升目标字号上限，避免被输入字号卡死。
+                        estimated_font_from_box = calc_font_from_box(
+                            width=float(bubble_width),
+                            height=float(bubble_height),
+                            text=region.translation,
+                            is_horizontal=render_horizontally,
+                            line_spacing=line_spacing_multiplier,
+                            config=config,
+                            target_lang=region.target_lang,
+                            letter_spacing=letter_spacing_multiplier,
+                        )
+                        if estimated_font_from_box > layout_target_font_size:
+                            logger.debug(
+                                f"balloon_fill region {region_idx}: boost layout_target_font_size "
+                                f"{layout_target_font_size}->{estimated_font_from_box} (calc_font_from_box)"
+                            )
+                            layout_target_font_size = int(estimated_font_from_box)
+
+                        if not has_br:
+                            no_br_max_font_size = int(layout_target_font_size)
+                            if render_horizontally:
+                                total_width = text_render.get_string_width(
+                                    layout_target_font_size,
+                                    region.translation,
+                                    letter_spacing=letter_spacing_multiplier,
+                                )
+                                spacing_y = int(layout_target_font_size * 0.01 * line_spacing_multiplier)
+                                ratio = bubble_width / bubble_height if bubble_height > 0 else 1.0
+
+                                a = layout_target_font_size + spacing_y
+                                b = -spacing_y
+                                c = -total_width / ratio if ratio > 0 else -total_width
+
+                                discriminant = b * b - 4 * a * c
+                                if discriminant >= 0 and a > 0:
+                                    n_float = (-b + np.sqrt(discriminant)) / (2 * a)
+                                    n_floor = max(1, int(np.floor(n_float)))
+                                    n_ceil = max(1, int(np.ceil(n_float)))
+                                else:
+                                    n_floor = n_ceil = 1
+
+                                def calc_max_font_horizontal(n, total_w, bw, bh, lsm, target_fs):
+                                    height_factor = n + (n - 1) * 0.01 * lsm
+                                    max_by_height = int(bh / height_factor) if height_factor > 0 else target_fs
+                                    max_by_width = int(bw * n * target_fs / total_w) if total_w > 0 else target_fs
+                                    return min(max_by_height, max_by_width)
+
+                                font_floor = calc_max_font_horizontal(
+                                    n_floor, total_width, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
+                                )
+                                font_ceil = calc_max_font_horizontal(
+                                    n_ceil, total_width, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
+                                )
+
+                                if font_floor >= font_ceil:
+                                    seed_segments = n_floor
+                                    seed_font_size = font_floor
+                                else:
+                                    seed_segments = n_ceil
+                                    seed_font_size = font_ceil
+                            else:
+                                total_height = text_render.get_string_height(
+                                    layout_target_font_size,
+                                    region.translation,
+                                    letter_spacing=letter_spacing_multiplier,
+                                )
+                                spacing_x = int(layout_target_font_size * 0.2 * line_spacing_multiplier)
+                                ratio = bubble_width / bubble_height if bubble_height > 0 else 1.0
+
+                                a = layout_target_font_size + spacing_x
+                                b = -spacing_x
+                                c = -total_height * ratio
+
+                                discriminant = b * b - 4 * a * c
+                                if discriminant >= 0 and a > 0:
+                                    n_float = (-b + np.sqrt(discriminant)) / (2 * a)
+                                    n_floor = max(1, int(np.floor(n_float)))
+                                    n_ceil = max(1, int(np.ceil(n_float)))
+                                else:
+                                    n_floor = n_ceil = 1
+
+                                def calc_max_font_vertical(n, total_h, bw, bh, lsm, target_fs):
+                                    width_factor = n + (n - 1) * 0.2 * lsm
+                                    max_by_width = int(bw / width_factor) if width_factor > 0 else target_fs
+                                    max_by_height = int(bh * n * target_fs / total_h) if total_h > 0 else target_fs
+                                    return min(max_by_width, max_by_height)
+
+                                font_floor = calc_max_font_vertical(
+                                    n_floor, total_height, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
+                                )
+                                font_ceil = calc_max_font_vertical(
+                                    n_ceil, total_height, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
+                                )
+
+                                if font_floor >= font_ceil:
+                                    seed_segments = n_floor
+                                    seed_font_size = font_floor
+                                else:
+                                    seed_segments = n_ceil
+                                    seed_font_size = font_ceil
+
+                            seed_font_size = int(max(min(seed_font_size, layout_target_font_size), layout_min_font_size))
+                            no_br_result = solve_no_br_layout(
+                                text=region.translation,
+                                horizontal=render_horizontally,
+                                seed_segments=seed_segments,
+                                seed_font_size=seed_font_size,
+                                bubble_width=bubble_width,
+                                bubble_height=bubble_height,
+                                min_font_size=layout_min_font_size,
+                                max_font_size=no_br_max_font_size,
+                                line_spacing_multiplier=line_spacing_multiplier,
+                                letter_spacing_multiplier=letter_spacing_multiplier,
+                                target_lang=region.target_lang,
+                                config=config,
+                            )
+                            region.translation = no_br_result.text_with_br
+                            layout_target_font_size = int(no_br_result.font_size)
+                            logger.debug(
+                                f"balloon_fill region {region_idx}: no_br layout merged, segments={no_br_result.n_segments}, "
+                                f"font={layout_target_font_size}, required={no_br_result.required_width:.1f}x{no_br_result.required_height:.1f}"
+                            )
+
+                        preferred_font_size = _apply_final_font_constraints(layout_target_font_size, config)
+                        preferred_font_size_for_debug = preferred_font_size
+                        configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
+                        if configured_fixed_font_size > 0:
+                            min_font_size = max(min_font_size, preferred_font_size)
+
+                        # 调试用途：记录“超出范围候选框”（较大字号候选但不满足蒙版约束）
+                        preferred_dst_points = _calc_region_dst_points_for_font(
+                            region=region,
+                            font_size=preferred_font_size,
+                            render_horizontally=render_horizontally,
+                            line_spacing_multiplier=line_spacing_multiplier,
+                            letter_spacing_multiplier=letter_spacing_multiplier,
+                            config=config,
+                            anchor_mode=normal_anchor_mode,
+                        )
+                        if preferred_dst_points is not None and preferred_dst_points.size > 0:
+                            preferred_fits = _polygon_fully_inside_mask(np.asarray(preferred_dst_points[0]), region_bubble_mask)
+                            if not preferred_fits:
+                                overflow_candidate_dst_points = preferred_dst_points
+
+                        best_font_size, best_dst_points = _binary_search_font_for_bubble_mask(
+                            region=region,
+                            start_font_size=preferred_font_size,
+                            min_font_size=min_font_size,
+                            render_horizontally=render_horizontally,
+                            line_spacing_multiplier=line_spacing_multiplier,
+                            letter_spacing_multiplier=letter_spacing_multiplier,
+                            config=config,
+                            bubble_mask=region_bubble_mask,
+                            anchor_mode=normal_anchor_mode,
+                        )
+                        if best_font_size is not None and best_dst_points is not None:
+                            chosen_font_size = int(best_font_size)
+                            chosen_dst_points = best_dst_points
+                            logger.debug(
+                                f"balloon_fill region {region_idx}: enclosed lines, binary-search font {preferred_font_size}->{chosen_font_size}"
+                            )
+                        else:
+                            chosen_font_size = preferred_font_size
+                            chosen_dst_points = preferred_dst_points
+                            if chosen_dst_points is None:
+                                chosen_dst_points = _calc_region_dst_points_for_font(
+                                    region=region,
+                                    font_size=chosen_font_size,
+                                    render_horizontally=render_horizontally,
+                                    line_spacing_multiplier=line_spacing_multiplier,
+                                    letter_spacing_multiplier=letter_spacing_multiplier,
+                                    config=config,
+                                    anchor_mode=normal_anchor_mode,
+                                )
+                            if min_font_size > 1:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: no mask-safe layout at configured min font "
+                                    f"{min_font_size}, keeping preferred_font_size={chosen_font_size}"
+                                )
+                            else:
+                                logger.debug(
+                                    f"balloon_fill region {region_idx}: no mask-safe layout found, keeping preferred_font_size={chosen_font_size}"
+                                )
+
                     if chosen_dst_points is None:
                         chosen_dst_points = region.min_rect
-                    chosen_font_size = region.font_size if region.font_size > 0 else chosen_font_size
-                    logger.debug(f"balloon_fill region {region_idx}: not fully enclosed, fallback to smart_scaling")
-                else:
+
+                    region.font_size = int(max(chosen_font_size, 1))
+                    dst_points_list.append(chosen_dst_points)
+
+                    if debug_img is not None:
+                        ocr_x1, ocr_y1, ocr_w, ocr_h = map(int, region.xywh)
+                        cv2.rectangle(debug_img, (ocr_x1, ocr_y1), (ocr_x1 + ocr_w, ocr_y1 + ocr_h), (0, 0, 255), 2)
+
+                        if np.count_nonzero(region_bubble_mask) > 0:
+                            component_contours, _ = cv2.findContours(region_bubble_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            if component_contours:
+                                cv2.drawContours(debug_img, component_contours, -1, (0, 255, 255), 1)
+
+                        render_poly = np.asarray(chosen_dst_points).reshape(-1, 2).astype(np.int32)
+                        if render_poly.shape[0] >= 4:
+                            cv2.polylines(debug_img, [render_poly], True, (0, 255, 0), 2)
+                            label = f'B{region_idx}:{region.font_size}'
+                            if used_smart_scaling_fallback:
+                                label += ':SSF'
+                            elif lines_fully_enclosed:
+                                if preferred_font_size_for_debug is not None:
+                                    label += f':ENC({preferred_font_size_for_debug}->{chosen_font_size})'
+                                else:
+                                    label += f':ENC({chosen_font_size})'
+                            cv2.putText(
+                                debug_img,
+                                label,
+                                tuple(render_poly[0]),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.45,
+                                (0, 255, 0),
+                                1,
+                            )
+
+                        if overflow_candidate_dst_points is not None:
+                            overflow_poly = np.asarray(overflow_candidate_dst_points).reshape(-1, 2).astype(np.int32)
+                            if overflow_poly.shape[0] >= 4:
+                                # BGR 橙色：表示候选框超出蒙版范围，最终被收缩/放弃
+                                cv2.polylines(debug_img, [overflow_poly], True, (0, 165, 255), 2)
+                                cv2.putText(
+                                    debug_img,
+                                    f'B{region_idx}:OVR',
+                                    tuple(overflow_poly[0]),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.45,
+                                    (0, 165, 255),
+                                    1,
+                                )
+                except Exception as e:
+                    logger.exception(f"Error in balloon_fill layout for region {region_idx}: {e}")
+                    dst_points_list.append(region.min_rect)
+                    region.font_size = target_font_size
+
+                continue
+
+            # --- Mode: strict ---
+            if mode == 'strict':
+                # Optimize line breaks if enabled
+                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+                if config.render.optimize_line_breaks and config.render.disable_auto_wrap and has_br:
                     bubble_width, bubble_height = region.unrotated_size
-                    mask_nonzero = cv2.findNonZero(region_bubble_mask)
-                    if mask_nonzero is not None:
-                        _, _, bubble_width, bubble_height = cv2.boundingRect(mask_nonzero)
-                    if not (isinstance(bubble_width, (int, float)) and np.isfinite(bubble_width) and bubble_width > 0):
-                        bubble_width = float(max(region.xywh[2], 1))
-                    if not (isinstance(bubble_height, (int, float)) and np.isfinite(bubble_height) and bubble_height > 0):
-                        bubble_height = float(max(region.xywh[3], 1))
-
-                    layout_target_font_size = int(target_font_size)
-                    # 对所有 balloon_fill(enclosed) 场景先做一次“框->字体”估算：
-                    # 若估算字号更大，则提升目标字号上限，避免被输入字号卡死。
-                    estimated_font_from_box = calc_font_from_box(
-                        width=float(bubble_width),
-                        height=float(bubble_height),
-                        text=region.translation,
-                        is_horizontal=render_horizontally,
-                        line_spacing=line_spacing_multiplier,
-                        config=config,
-                        target_lang=region.target_lang,
-                        letter_spacing=letter_spacing_multiplier,
+                    logger.debug("[OPTIMIZE] Optimizing line breaks for strict mode")
+                    optimized_text, _ = optimize_line_breaks_for_region(
+                        region, config, target_font_size, bubble_width, bubble_height
                     )
-                    if estimated_font_from_box > layout_target_font_size:
-                        logger.debug(
-                            f"balloon_fill region {region_idx}: boost layout_target_font_size "
-                            f"{layout_target_font_size}->{estimated_font_from_box} (calc_font_from_box)"
-                        )
-                        layout_target_font_size = int(estimated_font_from_box)
+                    region.translation = optimized_text
+                    logger.debug(f"[OPTIMIZE] Optimized text: {region.translation}")
 
-                    if not has_br:
-                        no_br_max_font_size = int(layout_target_font_size)
+                font_size = target_font_size
+                min_shrink_font_size = 8
+                line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+                letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
+                render_horizontally = _resolve_region_render_horizontal(region)
+
+                # AI 断句适配：如果开启了 AI 断句且有 BR 标记，使用无限宽度/高度
+
+                # 检测是否为替换翻译模式
+                is_replace_mode = config.cli.replace_translation if (config and hasattr(config, 'cli')) else False
+                
+                # 增强逻辑：如果是替换翻译模式 + 严格模式，且OCR检测为单行（len(region.lines) == 1）
+                # 强制使用无限宽度（不换行），以复刻原图的单行结构
+                is_single_line = len(region.lines) == 1
+                force_single_line_no_wrap = is_replace_mode and is_single_line
+
+                use_ai_break = (config.render.disable_auto_wrap and has_br) or force_single_line_no_wrap
+
+                if not has_br:
+                    bubble_width, bubble_height = region.unrotated_size
+                    seed_segments = max(1, len(region.texts))
+                    no_br_result = solve_no_br_layout(
+                        text=region.translation,
+                        horizontal=render_horizontally,
+                        seed_segments=seed_segments,
+                        seed_font_size=target_font_size,
+                        bubble_width=bubble_width,
+                        bubble_height=bubble_height,
+                        min_font_size=layout_min_font_size,
+                        max_font_size=target_font_size,
+                        line_spacing_multiplier=line_spacing_multiplier,
+                        target_lang=region.target_lang,
+                        config=config,
+                        letter_spacing_multiplier=letter_spacing_multiplier,
+                    )
+                    region.translation = no_br_result.text_with_br
+
+                    layout_font_size = max(no_br_result.font_size, min_shrink_font_size)
+                    final_font_size = _apply_final_font_constraints(layout_font_size, config)
+                    dst_points = _calc_region_dst_points_for_font(
+                        region=region,
+                        font_size=final_font_size,
+                        render_horizontally=render_horizontally,
+                        line_spacing_multiplier=line_spacing_multiplier,
+                        letter_spacing_multiplier=letter_spacing_multiplier,
+                        config=config,
+                        anchor_mode=normal_anchor_mode,
+                    )
+                    if dst_points is None:
+                        dst_points = region.min_rect
+
+                    region.font_size = final_font_size
+                    dst_points_list.append(dst_points)
+                    continue
+
+                if use_ai_break:
+                    calc_max_width = 99999
+                    calc_max_height = 99999
+                    if force_single_line_no_wrap:
+                        logger.debug("[STRICT MODE] 替换模式单行强制不换行 (OCR lines=1)，使用无限尺寸")
+                        # 强制清洗文本：移除所有可能导致换行的字符（\n, [BR]等），确保它真的是单行
+                        region.translation = re.sub(r'(\n|\[BR\]|【BR】|<br>)', '', region.translation, flags=re.IGNORECASE)
+                    else:
+                        logger.debug("[STRICT MODE] AI断句开启，使用无限尺寸")
+                else:
+                    calc_max_width = region.unrotated_size[0]
+                    calc_max_height = region.unrotated_size[1]
+
+                # Step 1: 先缩小字体直到文本能放进文本框
+                while font_size >= min_shrink_font_size:
+                    if render_horizontally:
+                        lines, _ = text_render.calc_horizontal(
+                            font_size,
+                            region.translation,
+                            max_width=calc_max_width,
+                            max_height=calc_max_height,
+                            language=region.target_lang,
+                            letter_spacing=letter_spacing_multiplier,
+                        )
+                        if len(lines) <= len(region.texts):
+                            break
+                    else:
+                        lines, _ = text_render.calc_vertical(
+                            font_size,
+                            region.translation,
+                            max_height=calc_max_height,
+                            letter_spacing=letter_spacing_multiplier,
+                        )
+                        if len(lines) <= len(region.texts):
+                            break
+                    font_size -= 1
+
+                # Step 2: 尝试扩大字体以更好地填充空间（但不超过初始大小）
+                # 从当前能放下的字体大小开始，逐步增加
+                max_fitting_font_size = font_size
+                test_font_size = font_size + 1
+
+                while test_font_size <= target_font_size:
+                    if render_horizontally:
+                        test_lines, _ = text_render.calc_horizontal(
+                            test_font_size,
+                            region.translation,
+                            max_width=calc_max_width,
+                            max_height=calc_max_height,
+                            language=region.target_lang,
+                            letter_spacing=letter_spacing_multiplier,
+                        )
+                        if len(test_lines) <= len(region.texts):
+                            max_fitting_font_size = test_font_size
+                            test_font_size += 1
+                        else:
+                            break
+                    else:
+                        test_lines, _ = text_render.calc_vertical(
+                            test_font_size,
+                            region.translation,
+                            max_height=calc_max_height,
+                            letter_spacing=letter_spacing_multiplier,
+                        )
+                        if len(test_lines) <= len(region.texts):
+                            max_fitting_font_size = test_font_size
+                            test_font_size += 1
+                        else:
+                            break
+
+                # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
+                layout_font_size = max(max_fitting_font_size, min_shrink_font_size)
+                final_font_size = _apply_final_font_constraints(layout_font_size, config)
+                dst_points = _calc_region_dst_points_for_font(
+                    region=region,
+                    font_size=final_font_size,
+                    render_horizontally=render_horizontally,
+                    line_spacing_multiplier=line_spacing_multiplier,
+                    letter_spacing_multiplier=letter_spacing_multiplier,
+                    config=config,
+                    anchor_mode=normal_anchor_mode,
+                )
+                if dst_points is None:
+                    dst_points = region.min_rect
+
+                region.font_size = final_font_size
+                dst_points_list.append(dst_points)
+                continue
+
+            # --- Mode: smart_scaling ---
+            elif mode == 'smart_scaling':
+                # Check if text contains [BR] markers
+                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+
+                # 添加诊断日志
+                logger.debug(f"[SMART_SCALING] Region {region_idx}: mode={mode}, has_br={has_br}")
+
+                # --- UNIFIED ALGORITHM: 只分 has_br 和 no_br 两种情况 ---
+                try:
+                    # Calculate required dimensions using current font size (fixed layout)
+                    bubble_width, bubble_height = region.unrotated_size
+
+                    # Defensive check for invalid bubble sizes
+                    if not (isinstance(bubble_width, (int, float)) and np.isfinite(bubble_width) and bubble_width > 0 and
+                            isinstance(bubble_height, (int, float)) and np.isfinite(bubble_height) and bubble_height > 0):
+                        logger.warning(f"Invalid bubble size for region: w={bubble_width}, h={bubble_height}. Skipping smart scaling for this region.")
+                        dst_points_list.append(region.min_rect)
+                        final_font_size = _apply_final_font_constraints(target_font_size, config)
+                        region.font_size = final_font_size
+                        continue
+
+                    # Create base polygon for scaling
+                    try:
+                        unrotated_base_poly = Polygon(region.unrotated_min_rect[0])
+                    except Exception:
+                        unrotated_base_poly = Polygon([(0, 0), (bubble_width, 0), (bubble_width, bubble_height), (0, bubble_height)])
+
+                    # Optimize line breaks if enabled
+                    has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
+                    logger.debug(f"[SMART_SCALING] Region {region_idx}: has_br={has_br}, translation='{region.translation[:30]}...'")
+                    if config.render.optimize_line_breaks and has_br:
+                        optimized_text, _ = optimize_line_breaks_for_region(
+                            region, config, target_font_size, bubble_width, bubble_height
+                        )
+                        region.translation = optimized_text
+
+                    # n 表示行/列数量，后续溢出重算会统一使用；默认 1 防止未赋值。
+                    n = 1
+                    line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+                    letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
+                    render_horizontally = _resolve_region_render_horizontal(region)
+
+                    # 根据有没有BR选择不同的计算方式
+                    if has_br:
+                        logger.debug(f"[SMART_SCALING] Region {region_idx}: 有BR分支")
+                        # 有BR：用无限宽度，按BR换行
+                        required_width = 0
+                        required_height = 0
+
                         if render_horizontally:
+                            lines, widths = text_render.calc_horizontal(
+                                target_font_size,
+                                region.translation,
+                                max_width=99999,
+                                max_height=99999,
+                                language=region.target_lang,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+                            n = max(1, len(lines))
+                            if widths:
+                                spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
+                                required_width = max(widths)
+                                required_height = target_font_size * n + spacing_y * max(0, n - 1)
+                        else: # Vertical
+                            # Convert [BR] tags to \n for vertical text
+                            text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', region.translation, flags=re.IGNORECASE)
+
+                            lines, heights = text_render.calc_vertical(
+                                target_font_size,
+                                text_for_calc,
+                                max_height=99999,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+                            n = max(1, len(lines))
+                            if heights:
+                                spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
+                                required_height = max(heights)
+                                required_width = target_font_size * n + spacing_x * max(0, n - 1)
+                    else:
+                        logger.debug(f"[SMART_SCALING] Region {region_idx}: 无BR分支，开始反推断句")
+                        # 无BR：用精确像素反推最优行数/列数
+                        no_br_max_font_size = target_font_size
+
+                        if render_horizontally:
+                            # 横排：计算单行总宽度
                             total_width = text_render.get_string_width(
-                                layout_target_font_size,
+                                target_font_size,
                                 region.translation,
                                 letter_spacing=letter_spacing_multiplier,
                             )
-                            spacing_y = int(layout_target_font_size * 0.01 * line_spacing_multiplier)
+                            spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
                             ratio = bubble_width / bubble_height if bubble_height > 0 else 1.0
 
-                            a = layout_target_font_size + spacing_y
+                            # 二次方程反推行数
+                            a = target_font_size + spacing_y
                             b = -spacing_y
                             c = -total_width / ratio if ratio > 0 else -total_width
 
@@ -1238,35 +1763,75 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                             else:
                                 n_floor = n_ceil = 1
 
+                            # 分别计算两个n对应的最大字体，选字体大的
                             def calc_max_font_horizontal(n, total_w, bw, bh, lsm, target_fs):
                                 height_factor = n + (n - 1) * 0.01 * lsm
                                 max_by_height = int(bh / height_factor) if height_factor > 0 else target_fs
                                 max_by_width = int(bw * n * target_fs / total_w) if total_w > 0 else target_fs
                                 return min(max_by_height, max_by_width)
 
-                            font_floor = calc_max_font_horizontal(
-                                n_floor, total_width, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
-                            )
-                            font_ceil = calc_max_font_horizontal(
-                                n_ceil, total_width, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
-                            )
+                            font_floor = calc_max_font_horizontal(n_floor, total_width, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
+                            font_ceil = calc_max_font_horizontal(n_ceil, total_width, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
 
+                            # 选字体大的那个
                             if font_floor >= font_ceil:
-                                seed_segments = n_floor
-                                seed_font_size = font_floor
+                                n = n_floor
+                                final_font_size = font_floor
                             else:
-                                seed_segments = n_ceil
-                                seed_font_size = font_ceil
-                        else:
-                            total_height = text_render.get_string_height(
-                                layout_target_font_size,
+                                n = n_ceil
+                                final_font_size = font_ceil
+
+                            final_font_size = min(final_font_size, target_font_size)
+                            final_font_size = max(final_font_size, layout_min_font_size)
+
+                            # 用最终字体重新计算精确的required尺寸
+                            final_total_width = text_render.get_string_width(
+                                final_font_size,
                                 region.translation,
                                 letter_spacing=letter_spacing_multiplier,
                             )
-                            spacing_x = int(layout_target_font_size * 0.2 * line_spacing_multiplier)
+                            final_spacing_y = int(final_font_size * 0.01 * line_spacing_multiplier)
+                            required_width = final_total_width / n
+                            required_height = n * final_font_size + max(0, n - 1) * final_spacing_y
+
+                            target_font_size = final_font_size
+                            logger.debug(f"[SMART_SCALING DEBUG] No BR Horizontal: n={n}, final_font={final_font_size}, required={required_width:.1f}x{required_height:.1f}")
+
+                            no_br_result = solve_no_br_layout(
+                                text=region.translation,
+                                horizontal=True,
+                                seed_segments=n,
+                                seed_font_size=final_font_size,
+                                bubble_width=bubble_width,
+                                bubble_height=bubble_height,
+                                min_font_size=layout_min_font_size,
+                                max_font_size=no_br_max_font_size,
+                                line_spacing_multiplier=line_spacing_multiplier,
+                                letter_spacing_multiplier=letter_spacing_multiplier,
+                                target_lang=region.target_lang,
+                                config=config,
+                            )
+                            region.translation = no_br_result.text_with_br
+                            target_font_size = no_br_result.font_size
+                            n = no_br_result.n_segments
+                            required_width = no_br_result.required_width
+                            required_height = no_br_result.required_height
+                            logger.debug(
+                                f"[SMART_SCALING] Region {region_idx}: 横排融合断句后 n={n}, "
+                                f"font={target_font_size}, required={required_width:.1f}x{required_height:.1f}"
+                            )
+                        else: # Vertical
+                            # 竖排：计算单列总高度
+                            total_height = text_render.get_string_height(
+                                target_font_size,
+                                region.translation,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+                            spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
                             ratio = bubble_width / bubble_height if bubble_height > 0 else 1.0
 
-                            a = layout_target_font_size + spacing_x
+                            # 二次方程反推列数
+                            a = target_font_size + spacing_x
                             b = -spacing_x
                             c = -total_height * ratio
 
@@ -1278,698 +1843,184 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                             else:
                                 n_floor = n_ceil = 1
 
+                            # 分别计算两个n对应的最大字体，选字体大的
                             def calc_max_font_vertical(n, total_h, bw, bh, lsm, target_fs):
                                 width_factor = n + (n - 1) * 0.2 * lsm
                                 max_by_width = int(bw / width_factor) if width_factor > 0 else target_fs
                                 max_by_height = int(bh * n * target_fs / total_h) if total_h > 0 else target_fs
                                 return min(max_by_width, max_by_height)
 
-                            font_floor = calc_max_font_vertical(
-                                n_floor, total_height, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
-                            )
-                            font_ceil = calc_max_font_vertical(
-                                n_ceil, total_height, bubble_width, bubble_height, line_spacing_multiplier, layout_target_font_size
-                            )
+                            font_floor = calc_max_font_vertical(n_floor, total_height, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
+                            font_ceil = calc_max_font_vertical(n_ceil, total_height, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
 
+                            # 选字体大的那个
                             if font_floor >= font_ceil:
-                                seed_segments = n_floor
-                                seed_font_size = font_floor
+                                n = n_floor
+                                final_font_size = font_floor
                             else:
-                                seed_segments = n_ceil
-                                seed_font_size = font_ceil
+                                n = n_ceil
+                                final_font_size = font_ceil
 
-                        seed_font_size = int(max(min(seed_font_size, layout_target_font_size), layout_min_font_size))
-                        no_br_result = solve_no_br_layout(
-                            text=region.translation,
-                            horizontal=render_horizontally,
-                            seed_segments=seed_segments,
-                            seed_font_size=seed_font_size,
-                            bubble_width=bubble_width,
-                            bubble_height=bubble_height,
-                            min_font_size=layout_min_font_size,
-                            max_font_size=no_br_max_font_size,
-                            line_spacing_multiplier=line_spacing_multiplier,
-                            letter_spacing_multiplier=letter_spacing_multiplier,
-                            target_lang=region.target_lang,
-                            config=config,
-                        )
-                        region.translation = no_br_result.text_with_br
-                        layout_target_font_size = int(no_br_result.font_size)
-                        logger.debug(
-                            f"balloon_fill region {region_idx}: no_br layout merged, segments={no_br_result.n_segments}, "
-                            f"font={layout_target_font_size}, required={no_br_result.required_width:.1f}x{no_br_result.required_height:.1f}"
-                        )
+                            final_font_size = min(final_font_size, target_font_size)
+                            final_font_size = max(final_font_size, layout_min_font_size)
 
-                    preferred_font_size = _apply_final_font_constraints(layout_target_font_size, config)
-                    preferred_font_size_for_debug = preferred_font_size
-                    configured_fixed_font_size = _resolve_configured_fixed_font_size(config)
-                    if configured_fixed_font_size > 0:
-                        min_font_size = max(min_font_size, preferred_font_size)
+                            # 用最终字体重新计算精确的required尺寸
+                            final_total_height = text_render.get_string_height(
+                                final_font_size,
+                                region.translation,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+                            final_spacing_x = int(final_font_size * 0.2 * line_spacing_multiplier)
+                            required_height = final_total_height / n
+                            required_width = n * final_font_size + max(0, n - 1) * final_spacing_x
 
-                    # 调试用途：记录“超出范围候选框”（较大字号候选但不满足蒙版约束）
-                    preferred_dst_points = _calc_region_dst_points_for_font(
-                        region=region,
-                        font_size=preferred_font_size,
-                        render_horizontally=render_horizontally,
-                        line_spacing_multiplier=line_spacing_multiplier,
-                        letter_spacing_multiplier=letter_spacing_multiplier,
-                        config=config,
-                        apply_centering=apply_bubble_centering,
-                    )
-                    if preferred_dst_points is not None and preferred_dst_points.size > 0:
-                        preferred_fits = _polygon_fully_inside_mask(np.asarray(preferred_dst_points[0]), region_bubble_mask)
-                        if not preferred_fits:
-                            overflow_candidate_dst_points = preferred_dst_points
+                            target_font_size = final_font_size
+                            logger.debug(f"[SMART_SCALING DEBUG] No BR Vertical: n={n}, final_font={final_font_size}, required={required_width:.1f}x{required_height:.1f}")
 
-                    best_font_size, best_dst_points = _binary_search_font_for_bubble_mask(
-                        region=region,
-                        start_font_size=preferred_font_size,
-                        min_font_size=min_font_size,
-                        render_horizontally=render_horizontally,
-                        line_spacing_multiplier=line_spacing_multiplier,
-                        letter_spacing_multiplier=letter_spacing_multiplier,
-                        config=config,
-                        bubble_mask=region_bubble_mask,
-                    )
-                    if best_font_size is not None and best_dst_points is not None:
-                        chosen_font_size = int(best_font_size)
-                        chosen_dst_points = best_dst_points
-                        logger.debug(
-                            f"balloon_fill region {region_idx}: enclosed lines, binary-search font {preferred_font_size}->{chosen_font_size}"
-                        )
-                    else:
-                        chosen_font_size = preferred_font_size
-                        chosen_dst_points = preferred_dst_points
-                        if chosen_dst_points is None:
-                            chosen_dst_points = _calc_region_dst_points_for_font(
-                                region=region,
-                                font_size=chosen_font_size,
-                                render_horizontally=render_horizontally,
+                            no_br_result = solve_no_br_layout(
+                                text=region.translation,
+                                horizontal=False,
+                                seed_segments=n,
+                                seed_font_size=final_font_size,
+                                bubble_width=bubble_width,
+                                bubble_height=bubble_height,
+                                min_font_size=layout_min_font_size,
+                                max_font_size=no_br_max_font_size,
                                 line_spacing_multiplier=line_spacing_multiplier,
                                 letter_spacing_multiplier=letter_spacing_multiplier,
+                                target_lang=region.target_lang,
                                 config=config,
-                                apply_centering=apply_bubble_centering,
                             )
-                        if min_font_size > 1:
+                            region.translation = no_br_result.text_with_br
+                            target_font_size = no_br_result.font_size
+                            n = no_br_result.n_segments
+                            required_width = no_br_result.required_width
+                            required_height = no_br_result.required_height
                             logger.debug(
-                                f"balloon_fill region {region_idx}: no mask-safe layout at configured min font "
-                                f"{min_font_size}, keeping preferred_font_size={chosen_font_size}"
+                                f"[SMART_SCALING] Region {region_idx}: 竖排融合断句后 n={n}, "
+                                f"font={target_font_size}, required={required_width:.1f}x{required_height:.1f}"
                             )
+
+                    # Check for overflow in either dimension
+                    width_overflow = max(0, required_width - bubble_width)
+                    height_overflow = max(0, required_height - bubble_height)
+
+                    dst_points = region.min_rect
+
+                    if width_overflow > 0 or height_overflow > 0:
+                        # 独立缩放宽度和高度（单列/单行和多列/多行都使用相同逻辑）
+                        width_scale_factor = 1.0
+                        height_scale_factor = 1.0
+
+                        if width_overflow > 0:
+                            width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
+                            diff_ratio_w = width_scale_needed - 1.0
+                            box_expansion_ratio_w = diff_ratio_w / 2
+                            width_scale_factor = 1 + min(box_expansion_ratio_w, 1.0)
+
+                        if height_overflow > 0:
+                            height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
+                            diff_ratio_h = height_scale_needed - 1.0
+                            box_expansion_ratio_h = diff_ratio_h / 2
+                            height_scale_factor = 1 + min(box_expansion_ratio_h, 1.0)
+
+                        try:
+                            scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
+                            scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
+                            dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                        except Exception as e:
+                            logger.warning(f"Failed to apply independent scaling: {e}")
+
+                        # 字体缩放基于最大的溢出维度
+                        scale_needed = max(required_width / bubble_width if bubble_width > 0 else 1.0,
+                                         required_height / bubble_height if bubble_height > 0 else 1.0)
+                        diff_ratio = scale_needed - 1.0
+                        font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
+                        font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
+                        target_font_size = int(target_font_size * font_scale_factor)
+
+                        # 用取整后的字体重新算required
+                        if render_horizontally:
+                            final_total_width = text_render.get_string_width(
+                                target_font_size,
+                                region.translation,
+                                letter_spacing=letter_spacing_multiplier,
+                            )
+                            final_spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
+                            required_width = final_total_width / n if n > 0 else final_total_width
+                            required_height = n * target_font_size + max(0, n - 1) * final_spacing_y
                         else:
-                            logger.debug(
-                                f"balloon_fill region {region_idx}: no mask-safe layout found, keeping preferred_font_size={chosen_font_size}"
+                            final_total_height = text_render.get_string_height(
+                                target_font_size,
+                                region.translation,
+                                letter_spacing=letter_spacing_multiplier,
                             )
+                            final_spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
+                            required_height = final_total_height / n if n > 0 else final_total_height
+                            required_width = n * target_font_size + max(0, n - 1) * final_spacing_x
 
-                if chosen_dst_points is None:
-                    chosen_dst_points = region.min_rect
+                        # 用新的required重新计算框扩大
+                        width_scale_factor = required_width / bubble_width if bubble_width > 0 and required_width > bubble_width else 1.0
+                        height_scale_factor = required_height / bubble_height if bubble_height > 0 and required_height > bubble_height else 1.0
 
-                region.font_size = int(max(chosen_font_size, 1))
-                dst_points_list.append(chosen_dst_points)
+                        try:
+                            scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
+                            scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
+                            dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                        except Exception as e:
+                            logger.warning(f"Failed to apply final scaling: {e}")
+                    else:
+                        # No overflow, can enlarge font to fit better
+                        if required_width > 0 and required_height > 0:
+                            width_scale_factor = bubble_width / required_width
+                            height_scale_factor = bubble_height / required_height
+                            font_scale_factor = min(width_scale_factor, height_scale_factor)
+                            target_font_size = int(target_font_size * font_scale_factor)
 
-                if debug_img is not None:
-                    ocr_x1, ocr_y1, ocr_w, ocr_h = map(int, region.xywh)
-                    cv2.rectangle(debug_img, (ocr_x1, ocr_y1), (ocr_x1 + ocr_w, ocr_y1 + ocr_h), (0, 0, 255), 2)
+                        try:
+                            unrotated_points = np.array(unrotated_base_poly.exterior.coords[:4])
+                            dst_points = rotate_polygons(region.center, unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
+                        except Exception as e:
+                            logger.warning(f"Failed to use base polygon: {e}")
 
-                    if np.count_nonzero(region_bubble_mask) > 0:
-                        component_contours, _ = cv2.findContours(region_bubble_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                        if component_contours:
-                            cv2.drawContours(debug_img, component_contours, -1, (0, 255, 255), 1)
+                except Exception as e:
+                    logger.exception(f"Error in smart_scaling layout for region {region_idx}: {e}")
+                    # Fallback to a safe state
+                    target_font_size = getattr(region, 'layout_base_font_size', target_font_size)
+                    dst_points = region.min_rect
 
-                    render_poly = np.asarray(chosen_dst_points).reshape(-1, 2).astype(np.int32)
-                    if render_poly.shape[0] >= 4:
-                        cv2.polylines(debug_img, [render_poly], True, (0, 255, 0), 2)
-                        label = f'B{region_idx}:{region.font_size}'
-                        if used_smart_scaling_fallback:
-                            label += ':SSF'
-                        elif lines_fully_enclosed:
-                            if preferred_font_size_for_debug is not None:
-                                label += f':ENC({preferred_font_size_for_debug}->{chosen_font_size})'
-                            else:
-                                label += f':ENC({chosen_font_size})'
-                        cv2.putText(
-                            debug_img,
-                            label,
-                            tuple(render_poly[0]),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.45,
-                            (0, 255, 0),
-                            1,
-                        )
+                # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
+                final_font_size = _apply_final_font_constraints(target_font_size, config)
 
-                    if overflow_candidate_dst_points is not None:
-                        overflow_poly = np.asarray(overflow_candidate_dst_points).reshape(-1, 2).astype(np.int32)
-                        if overflow_poly.shape[0] >= 4:
-                            # BGR 橙色：表示候选框超出蒙版范围，最终被收缩/放弃
-                            cv2.polylines(debug_img, [overflow_poly], True, (0, 165, 255), 2)
-                            cv2.putText(
-                                debug_img,
-                                f'B{region_idx}:OVR',
-                                tuple(overflow_poly[0]),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.45,
-                                (0, 165, 255),
-                                1,
-                            )
-            except Exception as e:
-                logger.error(f"Error in balloon_fill mode: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                dst_points_list.append(region.min_rect)
-                region.font_size = target_font_size
-
-            continue
-
-        # --- Mode: strict ---
-        if mode == 'strict':
-            # Optimize line breaks if enabled
-            has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-            if config.render.optimize_line_breaks and config.render.disable_auto_wrap and has_br:
-                bubble_width, bubble_height = region.unrotated_size
-                logger.debug("[OPTIMIZE] Optimizing line breaks for strict mode")
-                optimized_text, _ = optimize_line_breaks_for_region(
-                    region, config, target_font_size, bubble_width, bubble_height
-                )
-                region.translation = optimized_text
-                logger.debug(f"[OPTIMIZE] Optimized text: {region.translation}")
-
-            font_size = target_font_size
-            min_shrink_font_size = 8
-            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-            letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
-            render_horizontally = _resolve_region_render_horizontal(region)
-
-            # AI 断句适配：如果开启了 AI 断句且有 BR 标记，使用无限宽度/高度
-
-            # 检测是否为替换翻译模式
-            is_replace_mode = config.cli.replace_translation if (config and hasattr(config, 'cli')) else False
-            
-            # 增强逻辑：如果是替换翻译模式 + 严格模式，且OCR检测为单行（len(region.lines) == 1）
-            # 强制使用无限宽度（不换行），以复刻原图的单行结构
-            is_single_line = len(region.lines) == 1
-            force_single_line_no_wrap = is_replace_mode and is_single_line
-
-            use_ai_break = (config.render.disable_auto_wrap and has_br) or force_single_line_no_wrap
-
-            if not has_br:
-                bubble_width, bubble_height = region.unrotated_size
-                seed_segments = max(1, len(region.texts))
-                no_br_result = solve_no_br_layout(
-                    text=region.translation,
-                    horizontal=render_horizontally,
-                    seed_segments=seed_segments,
-                    seed_font_size=target_font_size,
-                    bubble_width=bubble_width,
-                    bubble_height=bubble_height,
-                    min_font_size=layout_min_font_size,
-                    max_font_size=target_font_size,
+                # 用辅助函数直接计算 dst_points（包含矩形构建和旋转）
+                line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+                letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
+                dst_points = _calc_region_dst_points_for_font(
+                    region=region,
+                    font_size=final_font_size,
+                    render_horizontally=render_horizontally,
                     line_spacing_multiplier=line_spacing_multiplier,
-                    target_lang=region.target_lang,
-                    config=config,
                     letter_spacing_multiplier=letter_spacing_multiplier,
+                    config=config,
+                    anchor_mode=normal_anchor_mode,
                 )
-                region.translation = no_br_result.text_with_br
 
-                layout_font_size = max(no_br_result.font_size, min_shrink_font_size)
-                final_font_size = _apply_final_font_constraints(layout_font_size, config)
-                total_font_scale = final_font_size / max(layout_font_size, 1)
-
-                dst_points = region.min_rect
-                if total_font_scale != 1.0:
-                    try:
-                        poly = Polygon(region.unrotated_min_rect[0])
-                        scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
-                        scaled_points = np.array(scaled_poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                    except Exception as e:
-                        logger.warning(f"Failed to scale strict no-br region for font_scale_ratio: {e}")
+                # 如果计算失败，使用原始检测框
+                if dst_points is None:
+                    dst_points = region.min_rect
 
                 region.font_size = final_font_size
                 dst_points_list.append(dst_points)
                 continue
 
-            if use_ai_break:
-                calc_max_width = 99999
-                calc_max_height = 99999
-                if force_single_line_no_wrap:
-                    logger.debug("[STRICT MODE] 替换模式单行强制不换行 (OCR lines=1)，使用无限尺寸")
-                    # 强制清洗文本：移除所有可能导致换行的字符（\n, [BR]等），确保它真的是单行
-                    region.translation = re.sub(r'(\n|\[BR\]|【BR】|<br>)', '', region.translation, flags=re.IGNORECASE)
-                else:
-                    logger.debug("[STRICT MODE] AI断句开启，使用无限尺寸")
+            # --- Unsupported layout modes ---
             else:
-                calc_max_width = region.unrotated_size[0]
-                calc_max_height = region.unrotated_size[1]
-
-            # Step 1: 先缩小字体直到文本能放进文本框
-            while font_size >= min_shrink_font_size:
-                if render_horizontally:
-                    lines, _ = text_render.calc_horizontal(
-                        font_size,
-                        region.translation,
-                        max_width=calc_max_width,
-                        max_height=calc_max_height,
-                        language=region.target_lang,
-                        letter_spacing=letter_spacing_multiplier,
-                    )
-                    if len(lines) <= len(region.texts):
-                        break
-                else:
-                    lines, _ = text_render.calc_vertical(
-                        font_size,
-                        region.translation,
-                        max_height=calc_max_height,
-                        letter_spacing=letter_spacing_multiplier,
-                    )
-                    if len(lines) <= len(region.texts):
-                        break
-                font_size -= 1
-
-            # Step 2: 尝试扩大字体以更好地填充空间（但不超过初始大小）
-            # 从当前能放下的字体大小开始，逐步增加
-            max_fitting_font_size = font_size
-            test_font_size = font_size + 1
-
-            while test_font_size <= target_font_size:
-                if render_horizontally:
-                    test_lines, _ = text_render.calc_horizontal(
-                        test_font_size,
-                        region.translation,
-                        max_width=calc_max_width,
-                        max_height=calc_max_height,
-                        language=region.target_lang,
-                        letter_spacing=letter_spacing_multiplier,
-                    )
-                    if len(test_lines) <= len(region.texts):
-                        max_fitting_font_size = test_font_size
-                        test_font_size += 1
-                    else:
-                        break
-                else:
-                    test_lines, _ = text_render.calc_vertical(
-                        test_font_size,
-                        region.translation,
-                        max_height=calc_max_height,
-                        letter_spacing=letter_spacing_multiplier,
-                    )
-                    if len(test_lines) <= len(region.texts):
-                        max_fitting_font_size = test_font_size
-                        test_font_size += 1
-                    else:
-                        break
-
-            # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
-            layout_font_size = max(max_fitting_font_size, min_shrink_font_size)
-            final_font_size = _apply_final_font_constraints(layout_font_size, config)
-            total_font_scale = final_font_size / max(layout_font_size, 1)
-
-            # Scale region to match final font size
-            dst_points = region.min_rect
-            if total_font_scale != 1.0:
-                try:
-                    poly = Polygon(region.unrotated_min_rect[0])
-                    scaled_poly = affinity.scale(poly, xfact=total_font_scale, yfact=total_font_scale, origin='center')
-                    scaled_points = np.array(scaled_poly.exterior.coords[:4])
-                    dst_points = rotate_polygons(region.center, scaled_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                except Exception as e:
-                    logger.warning(f"Failed to scale region for font_scale_ratio: {e}")
-
-            region.font_size = final_font_size
-            dst_points_list.append(dst_points)
-            continue
-
-        # --- Mode: smart_scaling ---
-        elif mode == 'smart_scaling':
-            # Check if text contains [BR] markers
-            has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-
-            # 添加诊断日志
-            logger.debug(f"[SMART_SCALING] Region {region_idx}: mode={mode}, has_br={has_br}")
-
-            # --- UNIFIED ALGORITHM: 只分 has_br 和 no_br 两种情况 ---
-            try:
-                # Calculate required dimensions using current font size (fixed layout)
-                bubble_width, bubble_height = region.unrotated_size
-
-                # Defensive check for invalid bubble sizes
-                if not (isinstance(bubble_width, (int, float)) and np.isfinite(bubble_width) and bubble_width > 0 and
-                        isinstance(bubble_height, (int, float)) and np.isfinite(bubble_height) and bubble_height > 0):
-                    logger.warning(f"Invalid bubble size for region: w={bubble_width}, h={bubble_height}. Skipping smart scaling for this region.")
-                    dst_points_list.append(region.min_rect)
-                    final_font_size = _apply_final_font_constraints(target_font_size, config)
-                    region.font_size = final_font_size
-                    continue
-
-                # Create base polygon for scaling
-                try:
-                    unrotated_base_poly = Polygon(region.unrotated_min_rect[0])
-                except Exception:
-                    unrotated_base_poly = Polygon([(0, 0), (bubble_width, 0), (bubble_width, bubble_height), (0, bubble_height)])
-
-                # Optimize line breaks if enabled
-                has_br = bool(re.search(r'(\[BR\]|【BR】|<br>)', region.translation, flags=re.IGNORECASE))
-                logger.debug(f"[SMART_SCALING] Region {region_idx}: has_br={has_br}, translation='{region.translation[:30]}...'")
-                if config.render.optimize_line_breaks and has_br:
-                    optimized_text, _ = optimize_line_breaks_for_region(
-                        region, config, target_font_size, bubble_width, bubble_height
-                    )
-                    region.translation = optimized_text
-
-                # n 表示行/列数量，后续溢出重算会统一使用；默认 1 防止未赋值。
-                n = 1
-                line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-                letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
-                render_horizontally = _resolve_region_render_horizontal(region)
-
-                # 根据有没有BR选择不同的计算方式
-                if has_br:
-                    logger.debug(f"[SMART_SCALING] Region {region_idx}: 有BR分支")
-                    # 有BR：用无限宽度，按BR换行
-                    required_width = 0
-                    required_height = 0
-
-                    if render_horizontally:
-                        lines, widths = text_render.calc_horizontal(
-                            target_font_size,
-                            region.translation,
-                            max_width=99999,
-                            max_height=99999,
-                            language=region.target_lang,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        n = max(1, len(lines))
-                        if widths:
-                            spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
-                            required_width = max(widths)
-                            required_height = target_font_size * n + spacing_y * max(0, n - 1)
-                    else: # Vertical
-                        # Convert [BR] tags to \n for vertical text
-                        text_for_calc = re.sub(r'\s*(\[BR\]|<br>|【BR】)\s*', '\n', region.translation, flags=re.IGNORECASE)
-
-                        # Apply auto_add_horizontal_tags if enabled
-                        if config.render.auto_rotate_symbols:
-                            text_for_calc = text_render.auto_add_horizontal_tags(text_for_calc)
-
-                        lines, heights = text_render.calc_vertical(
-                            target_font_size,
-                            text_for_calc,
-                            max_height=99999,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        n = max(1, len(lines))
-                        if heights:
-                            spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
-                            required_height = max(heights)
-                            required_width = target_font_size * n + spacing_x * max(0, n - 1)
-                else:
-                    logger.debug(f"[SMART_SCALING] Region {region_idx}: 无BR分支，开始反推断句")
-                    # 无BR：用精确像素反推最优行数/列数
-                    no_br_max_font_size = target_font_size
-
-                    if render_horizontally:
-                        # 横排：计算单行总宽度
-                        total_width = text_render.get_string_width(
-                            target_font_size,
-                            region.translation,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
-                        ratio = bubble_width / bubble_height if bubble_height > 0 else 1.0
-
-                        # 二次方程反推行数
-                        a = target_font_size + spacing_y
-                        b = -spacing_y
-                        c = -total_width / ratio if ratio > 0 else -total_width
-
-                        discriminant = b * b - 4 * a * c
-                        if discriminant >= 0 and a > 0:
-                            n_float = (-b + np.sqrt(discriminant)) / (2 * a)
-                            n_floor = max(1, int(np.floor(n_float)))
-                            n_ceil = max(1, int(np.ceil(n_float)))
-                        else:
-                            n_floor = n_ceil = 1
-
-                        # 分别计算两个n对应的最大字体，选字体大的
-                        def calc_max_font_horizontal(n, total_w, bw, bh, lsm, target_fs):
-                            height_factor = n + (n - 1) * 0.01 * lsm
-                            max_by_height = int(bh / height_factor) if height_factor > 0 else target_fs
-                            max_by_width = int(bw * n * target_fs / total_w) if total_w > 0 else target_fs
-                            return min(max_by_height, max_by_width)
-
-                        font_floor = calc_max_font_horizontal(n_floor, total_width, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
-                        font_ceil = calc_max_font_horizontal(n_ceil, total_width, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
-
-                        # 选字体大的那个
-                        if font_floor >= font_ceil:
-                            n = n_floor
-                            final_font_size = font_floor
-                        else:
-                            n = n_ceil
-                            final_font_size = font_ceil
-
-                        final_font_size = min(final_font_size, target_font_size)
-                        final_font_size = max(final_font_size, layout_min_font_size)
-
-                        # 用最终字体重新计算精确的required尺寸
-                        final_total_width = text_render.get_string_width(
-                            final_font_size,
-                            region.translation,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        final_spacing_y = int(final_font_size * 0.01 * line_spacing_multiplier)
-                        required_width = final_total_width / n
-                        required_height = n * final_font_size + max(0, n - 1) * final_spacing_y
-
-                        target_font_size = final_font_size
-                        logger.debug(f"[SMART_SCALING DEBUG] No BR Horizontal: n={n}, final_font={final_font_size}, required={required_width:.1f}x{required_height:.1f}")
-
-                        no_br_result = solve_no_br_layout(
-                            text=region.translation,
-                            horizontal=True,
-                            seed_segments=n,
-                            seed_font_size=final_font_size,
-                            bubble_width=bubble_width,
-                            bubble_height=bubble_height,
-                            min_font_size=layout_min_font_size,
-                            max_font_size=no_br_max_font_size,
-                            line_spacing_multiplier=line_spacing_multiplier,
-                            letter_spacing_multiplier=letter_spacing_multiplier,
-                            target_lang=region.target_lang,
-                            config=config,
-                        )
-                        region.translation = no_br_result.text_with_br
-                        target_font_size = no_br_result.font_size
-                        n = no_br_result.n_segments
-                        required_width = no_br_result.required_width
-                        required_height = no_br_result.required_height
-                        logger.debug(
-                            f"[SMART_SCALING] Region {region_idx}: 横排融合断句后 n={n}, "
-                            f"font={target_font_size}, required={required_width:.1f}x{required_height:.1f}"
-                        )
-                    else: # Vertical
-                        # 竖排：计算单列总高度
-                        total_height = text_render.get_string_height(
-                            target_font_size,
-                            region.translation,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
-                        ratio = bubble_width / bubble_height if bubble_height > 0 else 1.0
-
-                        # 二次方程反推列数
-                        a = target_font_size + spacing_x
-                        b = -spacing_x
-                        c = -total_height * ratio
-
-                        discriminant = b * b - 4 * a * c
-                        if discriminant >= 0 and a > 0:
-                            n_float = (-b + np.sqrt(discriminant)) / (2 * a)
-                            n_floor = max(1, int(np.floor(n_float)))
-                            n_ceil = max(1, int(np.ceil(n_float)))
-                        else:
-                            n_floor = n_ceil = 1
-
-                        # 分别计算两个n对应的最大字体，选字体大的
-                        def calc_max_font_vertical(n, total_h, bw, bh, lsm, target_fs):
-                            width_factor = n + (n - 1) * 0.2 * lsm
-                            max_by_width = int(bw / width_factor) if width_factor > 0 else target_fs
-                            max_by_height = int(bh * n * target_fs / total_h) if total_h > 0 else target_fs
-                            return min(max_by_width, max_by_height)
-
-                        font_floor = calc_max_font_vertical(n_floor, total_height, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
-                        font_ceil = calc_max_font_vertical(n_ceil, total_height, bubble_width, bubble_height, line_spacing_multiplier, target_font_size)
-
-                        # 选字体大的那个
-                        if font_floor >= font_ceil:
-                            n = n_floor
-                            final_font_size = font_floor
-                        else:
-                            n = n_ceil
-                            final_font_size = font_ceil
-
-                        final_font_size = min(final_font_size, target_font_size)
-                        final_font_size = max(final_font_size, layout_min_font_size)
-
-                        # 用最终字体重新计算精确的required尺寸
-                        final_total_height = text_render.get_string_height(
-                            final_font_size,
-                            region.translation,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        final_spacing_x = int(final_font_size * 0.2 * line_spacing_multiplier)
-                        required_height = final_total_height / n
-                        required_width = n * final_font_size + max(0, n - 1) * final_spacing_x
-
-                        target_font_size = final_font_size
-                        logger.debug(f"[SMART_SCALING DEBUG] No BR Vertical: n={n}, final_font={final_font_size}, required={required_width:.1f}x{required_height:.1f}")
-
-                        no_br_result = solve_no_br_layout(
-                            text=region.translation,
-                            horizontal=False,
-                            seed_segments=n,
-                            seed_font_size=final_font_size,
-                            bubble_width=bubble_width,
-                            bubble_height=bubble_height,
-                            min_font_size=layout_min_font_size,
-                            max_font_size=no_br_max_font_size,
-                            line_spacing_multiplier=line_spacing_multiplier,
-                            letter_spacing_multiplier=letter_spacing_multiplier,
-                            target_lang=region.target_lang,
-                            config=config,
-                        )
-                        region.translation = no_br_result.text_with_br
-                        target_font_size = no_br_result.font_size
-                        n = no_br_result.n_segments
-                        required_width = no_br_result.required_width
-                        required_height = no_br_result.required_height
-                        logger.debug(
-                            f"[SMART_SCALING] Region {region_idx}: 竖排融合断句后 n={n}, "
-                            f"font={target_font_size}, required={required_width:.1f}x{required_height:.1f}"
-                        )
-
-                # Check for overflow in either dimension
-                width_overflow = max(0, required_width - bubble_width)
-                height_overflow = max(0, required_height - bubble_height)
-
-                dst_points = region.min_rect
-
-                if width_overflow > 0 or height_overflow > 0:
-                    # 独立缩放宽度和高度（单列/单行和多列/多行都使用相同逻辑）
-                    width_scale_factor = 1.0
-                    height_scale_factor = 1.0
-
-                    if width_overflow > 0:
-                        width_scale_needed = required_width / bubble_width if bubble_width > 0 else 1.0
-                        diff_ratio_w = width_scale_needed - 1.0
-                        box_expansion_ratio_w = diff_ratio_w / 2
-                        width_scale_factor = 1 + min(box_expansion_ratio_w, 1.0)
-
-                    if height_overflow > 0:
-                        height_scale_needed = required_height / bubble_height if bubble_height > 0 else 1.0
-                        diff_ratio_h = height_scale_needed - 1.0
-                        box_expansion_ratio_h = diff_ratio_h / 2
-                        height_scale_factor = 1 + min(box_expansion_ratio_h, 1.0)
-
-                    try:
-                        scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
-                        scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                    except Exception as e:
-                        logger.warning(f"Failed to apply independent scaling: {e}")
-
-                    # 字体缩放基于最大的溢出维度
-                    scale_needed = max(required_width / bubble_width if bubble_width > 0 else 1.0,
-                                     required_height / bubble_height if bubble_height > 0 else 1.0)
-                    diff_ratio = scale_needed - 1.0
-                    font_shrink_ratio = diff_ratio / 2 / (1 + diff_ratio)
-                    font_scale_factor = 1 - min(font_shrink_ratio, 0.5)
-                    target_font_size = int(target_font_size * font_scale_factor)
-
-                    # 用取整后的字体重新算required
-                    if render_horizontally:
-                        final_total_width = text_render.get_string_width(
-                            target_font_size,
-                            region.translation,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        final_spacing_y = int(target_font_size * 0.01 * line_spacing_multiplier)
-                        required_width = final_total_width / n if n > 0 else final_total_width
-                        required_height = n * target_font_size + max(0, n - 1) * final_spacing_y
-                    else:
-                        final_total_height = text_render.get_string_height(
-                            target_font_size,
-                            region.translation,
-                            letter_spacing=letter_spacing_multiplier,
-                        )
-                        final_spacing_x = int(target_font_size * 0.2 * line_spacing_multiplier)
-                        required_height = final_total_height / n if n > 0 else final_total_height
-                        required_width = n * target_font_size + max(0, n - 1) * final_spacing_x
-
-                    # 用新的required重新计算框扩大
-                    width_scale_factor = required_width / bubble_width if bubble_width > 0 and required_width > bubble_width else 1.0
-                    height_scale_factor = required_height / bubble_height if bubble_height > 0 and required_height > bubble_height else 1.0
-
-                    try:
-                        scaled_unrotated_poly = affinity.scale(unrotated_base_poly, xfact=width_scale_factor, yfact=height_scale_factor, origin='center')
-                        scaled_unrotated_points = np.array(scaled_unrotated_poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                    except Exception as e:
-                        logger.warning(f"Failed to apply final scaling: {e}")
-                else:
-                    # No overflow, can enlarge font to fit better
-                    if required_width > 0 and required_height > 0:
-                        width_scale_factor = bubble_width / required_width
-                        height_scale_factor = bubble_height / required_height
-                        font_scale_factor = min(width_scale_factor, height_scale_factor)
-                        target_font_size = int(target_font_size * font_scale_factor)
-
-                    try:
-                        unrotated_points = np.array(unrotated_base_poly.exterior.coords[:4])
-                        dst_points = rotate_polygons(region.center, unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)
-                    except Exception as e:
-                        logger.warning(f"Failed to use base polygon: {e}")
-
-            except Exception as e:
-                logger.error(f"Error in new smart_scaling algorithm: {e}")
-                # Fallback to a safe state
-                target_font_size = getattr(region, 'layout_base_font_size', target_font_size)
-                dst_points = region.min_rect
-
-            # Apply final post-layout constraints: offset, scale ratio, and min/max clamps.
-            final_font_size = _apply_final_font_constraints(target_font_size, config)
-
-            # 用辅助函数直接计算 dst_points（包含矩形构建和旋转）
-            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-            letter_spacing_multiplier = _resolve_letter_spacing_multiplier(region, config)
-            if apply_bubble_centering:
-                _ss_center = tuple(region.center)
-            else:
-                _, _ss_req_h, _ = calc_box_from_font(
-                    final_font_size, region.translation, render_horizontally,
-                    line_spacing_multiplier, config, region.target_lang,
-                    letter_spacing=letter_spacing_multiplier,
+                raise ValueError(
+                    f"Unsupported render.layout_mode: {mode!r}. "
+                    "Supported values: balloon_fill, smart_scaling, strict"
                 )
-                _ss_center = _compute_top_aligned_center(region, _ss_req_h)
-            dst_points = calc_box_from_font(
-                final_font_size, region.translation, render_horizontally,
-                line_spacing_multiplier, config, region.target_lang,
-                center=_ss_center, angle=region.angle,
-                letter_spacing=letter_spacing_multiplier,
-            )
-
-            # 如果计算失败，使用原始检测框
-            if dst_points is None:
-                dst_points = region.min_rect
-
-            region.font_size = final_font_size
-            dst_points_list.append(dst_points)
-            continue
-
-        # --- Unsupported layout modes ---
-        else:
-            raise ValueError(
-                f"Unsupported render.layout_mode: {mode!r}. "
-                "Supported values: balloon_fill, smart_scaling, strict"
-            )
+        except Exception:
+            raise
         
     # Add legend to debug image
     if return_debug_img and debug_img is not None:
@@ -2017,27 +2068,30 @@ async def dispatch(
         dst_points_list = result
         debug_img = None
 
-    for region, dst_points in tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions)):
+    for region_idx, (region, dst_points) in enumerate(tqdm(zip(text_regions, dst_points_list), '[render]', total=len(text_regions))):
         # 保存缩放算法计算的 dst_points 到 region，供 PSD 导出使用
         # 注意：这是缩放后的真实文本区域，不是 render 函数中扩展后的区域
         region.dst_points = dst_points
-        
-        # 检查是否有文本需要渲染
-        if not region.translation or not region.translation.strip():
-            logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
-            continue
-        
-        # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
-        line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
-        img = render(
-            img,
-            region,
-            dst_points,
-            not config.render.no_hyphenation,
-            line_spacing_multiplier,
-            config.render.disable_font_border,
-            config,
-        )
+
+        try:
+            # 检查是否有文本需要渲染
+            if not region.translation or not region.translation.strip():
+                logger.info(f"[RENDER] 跳过空文本区域: text='{region.text[:20] if region.text else ''}', translation='{region.translation[:20] if region.translation else ''}'")
+                continue
+
+            # render() / put_text_*() 统一接收“倍率”，基础值在文本渲染器内部处理。
+            line_spacing_multiplier = _resolve_line_spacing_multiplier(region, config)
+            img = render(
+                img,
+                region,
+                dst_points,
+                not config.render.no_hyphenation,
+                line_spacing_multiplier,
+                config.render.disable_font_border,
+                config,
+            )
+        except Exception:
+            raise
     
     if return_debug_img and debug_img is not None:
         return img, debug_img
@@ -2052,6 +2106,12 @@ def render(
     disable_font_border,
     config: Config
 ):
+    region.translation = _apply_vertical_horizontal_markup(
+        region.translation,
+        render_horizontally=_resolve_region_render_horizontal(region),
+        config=config,
+    )
+
     # 完全依赖区域字体，不再使用运行时全局字体参数
     # JSON 导出时已为每个区域填入完整 font_path，这里直接用即可
     region_font_path = getattr(region, 'font_path', '') or ''

@@ -34,6 +34,7 @@ from services import (
     get_translation_service,
 )
 from services.state_manager import AppStateKey
+from utils.asyncio_cleanup import shutdown_event_loop
 
 from manga_translator.config import (
     Alignment,
@@ -3907,24 +3908,8 @@ class TranslationWorker(QObject):
             self.error.emit(error_msg)
         finally:
             if loop:
-                try:
-                    # Cancel all remaining tasks
-                    tasks = asyncio.all_tasks(loop=loop)
-                    for task in tasks:
-                        task.cancel()
-                    
-                    # Gather all tasks to let them finish cancelling
-                    if tasks:
-                        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-
-                    # Shutdown async generators
-                    loop.run_until_complete(loop.shutdown_asyncgens())
-                except Exception as e:
-                    self._log_error(f"--- ERROR during asyncio cleanup: {e}")
-                finally:
-                    loop.close()
-                    asyncio.set_event_loop(None)
-                    # 清理完成，不输出日志
+                shutdown_event_loop(loop, logger=self.logger, label="worker loop")
+                # 清理完成，不输出日志
 
 
 
@@ -4253,18 +4238,7 @@ class TranslationRunnable(QRunnable):
             self._emit_error(error_msg)
         finally:
             if loop:
-                try:
-                    tasks = asyncio.all_tasks(loop=loop)
-                    for task in tasks:
-                        task.cancel()
-                    if tasks:
-                        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-                    loop.run_until_complete(loop.shutdown_asyncgens())
-                except Exception as e:
-                    self.logger.error(f"--- ERROR during asyncio cleanup: {e}")
-                finally:
-                    loop.close()
-                    asyncio.set_event_loop(None)
+                shutdown_event_loop(loop, logger=self.logger, label="threadpool worker loop")
     
     def _emit_finished(self, results):
         """线程安全地发送完成信号"""

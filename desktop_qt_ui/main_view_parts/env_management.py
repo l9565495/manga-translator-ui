@@ -365,6 +365,7 @@ def on_test_api_clicked(self, key: str):
     import asyncio
 
     from PyQt6.QtCore import QThread
+    from utils.asyncio_cleanup import shutdown_event_loop
     from widgets.themed_progress_dialog import create_progress_dialog
 
     if key not in self.env_widgets:
@@ -389,11 +390,12 @@ def on_test_api_clicked(self, key: str):
     def run_test():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(
-            self.controller.test_api_connection_async(test_target, api_key, api_base, model)
-        )
-        loop.close()
-        return result
+        try:
+            return loop.run_until_complete(
+                self.controller.test_api_connection_async(test_target, api_key, api_base, model)
+            )
+        finally:
+            shutdown_event_loop(loop, label="API test loop")
 
     class TestThread(QThread):
         finished_signal = pyqtSignal(bool, str)
@@ -436,6 +438,7 @@ def on_get_models_clicked(self, key: str):
 
     from PyQt6.QtCore import QThread
     from PyQt6.QtWidgets import QMessageBox
+    from utils.asyncio_cleanup import shutdown_event_loop
     from widgets.themed_progress_dialog import create_progress_dialog
 
     from desktop_qt_ui.widgets.model_selector_dialog import ModelSelectorDialog
@@ -459,11 +462,12 @@ def on_get_models_clicked(self, key: str):
     def run_get_models():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(
-            self.controller.get_available_models_async(model_api_type, api_key, api_base)
-        )
-        loop.close()
-        return result
+        try:
+            return loop.run_until_complete(
+                self.controller.get_available_models_async(model_api_type, api_key, api_base)
+            )
+        finally:
+            shutdown_event_loop(loop, label="model fetch loop")
 
     class GetModelsThread(QThread):
         finished_signal = pyqtSignal(bool, list, str)

@@ -43,6 +43,71 @@ MIRROR_URLS = [
     "https://pypi.org/simple/",                    # 官方源（作为最后备选）
 ]
 
+# PyTorch 专用源回退列表。
+# 说明：
+# - primary source 仍然来自 requirements 文件中的 --index-url
+# - 这里补充官方源之外的镜像，安装 torch 相关包时按顺序回退
+PYTORCH_INDEX_FALLBACKS = {
+    "https://download.pytorch.org/whl/cpu": [
+        "https://mirror.sjtu.edu.cn/pytorch-wheels/cpu/",
+        "https://mirrors.aliyun.com/pytorch-wheels/cpu/",
+    ],
+    "https://download.pytorch.org/whl/cu128": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu128/",
+    ],
+}
+
+# 对部分 PyTorch 源使用自定义尝试顺序。
+# 例如 cu128 优先走国内镜像，失败后再回退官方源。
+PYTORCH_INDEX_PRIORITY = {
+    "https://download.pytorch.org/whl/cu128": [
+        "https://mirrors.aliyun.com/pytorch-wheels/cu128/",
+        "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/",
+        "https://download.pytorch.org/whl/cu128",
+    ],
+}
+
+
+def normalize_index_url(url):
+    """统一 index-url 格式，便于做去重和映射。"""
+    return (url or "").strip().rstrip("/")
+
+
+def build_trusted_host_args(urls):
+    """根据 URL 列表构建 pip 的 trusted-host 参数。"""
+    import urllib.parse
+
+    hosts = []
+    for url in urls:
+        parsed = urllib.parse.urlparse(url or "")
+        if parsed.hostname and parsed.hostname not in hosts:
+            hosts.append(parsed.hostname)
+    return "".join(f" --trusted-host {host}" for host in hosts)
+
+
+def get_pytorch_index_candidates(primary_index_url):
+    """返回 PyTorch 包安装时应尝试的专用源列表。"""
+    normalized_primary = normalize_index_url(primary_index_url)
+    candidates = []
+    seen = set()
+
+    def add(url):
+        normalized = normalize_index_url(url)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            candidates.append(normalized)
+
+    preferred_urls = PYTORCH_INDEX_PRIORITY.get(normalized_primary)
+    if preferred_urls:
+        for preferred_url in preferred_urls:
+            add(preferred_url)
+        return candidates
+
+    add(normalized_primary)
+    for fallback_url in PYTORCH_INDEX_FALLBACKS.get(normalized_primary, []):
+        add(fallback_url)
+    return candidates
+
 
 def is_python_version_valid():
     """检查Python版本是否符合要求"""
@@ -226,17 +291,14 @@ def run_pip_requirements(requirements_file, desc=None):
     # 解析 requirements 文件，提取有效的包和索引源
     packages = []
     primary_index_url = None  # 存储 --index-url 参数（主源）
-    extra_index_urls = []  # 存储 --extra-index-url 参数（launch.py 中忽略，仅供 pip 直接安装时使用）
-    
     with open(req_path, 'r', encoding='utf-8') as f:
         for line in f:
             line = line.strip()
             # 跳过空行、注释
             if not line or line.startswith('#'):
                 continue
-            # 解析 --extra-index-url 选项（忽略，不添加到 extra_index_urls）
+            # 解析 --extra-index-url 选项（launch.py 中不使用，PyTorch 源由专用回退列表控制）
             if line.startswith('--extra-index-url'):
-                # 完全忽略 --extra-index-url，让 torch 相关包只能从主源下载
                 continue
             # 解析 --index-url 选项（主源）
             if line.startswith('--index-url'):
@@ -313,41 +375,16 @@ def run_pip_requirements(requirements_file, desc=None):
                 return True
         return False
     
-    def build_pip_command(pip_args, mirror_url=None, use_primary_index=False):
+    def build_pip_command(pip_args, index_source=None):
         """构建pip命令
         
         Args:
             pip_args: pip 命令参数
-            mirror_url: 镜像源 URL（用于非 PyTorch 包）
-            use_primary_index: 是否使用 requirements 文件中指定的主源（用于 PyTorch 包）
+            index_source: 当前要使用的索引源
         """
-        index_url_line = ''
-        extra_index_line = ''
-        trusted_host_line = ''
-        
-        # PyTorch 包：使用 requirements 文件中的 --index-url 作为主源
-        if use_primary_index and primary_index_url:
-            index_url_line = f' --index-url {primary_index_url}'
-            parsed_primary = urllib.parse.urlparse(primary_index_url)
-            if parsed_primary.hostname:
-                trusted_host_line += f' --trusted-host {parsed_primary.hostname}'
-            # 添加 extra-index-url 作为备用源（用于其他依赖）
-            for extra_url in extra_index_urls:
-                extra_index_line += f' --extra-index-url {extra_url}'
-                parsed_extra = urllib.parse.urlparse(extra_url)
-                if parsed_extra.hostname:
-                    trusted_host_line += f' --trusted-host {parsed_extra.hostname}'
-        else:
-            # 非 PyTorch 包：使用镜像源
-            if mirror_url:
-                index_url_line = f' --index-url {mirror_url}'
-                parsed = urllib.parse.urlparse(mirror_url)
-                if parsed.hostname:
-                    trusted_host_line += f' --trusted-host {parsed.hostname}'
-        
-        trusted_host_line += ' --trusted-host download.pytorch.org'
-        
-        return f'"{python}" -m pip {pip_args} --prefer-binary{index_url_line}{extra_index_line}{trusted_host_line} --disable-pip-version-check --no-warn-script-location'
+        index_url_line = f' --index-url {index_source}' if index_source else ''
+        trusted_host_line = build_trusted_host_args([index_source, "https://download.pytorch.org"])
+        return f'"{python}" -m pip {pip_args} --prefer-binary{index_url_line}{trusted_host_line} --disable-pip-version-check --no-warn-script-location'
     
     if not packages:
         print(f"[警告] {requirements_file} 中没有找到有效的依赖包")
@@ -362,15 +399,11 @@ def run_pip_requirements(requirements_file, desc=None):
     total = len(packages)
     print(f"正在安装 {desc or requirements_file}... (共 {total} 个包)")
     
-    # 当前镜像索引
-    current_mirror_idx = 0
     # 当前包索引
     pkg_idx = 0
     
     while pkg_idx < total:
         pkg = packages[pkg_idx]
-        mirror = mirrors_to_try[current_mirror_idx]
-        mirror_name = urllib.parse.urlparse(mirror).hostname or mirror
         
         # 获取包名用于显示（去除版本约束）
         pkg_display = pkg.split('==')[0].split('>=')[0].split('<=')[0].split('[')[0].split('@')[0].strip()
@@ -378,6 +411,7 @@ def run_pip_requirements(requirements_file, desc=None):
         
         # 检查是否是 PyTorch 相关包，需要使用主源
         use_primary = is_pytorch_package(pkg_display) and primary_index_url
+        index_candidates = get_pytorch_index_candidates(primary_index_url) if use_primary else mirrors_to_try
         
         # 检查是否需要忽略版本限制
         pkg_to_install = pkg
@@ -391,45 +425,36 @@ def run_pip_requirements(requirements_file, desc=None):
         #     pkg_to_install = pkg_display
         #     print(f"    (忽略版本限制，安装最新版)")
         
-        if use_primary:
-            print(f"    (使用 PyTorch 源: {primary_index_url})")
-        
-        cmd = build_pip_command(f'install "{pkg_to_install}"', mirror, use_primary_index=use_primary)
-        
-        try:
-            result = subprocess.run(cmd, shell=True, env=os.environ)
-            
-            if result.returncode == 0:
-                # 安装成功，继续下一个包
-                pkg_idx += 1
-            else:
-                # 安装失败，尝试下一个镜像
-                print(f"[失败] {pkg_display} 在 {mirror_name} 安装失败")
-                
-                # 切换到下一个镜像
-                current_mirror_idx += 1
-                
-                if current_mirror_idx >= len(mirrors_to_try):
-                    # 所有镜像都失败了
-                    raise RuntimeError(f"无法安装 {pkg_display}，所有镜像源均失败")
-                
-                next_mirror = mirrors_to_try[current_mirror_idx]
-                next_mirror_name = urllib.parse.urlparse(next_mirror).hostname or next_mirror
-                print(f"[重试] 切换到镜像 {next_mirror_name}，从 {pkg_display} 重新开始...")
-                # 不增加 pkg_idx，从当前失败的包重试
-                
-        except Exception as e:
-            print(f"[错误] 安装 {pkg_display} 时出错: {e}")
-            
-            # 切换到下一个镜像
-            current_mirror_idx += 1
-            
-            if current_mirror_idx >= len(mirrors_to_try):
-                raise RuntimeError(f"无法安装 {pkg_display}，所有镜像源均失败。错误: {e}")
-            
-            next_mirror = mirrors_to_try[current_mirror_idx]
-            next_mirror_name = urllib.parse.urlparse(next_mirror).hostname or next_mirror
-            print(f"[重试] 切换到镜像 {next_mirror_name}，从 {pkg_display} 重新开始...")
+        installed = False
+        last_error = None
+        for source_idx, current_index in enumerate(index_candidates):
+            source_name = urllib.parse.urlparse(current_index).hostname or current_index
+            if use_primary:
+                print(f"    (使用 PyTorch 源: {current_index})")
+
+            cmd = build_pip_command(f'install "{pkg_to_install}"', current_index)
+
+            try:
+                result = subprocess.run(cmd, shell=True, env=os.environ)
+                if result.returncode == 0:
+                    installed = True
+                    break
+
+                last_error = f"返回码: {result.returncode}"
+                print(f"[失败] {pkg_display} 在 {source_name} 安装失败，{last_error}")
+            except Exception as e:
+                last_error = str(e)
+                print(f"[错误] 安装 {pkg_display} 时出错: {e}")
+
+            if source_idx + 1 < len(index_candidates):
+                next_index = index_candidates[source_idx + 1]
+                next_name = urllib.parse.urlparse(next_index).hostname or next_index
+                print(f"[重试] 切换到镜像 {next_name}，从 {pkg_display} 重新开始...")
+
+        if not installed:
+            raise RuntimeError(f"无法安装 {pkg_display}，所有镜像源均失败。最后错误: {last_error}")
+
+        pkg_idx += 1
     
     print(f"[完成] {desc or requirements_file} 安装完成")
 
@@ -1723,13 +1748,29 @@ def update_dependencies_selective(args, missing_packages):
             if is_pytorch_package(pkg_name) and primary_index_url:
                 # 使用 PyTorch 源安装，忽略版本锁定安装最新版
                 print(f"    (使用 PyTorch 源)")
-                parsed = urllib.parse.urlparse(primary_index_url)
-                trusted_host = f'--trusted-host {parsed.hostname}' if parsed.hostname else ''
-                # 只用包名，不带版本号
-                cmd = f'"{python}" -m pip install "{pkg_name}" --index-url {primary_index_url} {trusted_host} --prefer-binary --disable-pip-version-check'
-                result = subprocess.run(cmd, shell=True, env=os.environ)
-                if result.returncode != 0:
-                    raise RuntimeError(f"安装失败，返回码: {result.returncode}")
+                pytorch_indexes = get_pytorch_index_candidates(primary_index_url)
+                last_error = None
+                installed = False
+                for source_idx, pytorch_index in enumerate(pytorch_indexes):
+                    print(f"    (使用 PyTorch 源: {pytorch_index})")
+                    trusted_host = build_trusted_host_args([pytorch_index, "https://download.pytorch.org"])
+                    # 只用包名，不带版本号
+                    cmd = f'"{python}" -m pip install "{pkg_name}" --index-url {pytorch_index} {trusted_host} --prefer-binary --disable-pip-version-check'
+                    result = subprocess.run(cmd, shell=True, env=os.environ)
+                    if result.returncode == 0:
+                        installed = True
+                        break
+
+                    last_error = f"返回码: {result.returncode}"
+                    source_name = urllib.parse.urlparse(pytorch_index).hostname or pytorch_index
+                    print(f"    [失败] {pkg_name} 在 {source_name} 安装失败，{last_error}")
+                    if source_idx + 1 < len(pytorch_indexes):
+                        next_index = pytorch_indexes[source_idx + 1]
+                        next_name = urllib.parse.urlparse(next_index).hostname or next_index
+                        print(f"    [重试] 切换到镜像 {next_name}")
+
+                if not installed:
+                    raise RuntimeError(f"安装失败，所有 PyTorch 源均不可用。最后错误: {last_error}")
             else:
                 # 普通包，使用 run_pip（支持镜像源回退）
                 run_pip(f'install "{pkg}"', pkg_name)

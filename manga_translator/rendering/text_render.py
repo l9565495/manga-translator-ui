@@ -1,7 +1,7 @@
-import functools
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -123,12 +123,7 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())  
 
 DEFAULT_FONT = os.path.join(BASE_PATH, 'fonts', 'Arial-Unicode-Regular.ttf')
-try:
-    _default_font_handle = Path(DEFAULT_FONT).open('rb')
-    FONT = freetype.Face(_default_font_handle)
-except Exception as e:
-    logger.error(f"Failed to initialize default font: {e}")
-    FONT = None  
+FONT = None
 
 def CJK_Compatibility_Forms_translate(cdpt: str, direction: int):
     """direction: 0 - horizontal, 1 - vertical"""
@@ -349,12 +344,14 @@ def _normalize_horizontal_block_content(content: str) -> str:
 
 
 def prepare_text_for_direction_rendering(text: str, is_horizontal: bool, auto_rotate_symbols: bool = False) -> str:
-    """Apply the same direction-specific text preprocessing used by render/layout."""
+    """Render-stage normalization only.
+
+    渲染链路不再自行补 <H>，这里只处理既有标记的方向适配。
+    """
     text = text or ""
     if is_horizontal:
         return re.sub(r'<H>(.*?)</H>', r'\1', text, flags=re.IGNORECASE | re.DOTALL)
-    if auto_rotate_symbols:
-        return auto_add_horizontal_tags(text)
+    _ = auto_rotate_symbols
     return text
 
 def _convert_br_outside_h_tags(text: str) -> str:
@@ -386,15 +383,22 @@ def _convert_br_outside_h_tags(text: str) -> str:
     return ''.join(converted)
 
 def should_rotate_horizontal_block_90(content: str) -> bool:
-    """Rotate 90 degrees for alphanumeric <H> blocks in vertical layout."""
+    """Rotate 90 degrees for alphanumeric <H> blocks in vertical layout.
+
+    Supports multi-word Latin phrases such as "Blue Box".
+    """
     if not content:
         return False
-    content = _normalize_horizontal_block_content(content)
+    content = _normalize_horizontal_block_content(content).strip()
     if not content:
         return False
-    # 字母/数字块一律旋转90度；符号块保持横排
-    alnum_only = re.fullmatch(r'[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+', content)
-    return bool(alnum_only)
+    # 字母/数字块（允许词间空格）一律旋转90度；符号块保持横排
+    latin_phrase = re.fullmatch(
+        r'[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+'
+        r'(?:[ \t]+[a-zA-Z0-9\uff21-\uff3a\uff41-\uff5a\uff10-\uff19_-]+)*',
+        content,
+    )
+    return bool(latin_phrase)
     
 def rotate_image(image, angle):
     if angle == 0:
@@ -451,44 +455,92 @@ FALLBACK_FONTS = [
     os.path.join(BASE_PATH, 'fonts/msyh.ttc'),
     os.path.join(BASE_PATH, 'fonts/msgothic.ttc'),
 ]
-FONT_SELECTION: List[freetype.Face] = []
-font_cache = {}
-_font_file_handles = {}  # 保存文件句柄，防止被垃圾回收
-_face_paths = {}
 _font_data_cache = {}
+_thread_font_state = threading.local()
 
-if FONT is not None:
-    _font_file_handles[DEFAULT_FONT] = _default_font_handle
-    _face_paths[id(FONT)] = DEFAULT_FONT.replace('\\', '/')
 
-def get_cached_font(path: str) -> freetype.Face:
-    path = path.replace('\\', '/')
-    if not font_cache.get(path):
-        # 保存文件句柄引用，防止被关闭
+def _normalize_font_path(path: str) -> str:
+    return path.replace('\\', '/')
+
+
+def _new_font_state() -> dict:
+    return {
+        'font': None,
+        'font_selection': [],
+        'font_cache': {},
+        'font_file_handles': {},  # 保持句柄存活，避免 Face 指向已关闭文件
+        'face_paths': {},
+        'glyph_cache': {},
+    }
+
+
+def _cache_glyph(state: dict, key: Tuple[str, int, int], glyph: "Glyph") -> "Glyph":
+    cache = state['glyph_cache']
+    if len(cache) >= 4096:
+        cache.clear()
+    cache[key] = glyph
+    return glyph
+
+
+def _clear_glyph_cache(state: Optional[dict] = None):
+    if state is None:
+        state = _get_thread_font_state()
+    state['glyph_cache'].clear()
+
+
+def _get_thread_font_state() -> dict:
+    state = getattr(_thread_font_state, 'value', None)
+    if state is None:
+        state = _new_font_state()
+        _thread_font_state.value = state
+        try:
+            state['font'] = _load_font_for_state(state, DEFAULT_FONT)
+        except Exception as e:
+            logger.error(f"Failed to initialize default font: {e}")
+            state['font'] = None
+        _refresh_font_selection(state)
+    return state
+
+
+def _load_font_for_state(state: dict, path: str) -> freetype.Face:
+    path = _normalize_font_path(path)
+    face = state['font_cache'].get(path)
+    if face is None:
         file_handle = Path(path).open('rb')
-        _font_file_handles[path] = file_handle
         face = freetype.Face(file_handle)
-        font_cache[path] = face
-        _face_paths[id(face)] = path
-    return font_cache[path]
+        state['font_cache'][path] = face
+        state['font_file_handles'][path] = file_handle
+        state['face_paths'][id(face)] = path
+    return face
 
-def update_font_selection():
-    global FONT_SELECTION
-    FONT_SELECTION = []
-    if FONT:
-        FONT_SELECTION.append(FONT)
+
+def _refresh_font_selection(state: Optional[dict] = None):
+    if state is None:
+        state = _get_thread_font_state()
+    font_selection = []
+    if state['font'] is not None:
+        font_selection.append(state['font'])
     for font_path in FALLBACK_FONTS:
         try:
-            face = get_cached_font(font_path)
-            if face and face not in FONT_SELECTION:
-                FONT_SELECTION.append(face)
+            face = _load_font_for_state(state, font_path)
+            if face not in font_selection:
+                font_selection.append(face)
         except Exception as e:
             logger.error(f"Failed to load fallback font: {font_path} - {e}")
+    state['font_selection'] = font_selection
+    return font_selection
+
+def get_cached_font(path: str) -> freetype.Face:
+    state = _get_thread_font_state()
+    return _load_font_for_state(state, path)
+
+def update_font_selection():
+    return _refresh_font_selection()
 
 
 def set_font(path: str):
-    global FONT
-    
+    state = _get_thread_font_state()
+
     # 处理相对路径：尝试在 BASE_PATH 下查找
     resolved_path = path
     if path and not os.path.isabs(path) and not os.path.exists(path):
@@ -506,25 +558,25 @@ def set_font(path: str):
         if path:
             logger.error(f'Could not load font: {path}')
         try:
-            FONT = get_cached_font(DEFAULT_FONT)
+            state['font'] = get_cached_font(DEFAULT_FONT)
         except Exception:
             logger.critical("Default font could not be loaded. Please check your installation.")
-            FONT = None
-        update_font_selection()
-        get_char_glyph.cache_clear()
+            state['font'] = None
+        _refresh_font_selection(state)
+        _clear_glyph_cache(state)
         return
 
     try:
-        FONT = get_cached_font(resolved_path)
+        state['font'] = get_cached_font(resolved_path)
     except Exception:
         logger.error(f'Could not load font: {resolved_path}')
         try:
-            FONT = get_cached_font(DEFAULT_FONT)
+            state['font'] = get_cached_font(DEFAULT_FONT)
         except Exception:
             logger.critical("Default font could not be loaded. Please check your installation.")
-            FONT = None
-    update_font_selection()
-    get_char_glyph.cache_clear()
+            state['font'] = None
+    _refresh_font_selection(state)
+    _clear_glyph_cache(state)
 
 def is_thai_lang(lang: str):
     lang = (lang or '').lower()
@@ -534,7 +586,8 @@ def contains_thai_text(text: str) -> bool:
     return any('\u0E00' <= ch <= '\u0E7F' for ch in text)
 
 def _get_face_path(face: freetype.Face) -> Optional[str]:
-    return _face_paths.get(id(face))
+    state = _get_thread_font_state()
+    return state['face_paths'].get(id(face))
 
 def _get_font_data(path: str) -> bytes:
     path = path.replace('\\', '/')
@@ -545,13 +598,16 @@ def _get_font_data(path: str) -> bytes:
     return data
 
 def _select_shaping_face(text: str) -> Optional[freetype.Face]:
+    state = _get_thread_font_state()
+    font_selection = state['font_selection']
+    primary_font = state['font']
     visible_chars = [ch for ch in text if not ch.isspace()]
     if not visible_chars:
-        return FONT_SELECTION[0] if FONT_SELECTION else FONT
+        return font_selection[0] if font_selection else primary_font
 
     best_face = None
     best_score = -1
-    for face in FONT_SELECTION:
+    for face in font_selection:
         score = sum(1 for ch in visible_chars if face.get_char_index(ch) != 0)
         if score > best_score:
             best_face = face
@@ -561,13 +617,16 @@ def _select_shaping_face(text: str) -> Optional[freetype.Face]:
     return best_face
 
 def _select_face_for_char(ch: str) -> Optional[freetype.Face]:
+    state = _get_thread_font_state()
+    font_selection = state['font_selection']
+    primary_font = state['font']
     if ch.isspace():
-        return FONT_SELECTION[0] if FONT_SELECTION else FONT
+        return font_selection[0] if font_selection else primary_font
 
-    for face in FONT_SELECTION:
+    for face in font_selection:
         if face.get_char_index(ch) != 0:
             return face
-    return FONT_SELECTION[0] if FONT_SELECTION else FONT
+    return font_selection[0] if font_selection else primary_font
 
 def _split_text_into_shaping_runs(text: str):
     if not text:
@@ -789,9 +848,15 @@ class Glyph:
         self.metrics.horiAdvance = glyph.metrics.horiAdvance
         self.metrics.vertAdvance = glyph.metrics.vertAdvance
 
-@functools.lru_cache(maxsize = 1024, typed = True)
 def get_char_glyph(cdpt: str, font_size: int, direction: int) -> Glyph:
-    for i, face in enumerate(FONT_SELECTION):
+    state = _get_thread_font_state()
+    cache_key = (cdpt, font_size, direction)
+    cached = state['glyph_cache'].get(cache_key)
+    if cached is not None:
+        return cached
+
+    font_selection = state['font_selection']
+    for i, face in enumerate(font_selection):
         char_index = face.get_char_index(cdpt)
         if char_index != 0:
             # Character found, load and return glyph
@@ -800,7 +865,7 @@ def get_char_glyph(cdpt: str, font_size: int, direction: int) -> Glyph:
             elif direction == 1:
                 face.set_pixel_sizes(font_size, 0)
             face.load_char(cdpt)
-            return Glyph(face.glyph)
+            return _cache_glyph(state, cache_key, Glyph(face.glyph))
         
         # Log fallback attempt only on the primary font for clarity
         if i == 0:
@@ -825,7 +890,7 @@ def get_char_glyph(cdpt: str, font_size: int, direction: int) -> Glyph:
     for placeholder in ('?', '□', ' '):
         if placeholder != cdpt:
             try:
-                return get_char_glyph(placeholder, font_size, direction)
+                return _cache_glyph(state, cache_key, get_char_glyph(placeholder, font_size, direction))
             except RuntimeError:
                 continue
     
@@ -835,10 +900,11 @@ def get_char_glyph(cdpt: str, font_size: int, direction: int) -> Glyph:
 # 缓存 glyph border 对象，避免重复创建导致内存泄漏
 # 注意：由于 stroke() 会修改 glyph，这里不缓存 glyph，而是直接返回新对象
 # 真正的优化在 _stroke_border_cache 中缓存最终的 bitmap 结果
-#@functools.lru_cache(maxsize = 1024, typed = True)
 def get_char_border(cdpt: str, font_size: int, direction: int):
-    for i, face in enumerate(FONT_SELECTION):
-        if face.get_char_index(cdpt) == 0 and i != len(FONT_SELECTION) - 1:
+    font_selection = _get_thread_font_state()['font_selection']
+    for i, face in enumerate(font_selection):
+        char_index = face.get_char_index(cdpt)
+        if char_index == 0 and i != len(font_selection) - 1:
             continue
         if direction == 0:
             face.set_pixel_sizes(0, font_size)
@@ -2312,9 +2378,6 @@ def test():
     logger = logging.getLogger('manga_translator')
     canvas = put_text_horizontal(64, 1.0, '因为不同‼ [这"真的是普]通的》肉！那个"姑娘"的恶作剧！是吗？咲夜⁉', 400, (0, 0, 0), (255, 128, 128))
     imwrite_unicode('text_render_combined.png', canvas, logger)
-
-# Initialize font selection on module load
-update_font_selection()
 
 if __name__ == '__main__':
     test()
