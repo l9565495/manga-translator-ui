@@ -85,6 +85,11 @@ class EditorController(QObject):
         # 上次导出时的状态快照（用于检测是否有更改）
         self._last_export_snapshot = None
 
+        # 只允许最新一笔/最新一次蒙版变更写回修复结果。
+        self._active_inpaint_future = None
+        self._inpaint_request_generation = 0
+        self._suppress_refined_mask_autoinpaint = False
+
         # Connect internal signals for thread-safe updates
         self._update_refined_mask.connect(self.model.set_refined_mask)
         self._update_display_mask_type.connect(self.model.set_display_mask_type)
@@ -109,6 +114,48 @@ class EditorController(QObject):
             return resource.image
         # 向后兼容：如果ResourceManager没有，尝试从Model获取
         return self.model.get_image()
+
+    @staticmethod
+    def _normalize_binary_mask(mask: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if mask is None:
+            return None
+        mask_np = np.array(mask)
+        if mask_np.ndim == 3:
+            mask_np = mask_np[:, :, 0]
+        return np.where(mask_np > 0, 255, 0).astype(np.uint8)
+
+    def _get_cached_mask_snapshot(self) -> Optional[np.ndarray]:
+        cached_mask = self.resource_manager.get_cache(self.CACHE_LAST_MASK)
+        normalized = self._normalize_binary_mask(cached_mask)
+        return None if normalized is None else normalized.copy()
+
+    def _get_cached_inpainted_snapshot(self) -> Optional[np.ndarray]:
+        cached_image = self.resource_manager.get_cache(self.CACHE_LAST_INPAINTED)
+        if cached_image is None:
+            return None
+        image_np = np.array(cached_image)
+        if image_np.ndim == 2:
+            image_np = cv2.cvtColor(image_np, cv2.COLOR_GRAY2RGB)
+        elif image_np.ndim == 3 and image_np.shape[2] == 4:
+            image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
+        return np.ascontiguousarray(image_np.copy())
+
+    def _cancel_active_inpaint_task(self) -> None:
+        future = self._active_inpaint_future
+        self._active_inpaint_future = None
+        if future is not None and not future.done():
+            future.cancel()
+
+    def _invalidate_inpaint_requests(self) -> None:
+        self._cancel_active_inpaint_task()
+        self._inpaint_request_generation += 1
+
+    def _begin_inpaint_request(self) -> int:
+        self._invalidate_inpaint_requests()
+        return self._inpaint_request_generation
+
+    def _is_inpaint_request_current(self, generation: int) -> bool:
+        return generation == self._inpaint_request_generation
     
     @staticmethod
     def _normalize_image_path(path: Optional[str]) -> Optional[str]:
@@ -237,17 +284,25 @@ class EditorController(QObject):
 
     def on_refined_mask_changed(self, mask):
         """refined mask 变化时的槽函数，触发增量 inpainting"""
-        # 检查是否有必要的数据来进行 inpainting
-        image = self._get_current_image()
-        raw_mask = self.model.get_raw_mask()
+        if self._suppress_refined_mask_autoinpaint:
+            return
 
-        if image is not None and mask is not None:
-            if raw_mask is not None:
-                # 有raw_mask，使用增量修复（只修复变化的部分）
-                self.async_service.submit_task(self._async_incremental_inpaint(mask, raw_mask))
-            else:
-                # 没有raw_mask（未翻译的图片），使用完整修复
-                self.async_service.submit_task(self._async_full_inpaint_with_cache(mask))
+        image = self._get_current_image()
+        if image is None or mask is None:
+            self._invalidate_inpaint_requests()
+            return
+
+        cached_mask = self._get_cached_mask_snapshot()
+        generation = self._begin_inpaint_request()
+        if cached_mask is not None:
+            future = self.async_service.submit_task(
+                self._async_incremental_inpaint(mask, generation)
+            )
+        else:
+            future = self.async_service.submit_task(
+                self._async_full_inpaint_with_cache(mask, generation)
+            )
+        self._active_inpaint_future = future
 
     @pyqtSlot(dict)
     def update_multiple_translations(self, translations: dict):
@@ -384,6 +439,7 @@ class EditorController(QObject):
         
         # 取消所有正在运行的后台任务
         self.async_service.cancel_all_tasks()
+        self._invalidate_inpaint_requests()
 
         # 使用ResourceManager卸载当前资源
         self.resource_manager.unload_image(release_from_cache=release_image_cache)
@@ -678,7 +734,7 @@ class EditorController(QObject):
                 self.model.set_inpainted_image(None)
 
             # 触发后台处理
-            if regions:
+            if regions and raw_mask is not None:
                 self.async_service.submit_task(self._async_refine_and_inpaint())
                 
         except Exception as e:
@@ -701,32 +757,17 @@ class EditorController(QObject):
         self.model.set_refined_mask(None)
 
     async def _async_refine_and_inpaint(self):
-        """Asynchronously refines the mask and generates an inpainting preview."""
+        """Prepare refined mask and warm caches for editor inpainting."""
         try:
-            self.logger.debug("Starting async mask refinement and inpainting...")
-            image = self._get_current_image()
             raw_mask = self.model.get_raw_mask() # Use the raw mask for refinement
             regions = self._get_regions()
 
-            if image is None or raw_mask is None or not regions:
+            if raw_mask is None or not regions:
                 self.logger.warning("Refinement/Inpainting skipped: image, mask, or regions not available.")
                 return
 
-            # 延迟导入后端模块
-            try:
-                from manga_translator.config import (
-                    Inpainter,
-                    InpainterConfig,
-                    InpaintPrecision,
-                )
-                from manga_translator.inpainting import dispatch as inpaint_dispatch
-            except ImportError as e:
-                self.logger.error(f"Failed to import backend modules: {e}")
-                return
-
             # JSON 中保存的已经是优化后的蒙版，直接使用
-            raw_mask_2d = cv2.cvtColor(raw_mask, cv2.COLOR_BGR2GRAY) if len(raw_mask.shape) == 3 else raw_mask
-            refined_mask = np.ascontiguousarray(raw_mask_2d, dtype=np.uint8)
+            refined_mask = self._normalize_binary_mask(raw_mask)
 
             if refined_mask is None:
                 self.logger.error("Mask refinement failed.")
@@ -741,217 +782,158 @@ class EditorController(QObject):
                 self.logger.error("Refined mask is empty")
                 return
 
-            # Since we're already in an async context that should be thread-safe for PyQt signals,
-            # let's try direct calls
-            self.model.set_refined_mask(refined_mask)
+            current_inpainted_image = self.model.get_inpainted_image()
+            if current_inpainted_image is not None:
+                inpainted_image_np = np.array(current_inpainted_image.convert("RGB"))
+                self.resource_manager.set_cache(self.CACHE_LAST_INPAINTED, inpainted_image_np.copy())
+                self.resource_manager.set_cache(self.CACHE_LAST_MASK, refined_mask.copy())
+                if not getattr(self, '_user_adjusted_alpha', False):
+                    self.model.set_original_image_alpha(0.0)
+            else:
+                self.resource_manager.clear_cache(self.CACHE_LAST_INPAINTED)
+                self.resource_manager.clear_cache(self.CACHE_LAST_MASK)
 
-            # 不自动显示refined mask，让用户自己决定是否显示
-            # self.model.set_display_mask_type('refined')
-
-            # 2. Inpaint Image - 检查是否已有inpainted图片
-            inpainted_path = self.model.get_inpainted_image_path()
-            if inpainted_path and os.path.exists(inpainted_path):
-                # 已有inpainted图片，直接加载
-                try:
-                    inpainted_image = open_pil_image(inpainted_path, eager=False)
-                    # 获取原图尺寸
-                    original_image = self.model.get_image()
-                    # 如果inpainted图尺寸与原图不同，缩放到原图尺寸
-                    if original_image and inpainted_image.size != original_image.size:
-                        inpainted_image = inpainted_image.resize(original_image.size, Image.Resampling.LANCZOS)
-                    inpainted_image_np = np.array(inpainted_image.convert("RGB"))
-
-                    self.model.set_inpainted_image(inpainted_image)
-                    if not getattr(self, '_user_adjusted_alpha', False):
-                        self.model.set_original_image_alpha(0.0)
-
-                    # 缓存完整修复结果，用于后续增量修复
-                    self.resource_manager.set_cache(self.CACHE_LAST_INPAINTED, inpainted_image_np.copy())
-                    self.resource_manager.set_cache(self.CACHE_LAST_MASK, refined_mask.copy())
-
-                except Exception as e:
-                    self.logger.error(f"Failed to load existing inpainted image: {e}")
-                    # 如果加载失败，继续执行inpainting
-                    inpainted_path = None
-
-            # 如果没有已有的inpainted图片，执行inpainting
-            if not inpainted_path or not os.path.exists(inpainted_path):
-                try:
-                    # 从配置服务获取inpainter配置
-                    config = self.config_service.get_config()
-                    inpainter_config_model = config.inpainter
-
-                    # 创建InpainterConfig实例并应用配置
-                    inpainter_config = InpainterConfig()
-                    inpainter_config.inpainting_precision = InpaintPrecision(inpainter_config_model.inpainting_precision)
-                    inpainter_config.force_use_torch_inpainting = inpainter_config_model.force_use_torch_inpainting
-
-                    # 从配置获取inpainter模型
-                    inpainter_name = inpainter_config_model.inpainter
-                    try:
-                        inpainter_key = Inpainter(inpainter_name)
-                    except ValueError:
-                        self.logger.warning(f"Unknown inpainter model: {inpainter_name}, defaulting to lama_large")
-                        inpainter_key = Inpainter.lama_large
-
-                    # 从配置获取inpainting尺寸
-                    inpainting_size = inpainter_config_model.inpainting_size
-
-                    # 从配置获取GPU设置
-                    cli_config = config.cli
-                    use_gpu = cli_config.use_gpu
-                    device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
-
-                    image_np = np.array(image.convert("RGB"))
-
-                    inpainted_image_np = await inpaint_dispatch(
-                        inpainter_key=inpainter_key,
-                        image=image_np,
-                        mask=refined_mask,
-                        config=inpainter_config,
-                        inpainting_size=inpainting_size,
-                        device=device
-                    )
-
-                    if inpainted_image_np is not None:
-                        inpainted_image = Image.fromarray(inpainted_image_np)
-                        self.model.set_inpainted_image(inpainted_image)
-                        if not getattr(self, '_user_adjusted_alpha', False):
-                            self.model.set_original_image_alpha(0.0)
-
-                        # 缓存完整修复结果，用于后续增量修复
-                        self.resource_manager.set_cache(self.CACHE_LAST_INPAINTED, inpainted_image_np.copy())
-                        self.resource_manager.set_cache(self.CACHE_LAST_MASK, refined_mask.copy())
-                    else:
-                        self.logger.error("Inpainting failed, returned None.")
-
-                except Exception as e:
-                    self.logger.error(f"Error during inpainting process: {e}", exc_info=True)
+            self._suppress_refined_mask_autoinpaint = True
+            try:
+                self.model.set_refined_mask(refined_mask)
+            finally:
+                self._suppress_refined_mask_autoinpaint = False
 
         except asyncio.CancelledError:
             raise  # 重新抛出，让任务正确取消
         except Exception as e:
             self.logger.error(f"Error during async refine and inpaint: {e}")
 
-    async def _async_incremental_inpaint(self, current_mask, original_mask):
-        """边界框局部修复 - 只修复变化区域的矩形边界框"""
+    async def _async_incremental_inpaint(self, current_mask, generation: int):
+        """按最新 mask 增量修复，只对新增区域跑局部 inpaint。"""
         try:
+            if not self._is_inpaint_request_current(generation):
+                return
+
             image = self._get_current_image()
 
             if image is None or current_mask is None:
                 self.logger.warning("Incremental inpainting skipped: missing data.")
                 return
 
-            # 检查是否有缓存
-            last_processed_mask = self.resource_manager.get_cache(self.CACHE_LAST_MASK)
+            last_processed_mask = self._get_cached_mask_snapshot()
             if last_processed_mask is None:
-                await self._async_full_inpaint_with_cache(current_mask)
+                await self._async_full_inpaint_with_cache(current_mask, generation)
                 return
 
-            # 确保蒙版是2D灰度图
-            if len(current_mask.shape) > 2:
-                current_mask_2d = cv2.cvtColor(current_mask, cv2.COLOR_BGR2GRAY)
-            else:
-                current_mask_2d = current_mask.copy()
-
-            if len(last_processed_mask.shape) > 2:
-                last_mask_2d = cv2.cvtColor(last_processed_mask, cv2.COLOR_BGR2GRAY)
-            else:
-                last_mask_2d = last_processed_mask.copy()
-
-            # 计算所有变化区域
-            added_areas = cv2.subtract(current_mask_2d, last_mask_2d)
-            removed_areas = cv2.subtract(last_mask_2d, current_mask_2d)
-            all_changed_areas = cv2.bitwise_or(added_areas, removed_areas)
-
-            if np.sum(all_changed_areas) == 0:
+            current_mask_2d = self._normalize_binary_mask(current_mask)
+            if current_mask_2d is None:
                 return
 
-            # 计算变化区域的边界框
-            coords = np.where(all_changed_areas > 0)
-            if len(coords[0]) == 0:
-                return
-
-            y_min, y_max = np.min(coords[0]), np.max(coords[0])
-            x_min, x_max = np.min(coords[1]), np.max(coords[1])
-
-            # 扩展边界框
-            padding = 50
-            h, w = current_mask_2d.shape
-            y_min = max(0, y_min - padding)
-            y_max = min(h, y_max + padding + 1)
-            x_min = max(0, x_min - padding)
-            x_max = min(w, x_max + padding + 1)
-
-            # 裁剪原图和当前蒙版的对应区域
-            image_np = np.array(image.convert("RGB"))
-            bbox_image = image_np[y_min:y_max, x_min:x_max]
-            bbox_mask = current_mask_2d[y_min:y_max, x_min:x_max]
-
-            # 获取配置和执行局部inpainting
-            config = self.config_service.get_config()
-            inpainter_config_model = config.inpainter
-
-            try:
-                from manga_translator.config import (
-                    Inpainter,
-                    InpainterConfig,
-                    InpaintPrecision,
+            if current_mask_2d.shape != last_processed_mask.shape:
+                self.logger.warning(
+                    "Incremental inpainting fell back to full: mask shape changed from %s to %s",
+                    last_processed_mask.shape,
+                    current_mask_2d.shape,
                 )
-                from manga_translator.inpainting import dispatch as inpaint_dispatch
-            except ImportError as e:
-                self.logger.error(f"Failed to import backend modules: {e}")
+                await self._async_full_inpaint_with_cache(current_mask_2d, generation)
                 return
 
-            inpainter_config = InpainterConfig()
-            inpainter_config.inpainting_precision = InpaintPrecision(inpainter_config_model.inpainting_precision)
-            inpainter_config.force_use_torch_inpainting = inpainter_config_model.force_use_torch_inpainting
+            added_areas = cv2.bitwise_and(current_mask_2d, cv2.bitwise_not(last_processed_mask))
+            removed_areas = cv2.bitwise_and(last_processed_mask, cv2.bitwise_not(current_mask_2d))
 
-            inpainter_name = inpainter_config_model.inpainter
-            try:
-                inpainter_key = Inpainter(inpainter_name)
-            except ValueError:
-                inpainter_key = Inpainter.lama_large
+            if not np.any(added_areas) and not np.any(removed_areas):
+                return
 
-            inpainting_size = inpainter_config_model.inpainting_size
-            cli_config = config.cli
-            device = 'cuda' if cli_config.use_gpu and torch.cuda.is_available() else 'cpu'
+            image_np = np.array(image.convert("RGB"))
+            full_result = self._get_cached_inpainted_snapshot()
+            if full_result is None or full_result.shape != image_np.shape:
+                full_result = image_np.copy()
 
-            # 局部修复：原图矩形区域 + 对应蒙版
-            bbox_result = await inpaint_dispatch(
-                inpainter_key=inpainter_key,
-                image=bbox_image,  # 裁剪的原图区域
-                mask=bbox_mask,    # 裁剪的蒙版区域
-                config=inpainter_config,
-                inpainting_size=inpainting_size,
-                device=device
-            )
+            if np.any(removed_areas):
+                removed_pixels = removed_areas > 0
+                full_result[removed_pixels] = image_np[removed_pixels]
 
-            if bbox_result is not None:
-                # 将局部修复结果贴回完整图像
-                last_inpainted = self.resource_manager.get_cache(self.CACHE_LAST_INPAINTED)
-                if last_inpainted is None:
-                    full_result = image_np.copy()
-                else:
-                    full_result = last_inpainted.copy()
+            if np.any(added_areas):
+                coords = np.where(added_areas > 0)
+                if len(coords[0]) == 0:
+                    return
 
-                # 把修复结果贴回对应位置
+                y_min, y_max = np.min(coords[0]), np.max(coords[0])
+                x_min, x_max = np.min(coords[1]), np.max(coords[1])
+
+                padding = 50
+                h, w = current_mask_2d.shape
+                y_min = max(0, y_min - padding)
+                y_max = min(h, y_max + padding + 1)
+                x_min = max(0, x_min - padding)
+                x_max = min(w, x_max + padding + 1)
+
+                bbox_image = full_result[y_min:y_max, x_min:x_max].copy()
+                bbox_mask = added_areas[y_min:y_max, x_min:x_max].copy()
+
+                config = self.config_service.get_config()
+                inpainter_config_model = config.inpainter
+
+                try:
+                    from manga_translator.config import (
+                        Inpainter,
+                        InpainterConfig,
+                        InpaintPrecision,
+                    )
+                    from manga_translator.inpainting import dispatch as inpaint_dispatch
+                except ImportError as e:
+                    self.logger.error(f"Failed to import backend modules: {e}")
+                    return
+
+                inpainter_config = InpainterConfig()
+                inpainter_config.inpainting_precision = InpaintPrecision(inpainter_config_model.inpainting_precision)
+                inpainter_config.force_use_torch_inpainting = inpainter_config_model.force_use_torch_inpainting
+
+                inpainter_name = inpainter_config_model.inpainter
+                try:
+                    inpainter_key = Inpainter(inpainter_name)
+                except ValueError:
+                    inpainter_key = Inpainter.lama_large
+
+                inpainting_size = inpainter_config_model.inpainting_size
+                cli_config = config.cli
+                device = 'cuda' if cli_config.use_gpu and torch.cuda.is_available() else 'cpu'
+
+                bbox_result = await inpaint_dispatch(
+                    inpainter_key=inpainter_key,
+                    image=bbox_image,
+                    mask=bbox_mask,
+                    config=inpainter_config,
+                    inpainting_size=inpainting_size,
+                    device=device
+                )
+
+                if bbox_result is None:
+                    self.logger.error("Incremental inpainting failed, returned None.")
+                    return
+                if not self._is_inpaint_request_current(generation):
+                    return
+
                 full_result[y_min:y_max, x_min:x_max] = bbox_result
 
-                # 更新缓存
-                self.resource_manager.set_cache(self.CACHE_LAST_INPAINTED, full_result.copy())
-                self.resource_manager.set_cache(self.CACHE_LAST_MASK, current_mask_2d.copy())
+            if not self._is_inpaint_request_current(generation):
+                return
 
-                # 更新模型
-                final_image = Image.fromarray(full_result)
-                self.model.set_inpainted_image(final_image)
+            self.resource_manager.set_cache(self.CACHE_LAST_INPAINTED, full_result.copy())
+            self.resource_manager.set_cache(self.CACHE_LAST_MASK, current_mask_2d.copy())
 
+            final_image = Image.fromarray(full_result)
+            self.model.set_inpainted_image(final_image)
+            if not getattr(self, '_user_adjusted_alpha', False):
+                self.model.set_original_image_alpha(0.0)
+
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             self.logger.error(f"Error during bounding box inpainting: {e}", exc_info=True)
 
-    async def _async_full_inpaint_with_cache(self, mask):
+    async def _async_full_inpaint_with_cache(self, mask, generation: int):
         """执行完整修复并缓存结果"""
         try:
+            if not self._is_inpaint_request_current(generation):
+                return
+
             image = self._get_current_image()
 
             if image is None or mask is None:
@@ -971,11 +953,9 @@ class EditorController(QObject):
 
             image_np = np.array(image.convert("RGB"))
 
-            # 确保蒙版是2D灰度图
-            if len(mask.shape) > 2:
-                mask_2d = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-            else:
-                mask_2d = mask.copy()
+            mask_2d = self._normalize_binary_mask(mask)
+            if mask_2d is None:
+                return
 
             # 获取配置
             config = self.config_service.get_config()
@@ -1008,6 +988,9 @@ class EditorController(QObject):
             )
 
             if inpainted_image_np is not None:
+                if not self._is_inpaint_request_current(generation):
+                    return
+
                 # 缓存结果
                 self.resource_manager.set_cache(self.CACHE_LAST_INPAINTED, inpainted_image_np.copy())
                 self.resource_manager.set_cache(self.CACHE_LAST_MASK, mask_2d.copy())
@@ -1015,7 +998,11 @@ class EditorController(QObject):
                 # 更新模型
                 inpainted_image = Image.fromarray(inpainted_image_np)
                 self.model.set_inpainted_image(inpainted_image)
+                if not getattr(self, '_user_adjusted_alpha', False):
+                    self.model.set_original_image_alpha(0.0)
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             self.logger.error(f"Error during full inpainting with cache: {e}", exc_info=True)
 

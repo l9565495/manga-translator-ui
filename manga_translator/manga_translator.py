@@ -845,8 +845,11 @@ class MangaTranslator:
             except Exception as e:
                 logger.warning(f"Failed to preserve skip_font_scaling from existing JSON {text_output_file}: {e}")
 
-        # 导出原文/导出翻译模式：后续 load_text 回渲染固定走 skip_font_scaling
-        if (self.template and self.save_text) or self.generate_and_export:
+        # 导出原文 / 仅翻译(JSON)：后续导入渲染应重新执行智能排版，不继承旧字号。
+        if (self.template and self.save_text) or self.translate_json_only:
+            data_to_save['skip_font_scaling'] = False
+        # 导出翻译模式保留固定字号，便于按已生成结果回放。
+        elif self.generate_and_export:
             data_to_save['skip_font_scaling'] = True
         elif preserved_skip_font_scaling is not None:
             data_to_save['skip_font_scaling'] = bool(preserved_skip_font_scaling)
@@ -3796,7 +3799,7 @@ class MangaTranslator:
                 
                 # 特殊情况：load_text模式（从JSON加载翻译）
                 if self.load_text:
-                    logger.info("Load text mode: Loading translations from JSON and skipping detection/OCR/translation")
+                    logger.info("Load text mode: Loading translations from JSON and skipping text detection/OCR/translation")
                     for i, (image, config) in enumerate(current_batch_images):
                         await asyncio.sleep(0)
                         self._check_cancelled()  # 检查取消标志
@@ -3843,8 +3846,14 @@ class MangaTranslator:
                             if len(ctx.img_rgb.shape) < 2 or ctx.img_rgb.shape[0] == 0 or ctx.img_rgb.shape[1] == 0:
                                 logger.error(f"[批量] 加载的图片尺寸无效: {ctx.img_rgb.shape}")
                                 continue
-                            
+
                             import_yolo_labels = bool(getattr(config.detector, 'import_yolo_labels', False))
+                            if loaded_mask is not None or not import_yolo_labels:
+                                # load_text 跳过文本检测阶段；如果当前配置依赖气泡缓存
+                                # （例如 balloon_fill / 气泡内居中 / 模型气泡过滤），这里补做一次预热。
+                                # 导入 YOLO 框且需要重新跑检测生成 mask 的场景，后续 _run_detection 会自行预热，
+                                # 这里避免重复调用。
+                                self._prime_bubble_detection_cache(config, ctx.img_rgb)
 
                             # 处理 mask
                             if loaded_mask is not None:
@@ -3852,8 +3861,6 @@ class MangaTranslator:
                                     ctx.mask = loaded_mask
                                 else:
                                     ctx.mask_raw = loaded_mask
-                                if import_yolo_labels:
-                                    self._prime_bubble_detection_cache(config, ctx.img_rgb)
                             else:
                                 if import_yolo_labels:
                                     try:
