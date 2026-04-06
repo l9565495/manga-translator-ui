@@ -133,7 +133,7 @@ class RegionTextItem(QGraphicsItemGroup):
         # 对齐辅助线（场景级别）
         self._guide_lines = []
         # 吸附阈值（像素）
-        self._snap_threshold = 1.0
+        self._snap_threshold = 5.0
 
         self._setup_pens()
 
@@ -533,7 +533,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._angle_label.setVisible(False)
 
     def _show_angle_label(self, angle_deg: float, scene_pos: QPointF):
-        """显示旋转角度标签。"""
+        """在旋转位置显示当前的旋转角度标签。"""
         self._ensure_angle_label()
         if self._angle_label is None:
             return
@@ -602,7 +602,7 @@ class RegionTextItem(QGraphicsItemGroup):
         return targets
 
     def _calculate_snap_offset(self, my_points: dict, targets: list) -> tuple:
-        """计算吸附偏移量和需要显示的辅助线。"""
+        """计算当前文本框与场景中其他项的对齐吸附偏移量及辅助线坐标。"""
         threshold = self._snap_threshold / max(self._lod(), 0.1)
         best_dx = None
         best_dy = None
@@ -648,7 +648,7 @@ class RegionTextItem(QGraphicsItemGroup):
         return snap_dx, snap_dy, guides
 
     def _show_guide_lines(self, guide_specs: list, is_rotation: bool = False):
-        """显示对齐辅助线。"""
+        """在场景中绘制全屏的对齐/旋转辅助虚线。"""
         self._clear_guide_lines()
         scene = self.scene()
         if scene is None or not guide_specs:
@@ -991,6 +991,7 @@ class RegionTextItem(QGraphicsItemGroup):
     # ------------------------------------------------------------------
 
     def _handle_rotate_drag(self, event):
+        """执行旋转拖拽逻辑，包含角度实时显示与吸附计算。"""
         center_scene = self._drag_start_pivot_scene
         vec = event.scenePos() - center_scene
         new_angle_rad = np.arctan2(vec.y(), vec.x())
@@ -1157,6 +1158,7 @@ class RegionTextItem(QGraphicsItemGroup):
             logger.error(f"[RegionTextItem] _handle_white_frame_edit: {e}\n{traceback.format_exc()}")
 
     def _handle_white_frame_move(self, event: QGraphicsSceneMouseEvent):
+        """执行白框平移逻辑，包含位置对齐吸附与辅助线显示。"""
         try:
             if self._drag_start_white_frame_local is None:
                 return
