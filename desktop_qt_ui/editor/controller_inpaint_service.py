@@ -331,7 +331,9 @@ class EditorControllerInpaintService:
 
     def clear_all_masks(self) -> None:
         try:
-            source_mask = self.model.get_refined_mask() or self.model.get_raw_mask()
+            source_mask = self.model.get_refined_mask()
+            if source_mask is None:
+                source_mask = self.model.get_raw_mask()
 
             old_mask = None
             if source_mask is not None:
